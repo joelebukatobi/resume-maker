@@ -129,6 +129,11 @@ _FIT_SCRIPT = """
       document.body.style.padding = PAD + 'px 0';
       document.body.style.height = (scaledH + PAD * 2) + 'px';
     }
+    // The editor lines its toast up with the top of the sheet.
+    if (window.parent !== window) {
+      var box = stage.getBoundingClientRect();
+      window.parent.postMessage({ type: 'resume-sheet', top: box.top, right: box.right }, '*');
+    }
   }
 
   function refresh() { paginate(); layout(); }

@@ -293,28 +293,26 @@ iframe {
 }
 .status { font-size: 12px; color: var(--pico-muted-color); }
 .status.bad { color: var(--error); }
-/* Action bar: sits on the header's bottom edge, spans the content width, and
-   only shows while something is happening (or went wrong). */
-.topbar { position: relative; }
-.progress {
-  position: absolute; left: var(--chrome-gutter); right: var(--chrome-gutter);
-  bottom: 3px; height: 18px; overflow: hidden;
-  border-radius: var(--pico-border-radius);
-  background: #1f1f1f; display: flex; align-items: center;
+/* Toast: slides in from the right, top aligned with the preview's sheet
+   (position set from the preview frame). Only shown while something is
+   happening or went wrong. */
+.toast {
+  position: fixed; z-index: 20;
+  top: var(--toast-top, 96px); right: var(--toast-right, 48px);
+  max-width: 360px; padding: 10px 14px; overflow: hidden;
+  background: #1f1f1f; color: #e6ede7; font-size: 12px; line-height: 1.35;
+  border-left: 3px solid #3d5a43; border-radius: var(--pico-border-radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .45);
+  transform: translateX(calc(100% + var(--toast-right, 48px) + 8px)); opacity: 0;
+  transition: transform .25s ease, opacity .25s ease; pointer-events: none;
 }
-.progress[hidden] { display: none; }
-.progress::before {
-  content: ""; position: absolute; inset: 0; background: #3d5a43;
+.toast.show { transform: none; opacity: 1; }
+.toast[data-state="error"] { border-left-color: #a34141; background: #2a1a1a; }
+.toast[data-state="busy"]::after {
+  content: ""; position: absolute; left: 0; bottom: 0; height: 2px; width: 35%;
+  background: #3d5a43; animation: toast-slide 1.1s ease-in-out infinite;
 }
-.progress[data-state="busy"]::before {
-  width: 35%; animation: progress-slide 1.1s ease-in-out infinite;
-}
-.progress[data-state="error"]::before { background: #6b2b2b; }
-@keyframes progress-slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
-.progress-text {
-  position: relative; padding: 0 10px; font-size: 11px; line-height: 1;
-  color: #e6ede7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
+@keyframes toast-slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
 .row-item > summary {
   cursor: pointer; list-style: none;
   display: flex; align-items: center; gap: 6px;
@@ -389,10 +387,8 @@ details.row-item:not([open]) > summary { margin-bottom: 0; padding-bottom: 0; bo
   <button id="save" class="secondary">Save</button>
   <button id="export-docx" class="secondary">Export DOCX</button>
   <button id="export-pdf">Export PDF</button>
-  <div id="progress" class="progress" role="status" aria-live="polite" hidden>
-    <span class="progress-text"></span>
-  </div>
 </header>
+<div id="toast" class="toast" role="status" aria-live="polite"><span class="toast-text"></span></div>
 
 <main>
   <div class="editor-wrap">
@@ -578,16 +574,16 @@ function field(label, value, oninput, { area = false } = {}) {
   return el("div", {}, [el("label", { text: label }), input]);
 }
 
-let progressTimer;
+let toastTimer;
 
 function showProgress(text, state) {
-  const bar = $("progress");
-  clearTimeout(progressTimer);
-  if (!state) { bar.hidden = true; return; }
-  bar.dataset.state = state;
-  bar.querySelector(".progress-text").textContent = text;
-  bar.hidden = false;
-  if (state === "done") progressTimer = setTimeout(() => { bar.hidden = true; }, 1800);
+  const toast = $("toast");
+  clearTimeout(toastTimer);
+  if (!state) { toast.classList.remove("show"); delete toast.dataset.state; return; }
+  toast.dataset.state = state;
+  toast.querySelector(".toast-text").textContent = text;
+  toast.classList.add("show");
+  if (state === "done") toastTimer = setTimeout(() => showProgress(null), 1800);
 }
 
 // Busy text ends with "…"; anything else is a finished result. "ready" (a
@@ -595,7 +591,7 @@ function showProgress(text, state) {
 function setStatus(text, bad = false) {
   if (bad) return showProgress(text, "error");
   if (text === "ready") {
-    if ($("progress").dataset.state === "error") showProgress(null);
+    if ($("toast").dataset.state === "error") showProgress(null);
     return;
   }
   showProgress(text, text.endsWith("…") ? "busy" : "done");
@@ -915,6 +911,14 @@ function showIssues(issues) {
 window.addEventListener("message", (event) => {
   if (event.source !== $("preview").contentWindow) return;
   if (!event.data) return;
+  if (event.data.type === "resume-sheet") {
+    // Frame coordinates -> page coordinates for the fixed-position toast.
+    const frame = $("preview").getBoundingClientRect();
+    const root = document.documentElement.style;
+    root.setProperty("--toast-top", `${Math.round(frame.top + Number(event.data.top || 0))}px`);
+    root.setProperty("--toast-right", `${Math.round(innerWidth - frame.right + 16)}px`);
+    return;
+  }
   if (event.data.type === "resume-pages") {
     previewPages = Number(event.data.count) || 1;
     sendZoom();
