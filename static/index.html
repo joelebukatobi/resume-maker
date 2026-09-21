@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>resume-maker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans+Condensed:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<style>
+/* Pico's dark theme is navy (#11191f). Force a grey chrome instead. */
+html[data-theme="dark"] {
+  --pico-background-color: #101010;
+  --pico-color: #e8e8e8;
+  --pico-muted-color: #9a9a9a;
+  --pico-muted-border-color: #2e2e2e;
+  --pico-primary: #d0d0d0;
+  --pico-primary-background: #3a3a3a;
+  --pico-primary-border: #3a3a3a;
+  --pico-primary-hover: #ececec;
+  --pico-primary-hover-background: #4a4a4a;
+  --pico-primary-focus: rgba(180, 180, 180, 0.22);
+  --pico-primary-inverse: #f5f5f5;
+  --pico-secondary-background: #222;
+  --pico-secondary-border: #222;
+  --pico-secondary-hover-background: #2c2c2c;
+  --pico-form-element-background-color: #1a1a1a;
+  --pico-form-element-border-color: #3a3a3a;
+  --pico-form-element-color: #f0f0f0;
+  --pico-form-element-placeholder-color: #7a7a7a;
+  --pico-form-element-active-background-color: #1a1a1a;
+  --pico-form-element-active-border-color: #7a7a7a;
+  --pico-form-element-focus-color: rgba(180, 180, 180, 0.22);
+  --pico-card-background-color: #171717;
+  --pico-card-border-color: #2e2e2e;
+  --pico-card-sectioning-background-color: #171717;
+  --pico-font-family: "Fira Sans Condensed", "Segoe UI", system-ui, sans-serif;
+  --pico-font-size: 15px;
+  --pico-line-height: 1.4;
+  --pico-spacing: 0.6rem;
+  --pico-typography-spacing-vertical: 0.6rem;
+  --pico-form-element-spacing-vertical: 0.4rem;
+  --pico-form-element-spacing-horizontal: 0.65rem;
+  --chrome-gutter: 24px;
+  --chrome-bottom: 24px;
+  --panel-pad-x: 18px;
+  --panel-stick-edge: 16px;
+  --panel-stick-gap: 12px;
+  --editor-scroll-gap: 8px;
+  --editor-scroll-size: 5px;
+  --panel-chevron: 12px;
+  --topbar-gap: 24px;
+  --topbar-sticky-height: calc(var(--chrome-gutter) + 2.25rem + var(--topbar-gap));
+  --error: #e07070;
+  --warn: #d4b24a;
+}
+html { height: 100%; overflow: hidden; }
+body {
+  margin: 0; background: var(--pico-background-color);
+  box-sizing: border-box;
+  height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+  padding-bottom: var(--chrome-bottom);
+}
+#editor, #editor input, #editor textarea, #editor select, #editor button, #editor label,
+.topbar, .topbar button {
+  font-family: var(--pico-font-family);
+}
+.topbar {
+  display: flex; gap: 12px; align-items: center; flex-wrap: nowrap;
+  padding: var(--chrome-gutter) var(--chrome-gutter) var(--topbar-gap);
+  margin: 0;
+  background: var(--pico-background-color);
+  flex-shrink: 0;
+}
+.topbar h1,
+.topbar .mode-chip,
+.topbar button {
+  box-sizing: border-box;
+  height: 2.25rem;
+  display: inline-flex; align-items: center;
+  font-size: 13px; line-height: 1; font-weight: 600;
+  border-radius: var(--pico-border-radius);
+}
+.modes { display: flex; gap: 8px; align-items: center; }
+.topbar h1,
+.topbar .mode-chip {
+  margin: 0;
+  padding: 0 calc(var(--panel-pad-x) - 1px);
+  border: 1px solid var(--pico-form-element-border-color);
+  background: transparent;
+  letter-spacing: .08em;
+  text-transform: uppercase; color: var(--pico-muted-color);
+  width: auto;
+}
+.topbar .mode-chip { cursor: pointer; }
+.topbar .mode-chip[aria-pressed="false"] {
+  border-color: transparent; color: #6a6a6a;
+}
+/* The open document gets a dull green fill. */
+.topbar .mode-chip[aria-pressed="true"] {
+  background: #3d5a43; border-color: #3d5a43; color: #e6ede7;
+}
+.topbar .spacer { flex: 1; }
+.topbar button { width: auto; margin: 0; padding: 0 0.85rem; }
+/* One row at any width: --topbar-sticky-height assumes a single line. The
+   status gives way first, then gaps and padding tighten. */
+.topbar .modes, .topbar button { flex: none; white-space: nowrap; }
+@media (max-width: 640px) {
+  .topbar { gap: 6px; }
+  .modes { gap: 4px; }
+  .topbar .mode-chip { padding: 0 8px; letter-spacing: .04em; }
+  .topbar button { padding: 0 0.55rem; }
+}
+body > main {  /* matches Pico's body>main so its 9px block padding is overridden */
+  display: grid; grid-template-columns: minmax(420px, 580px) 1fr;
+  gap: 20px; padding: 0 var(--chrome-gutter);
+  align-items: stretch; flex: 1; min-height: 0; overflow: hidden;
+}
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+.editor-wrap {
+  min-height: 0; height: 100%; overflow: hidden;
+  display: flex; flex-direction: column;
+}
+#editor {
+  flex: 1; min-height: 0; overflow: hidden;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.panel {
+  background: var(--pico-card-background-color);
+  /* border: 1px solid var(--pico-card-border-color); */
+  border-radius: 8px;
+  padding: 16px var(--panel-pad-x);
+  flex: 0 0 auto;
+}
+details.panel[open] {
+  display: flex; flex-direction: column;
+  flex: 0 1 auto; min-height: 0; overflow: hidden;
+  padding: 0;
+}
+details.panel[open]::details-content {
+  display: flex; flex-direction: column;
+  flex: 0 1 auto; min-height: 0; overflow: hidden;
+}
+.panel-body {
+  flex: 0 1 auto; min-height: 0; overflow-y: auto;
+  margin-right: calc(var(--panel-pad-x) + (var(--panel-chevron) - var(--editor-scroll-size)) / 2);
+  padding: 0 var(--editor-scroll-gap) var(--panel-stick-gap) var(--panel-pad-x);
+}
+.panel-body::-webkit-scrollbar {
+  width: var(--editor-scroll-size);
+  height: var(--editor-scroll-size);
+  background: transparent;
+}
+.panel-body::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent;
+  border: 0;
+}
+.panel-body::-webkit-scrollbar-button:single-button,
+.panel-body::-webkit-scrollbar-button:double-button,
+.panel-body::-webkit-scrollbar-button:vertical:decrement,
+.panel-body::-webkit-scrollbar-button:vertical:increment,
+.panel-body::-webkit-scrollbar-button:horizontal:decrement,
+.panel-body::-webkit-scrollbar-button:horizontal:increment {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+.panel-body::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 0;
+}
+.panel-body::-webkit-scrollbar-thumb {
+  background: #5a5a5a; border-radius: 8px;
+}
+.panel-body::-webkit-scrollbar-corner { background: transparent; }
+@supports not selector(::-webkit-scrollbar) {
+  .panel-body {
+    scrollbar-width: thin;
+    scrollbar-color: #5a5a5a transparent;
+  }
+}
+.panel-foot {
+  flex-shrink: 0;
+  display: flex; flex-wrap: wrap; gap: 4px;
+  padding: var(--panel-stick-gap)
+    calc(var(--panel-pad-x) + (var(--panel-chevron) + var(--editor-scroll-size)) / 2 + var(--editor-scroll-gap))
+    var(--panel-stick-edge)
+    var(--panel-pad-x);
+  background: var(--pico-card-background-color);
+  border-radius: 0 0 8px 8px;
+}
+details.panel[open]:not(:has(.panel-foot)) .panel-body {
+  padding-bottom: var(--panel-stick-edge);
+}
+#editor label { font-size: 11px; color: var(--pico-muted-color); margin: 0 0 6px;
+  letter-spacing: .04em; }
+#editor label:has(> input[type="checkbox"]) { font-size: var(--pico-font-size); }
+#editor input[type="checkbox"] { width: 1.1em; height: 1.1em; flex: none; margin: 0 8px 0 0; vertical-align: -0.15em; }
+#editor textarea {
+  field-sizing: content;
+  height: auto;
+  min-height: 2.75em;
+  resize: none;
+  overflow: hidden;
+}
+#editor input:focus,
+#editor textarea:focus,
+#editor select:focus,
+.topbar button:focus {
+  --pico-primary-focus: rgba(180, 180, 180, 0.22);
+  background-color: #1a1a1a;
+  border-color: #7a7a7a;
+  box-shadow: 0 0 0 2px rgba(180, 180, 180, 0.22);
+  outline: none;
+}
+.bullet-field {
+  display: flex; flex-direction: row; align-items: flex-start; gap: 8px;
+  margin-bottom: 10px;
+}
+.bullet-field textarea { width: 100%; flex: 1; }
+button.tiny {
+  box-sizing: border-box;
+  width: auto; height: 1.5rem; min-width: 1.5rem; padding: 0 6px;
+  font-size: 12px; line-height: 1; margin: 0; display: inline-flex;
+  align-items: center; justify-content: center;
+  background: transparent; border-color: transparent; color: var(--pico-muted-color);
+}
+button.tiny:hover, button.tiny:focus {
+  background: #2a2a2a; border-color: transparent; color: #ececec;
+}
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 16px; }
+/* Consecutive field grids get the same 14px as rows inside one grid. */
+:is(.grid2, .grid3) + :is(.grid2, .grid3) { margin-top: 14px; }
+/* Cover letter hides Heading, so Body takes the whole row. */
+.grid2 > .cv-only[hidden] + div { grid-column: 1 / -1; }
+.row-item {
+  /* border: 1px solid var(--pico-muted-border-color); */
+  border-radius: 6px;
+  background: #121212;
+  padding: 14px 14px 16px; margin-bottom: 12px;
+}
+.row-item .row-item {
+  background: transparent;
+  padding: 14px 0 4px; margin-bottom: 8px;
+}
+.row-head {
+  display: flex; flex-direction: row; align-items: center; gap: 6px; margin: 0;
+}
+.row-item > .row-head {
+  margin: 0 0 12px;
+  padding: 0 0 10px;
+  border-bottom: 1px solid var(--pico-muted-border-color);
+}
+.panel > summary {
+  margin: 0;
+  padding: 0;
+}
+.row-head strong {
+  flex: 1; min-width: 0; margin: 0; padding: 0;
+  font-size: 12px; font-weight: 600; line-height: 1.2;
+  color: var(--pico-muted-color);
+  text-transform: uppercase; letter-spacing: .06em;
+  transform: translateY(1px);
+}
+.row-head button.tiny { flex-shrink: 0; align-self: center; }
+#issues:empty { display: none; }
+.issue {
+  font-size: 12px; padding: 8px 0; margin-bottom: 4px;
+  /* border-left: 3px solid var(--pico-muted-border-color); */
+  background: transparent;
+}
+.issue.error { color: var(--error); }
+.issue.warning { color: var(--warn); }
+.preview-wrap { min-height: 0; display: flex; flex-direction: column; position: relative; }
+iframe {
+  width: 100%; flex: 1; min-height: 0; display: block;
+  border: 0; border-radius: 8px; background: #e9e9ec;
+  overflow: hidden;
+}
+.zoom-controls {
+  position: absolute; right: 12px; bottom: 12px; z-index: 2;
+  display: flex; gap: 6px;
+}
+.zoom-controls button {
+  width: 2rem; height: 2rem; padding: 0; margin: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 16px; line-height: 1; font-weight: 600;
+}
+.status { font-size: 12px; color: var(--pico-muted-color); }
+.status.bad { color: var(--error); }
+/* Action bar: sits on the header's bottom edge, spans the content width, and
+   only shows while something is happening (or went wrong). */
+.topbar { position: relative; }
+.progress {
+  position: absolute; left: var(--chrome-gutter); right: var(--chrome-gutter);
+  bottom: 3px; height: 18px; overflow: hidden;
+  border-radius: var(--pico-border-radius);
+  background: #1f1f1f; display: flex; align-items: center;
+}
+.progress[hidden] { display: none; }
+.progress::before {
+  content: ""; position: absolute; inset: 0; background: #3d5a43;
+}
+.progress[data-state="busy"]::before {
+  width: 35%; animation: progress-slide 1.1s ease-in-out infinite;
+}
+.progress[data-state="error"]::before { background: #6b2b2b; }
+@keyframes progress-slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+.progress-text {
+  position: relative; padding: 0 10px; font-size: 11px; line-height: 1;
+  color: #e6ede7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.row-item > summary {
+  cursor: pointer; list-style: none;
+  display: flex; align-items: center; gap: 6px;
+  background-image: none;
+  line-height: 1.2;
+  min-height: 1.5rem;
+  padding: 0;
+  margin: 0;
+  border-bottom: none;
+}
+details.row-item[open] > summary {
+  padding: 0 0 10px;
+  margin: 0 0 12px;
+  border-bottom: 1px solid var(--pico-muted-border-color);
+}
+.panel > summary,
+details.panel[open] > summary {
+  cursor: pointer; list-style: none;
+  display: flex; align-items: center; gap: 8px;
+  background-image: none;
+  font-size: 12px;
+  line-height: 1.2;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+}
+details.panel[open] > summary {
+  flex-shrink: 0;
+  background: var(--pico-card-background-color);
+  margin: 0;
+  padding: var(--panel-stick-edge) var(--panel-pad-x);
+  border-radius: 8px 8px 0 0;
+}
+#editor details.panel[open] > summary + *,
+#editor details.panel[open]::details-content,
+#editor details.panel .panel-body,
+#editor details.panel .panel-foot {
+  margin-top: 0;
+}
+.panel > summary::after {
+  float: none;
+  margin: 0 0 0 auto;
+  flex-shrink: 0;
+  width: var(--panel-chevron); height: var(--panel-chevron);
+  background-size: var(--panel-chevron) auto;
+  align-self: center;
+}
+.row-item > summary::after {
+  float: none;
+  margin: 0 0 0 auto;
+  flex-shrink: 0;
+  width: 1rem; height: 1rem;
+  align-self: center;
+}
+#editor details { margin-bottom: 0; }
+#editor details.row-item { margin-bottom: 8px; }
+.panel > summary {
+  font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--pico-muted-color); font-weight: 600;
+}
+details.panel[hidden] { display: none !important; }
+details.row-item:not([open]) > summary { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <nav class="modes">
+    <button type="button" class="mode-chip" id="mode-cv" aria-pressed="true">resume</button>
+    <button type="button" class="mode-chip" id="mode-cover" aria-pressed="false">cover letter</button>
+  </nav>
+  <span class="spacer"></span>
+  <button id="save" class="secondary">Save</button>
+  <button id="export-docx" class="secondary">Export DOCX</button>
+  <button id="export-pdf">Export PDF</button>
+  <div id="progress" class="progress" role="status" aria-live="polite" hidden>
+    <span class="progress-text"></span>
+  </div>
+</header>
+
+<main>
+  <div class="editor-wrap">
+  <div id="editor">
+    <details class="panel" name="editor-panels">
+      <summary>Style</summary>
+      <div class="panel-body">
+      <label for="font">Font</label>
+      <select id="font"></select>
+      <p id="font-note" class="status"></p>
+      <label for="page_size">Paper size</label>
+      <select id="page_size">
+        <option value="letter">US Letter (8.5 × 11 in) — ATS, United States</option>
+        <option value="a4">A4 (210 × 297 mm) — ATS, international</option>
+      </select>
+      <p id="page-size-note" class="status"></p>
+      <div class="grid2">
+        <div><label for="size_name_pt">Title (Name)</label>
+             <input id="size_name_pt" type="number" step="0.5" min="6"></div>
+        <div><label for="size_contact_pt">Caption (LinkedIn, Location, Portfolio, Etc.)</label>
+             <input id="size_contact_pt" type="number" step="0.5" min="6"></div>
+        <div class="cv-only"><label for="size_heading_pt">Heading (Section Titles)</label>
+             <input id="size_heading_pt" type="number" step="0.5" min="6"></div>
+        <div><label for="size_body_pt">Body size (pt)</label>
+             <input id="size_body_pt" type="number" step="0.5" min="6"></div>
+      </div>
+      <div class="grid3">
+        <div><label for="margin_in">Margin (in)</label>
+             <input id="margin_in" type="number" step="0.05" min="0"></div>
+        <div><label for="line_height">Line height</label>
+             <input id="line_height" type="number" step="0.01" min="0.8"></div>
+        <div><label for="space_between_entries_pt">Entry gap (pt)</label>
+             <input id="space_between_entries_pt" type="number" step="1" min="0"></div>
+        <div class="cv-only"><label for="space_before_heading_pt">Before heading (pt)</label>
+             <input id="space_before_heading_pt" type="number" step="1" min="0"></div>
+        <div class="cv-only"><label for="space_after_heading_pt">After heading (pt)</label>
+             <input id="space_after_heading_pt" type="number" step="1" min="0"></div>
+        <div class="cv-only"><label for="bullet_char">Bullet</label>
+             <input id="bullet_char" maxlength="1"></div>
+      </div>
+      </div>
+    </details>
+
+    <details class="panel" name="editor-panels">
+      <summary>Bio</summary>
+      <div class="panel-body">
+      <label for="name">Name</label>
+      <input id="name">
+      <label>Contact details</label>
+      <div id="contact"></div>
+      </div>
+      <div class="panel-foot">
+      <button class="tiny" id="add-contact">+ contact item</button>
+      </div>
+    </details>
+
+    <details class="panel" name="editor-panels">
+      <summary>Header</summary>
+      <div class="panel-body">
+      <p class="status">Name always shows. Tick the bio details to show beside it.</p>
+      <div id="header-picks"></div>
+      </div>
+    </details>
+
+    <details class="panel" name="editor-panels" id="panel-footer" hidden>
+      <summary>Footer</summary>
+      <div class="panel-body">
+      <label for="cover_signoff">Sign-off</label>
+      <input id="cover_signoff">
+      <p class="status">Name always shows under the sign-off. Tick the bio details to show below it.</p>
+      <div id="footer-picks"></div>
+      </div>
+    </details>
+
+    <details class="panel" name="editor-panels" open id="panel-cv-sections">
+      <summary>Sections</summary>
+      <div class="panel-body" id="sections"></div>
+      <div class="panel-foot">
+      <button class="tiny" data-add="paragraph">+ paragraph</button>
+      <button class="tiny" data-add="entries">+ entries</button>
+      <button class="tiny" data-add="labeled">+ labeled</button>
+      </div>
+    </details>
+
+    <details class="panel" name="editor-panels" id="panel-letter" hidden>
+      <summary>Letter</summary>
+      <div class="panel-body">
+        <div class="grid2">
+          <div><label for="cover_role">Role</label>
+               <input id="cover_role"></div>
+          <div><label for="cover_company">Company</label>
+               <input id="cover_company"></div>
+        </div>
+        <label for="cover_greeting">Greeting</label>
+        <input id="cover_greeting">
+        <label>Body</label>
+        <div id="letter-paras"></div>
+        <label for="cover_closing">Closing</label>
+        <textarea id="cover_closing"></textarea>
+      </div>
+      <div class="panel-foot">
+        <button class="tiny" id="add-letter-para">+ paragraph</button>
+      </div>
+    </details>
+
+    <details class="panel" name="editor-panels">
+      <summary>Checks</summary>
+      <div class="panel-body">
+      <div id="issues"></div>
+      <p id="no-issues" class="status">No issues.</p>
+      </div>
+    </details>
+  </div>
+  </div>
+
+  <div class="preview-wrap">
+    <iframe id="preview" sandbox="allow-scripts" title="CV preview" scrolling="no"></iframe>
+    <div class="zoom-controls">
+      <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
+      <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+    </div>
+  </div>
+</main>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const THEME_NUMBERS = ["size_name_pt","size_contact_pt","size_heading_pt","size_body_pt",
+  "margin_in","line_height","space_between_entries_pt",
+  "space_before_heading_pt","space_after_heading_pt"];
+
+const PAGE_SIZES = {
+  letter: { page_width_in: 8.5, page_height_in: 11,
+    note: "Letter is the US ATS default." },
+  a4: { page_width_in: 8.27, page_height_in: 11.69,
+    note: "A4 is the ATS default outside the US." },
+};
+
+function matchPageSize() {
+  const theme = style();
+  for (const [key, size] of Object.entries(PAGE_SIZES)) {
+    if (Math.abs(theme.page_width_in - size.page_width_in) < 0.03
+        && Math.abs(theme.page_height_in - size.page_height_in) < 0.03) {
+      return key;
+    }
+  }
+  return "letter";
+}
+
+function applyPageSize(key) {
+  const theme = style();
+  const size = PAGE_SIZES[key] || PAGE_SIZES.letter;
+  theme.page_width_in = size.page_width_in;
+  theme.page_height_in = size.page_height_in;
+  $("page-size-note").textContent = size.note;
+}
+
+let cv = null, themeCv = null, themeCover = null, cover = null, fonts = [], overflowing = [];
+let documentMode = "cv";
+let previewZoom = 1;
+let previewPages = 1;
+let lastIssues = [];
+const collapsed = new WeakSet();
+
+/* ---------------------------------------------------------------- utils */
+
+function el(tag, attrs = {}, children = []) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(attrs)) {
+    if (key === "class") node.className = value;
+    else if (key === "text") node.textContent = value;
+    else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+    else node.setAttribute(key, value);
+  }
+  for (const child of [].concat(children)) if (child) node.append(child);
+  return node;
+}
+
+function field(label, value, oninput, { area = false } = {}) {
+  const input = el(area ? "textarea" : "input", { oninput });
+  input.value = value ?? "";
+  return el("div", {}, [el("label", { text: label }), input]);
+}
+
+let progressTimer;
+
+function showProgress(text, state) {
+  const bar = $("progress");
+  clearTimeout(progressTimer);
+  if (!state) { bar.hidden = true; return; }
+  bar.dataset.state = state;
+  bar.querySelector(".progress-text").textContent = text;
+  bar.hidden = false;
+  if (state === "done") progressTimer = setTimeout(() => { bar.hidden = true; }, 1800);
+}
+
+// Busy text ends with "…"; anything else is a finished result. "ready" (a
+// clean preview refresh) only clears a standing error, never an action.
+function setStatus(text, bad = false) {
+  if (bad) return showProgress(text, "error");
+  if (text === "ready") {
+    if ($("progress").dataset.state === "error") showProgress(null);
+    return;
+  }
+  showProgress(text, text.endsWith("…") ? "busy" : "done");
+}
+
+async function api(path, body) {
+  const options = body === undefined
+    ? {}
+    : { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body) };
+  const response = await fetch(path, options);
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(detail.error || response.statusText);
+  }
+  return response;
+}
+
+const debounce = (fn, ms) => {
+  let timer;
+  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
+};
+
+/* --------------------------------------------------------------- render */
+
+function moveRow(list, index, delta) {
+  const target = index + delta;
+  if (target < 0 || target >= list.length) return;
+  [list[index], list[target]] = [list[target], list[index]];
+  draw();
+}
+
+function noToggle(fn) {
+  return (event) => { event.preventDefault(); event.stopPropagation(); fn(); };
+}
+
+function foldable(record, className, summaryChildren, body) {
+  const box = el("details", { class: className });
+  box.open = !collapsed.has(record);
+  box.addEventListener("toggle", () => {
+    if (box.open) collapsed.delete(record);
+    else collapsed.add(record);
+  });
+  box.append(el("summary", { class: "row-head" }, summaryChildren), ...body);
+  return box;
+}
+
+function rowControls(list, index, label) {
+  return [
+    el("strong", { text: label }),
+    el("button", { class: "tiny", text: "↑", onclick: noToggle(() => moveRow(list, index, -1)) }),
+    el("button", { class: "tiny", text: "↓", onclick: noToggle(() => moveRow(list, index, 1)) }),
+    el("button", { class: "tiny", text: "✕",
+      onclick: noToggle(() => { list.splice(index, 1); draw(); }) }),
+  ];
+}
+
+// Header/Footer only choose which bio details print where; the details
+// themselves live once, in Bio.
+const PICK_DEFAULTS = { header: true, footer: false };
+
+function drawPicks(hostId, key) {
+  const host = $(hostId);
+  host.textContent = "";
+  header().contact.forEach((item, index) => {
+    const box = el("input", { type: "checkbox" });
+    box.checked = item[key] ?? PICK_DEFAULTS[key];
+    box.addEventListener("change", (e) => { item[key] = e.target.checked; schedule(); });
+    host.append(el("label", {}, [box, document.createTextNode(item.text || `item ${index + 1}`)]));
+  });
+}
+
+function drawAllPicks() {
+  drawPicks("header-picks", "header");
+  drawPicks("footer-picks", "footer");
+}
+
+function drawContact() {
+  const host = $("contact");
+  const doc = header();
+  if (!Array.isArray(doc.contact)) doc.contact = [];
+  host.textContent = "";
+  drawAllPicks();
+  doc.contact.forEach((item, index) => {
+    host.append(el("div", { class: "row-item" }, [
+      el("div", { class: "row-head" }, rowControls(doc.contact, index, `item ${index + 1}`)),
+      field("Text", item.text, (e) => { item.text = e.target.value; drawAllPicks(); schedule(); }),
+      field("Link (optional)", item.href || "", (e) => {
+        const value = e.target.value.trim();
+        if (value) item.href = value; else delete item.href;
+        schedule();
+      }),
+    ]));
+  });
+}
+
+function drawEntry(entries, entry, index) {
+  const bullets = entry.bullets || (entry.bullets = []);
+  return el("div", { class: "row-item" }, [
+    el("div", { class: "row-head" }, rowControls(entries, index, entry.left || `entry ${index + 1}`)),
+    el("div", { class: "grid2" }, [
+      field("Left (organisation)", entry.left, (e) => { entry.left = e.target.value; schedule(); }),
+      field("Right (location)", entry.right, (e) => { entry.right = e.target.value; schedule(); }),
+      field("Sub-left (role or degree)", entry.sub_left,
+        (e) => { entry.sub_left = e.target.value; schedule(); }),
+      field("Sub-right (dates)", entry.sub_right,
+        (e) => { entry.sub_right = e.target.value; schedule(); }),
+    ]),
+    el("label", {}, [
+      (() => {
+        const box = el("input", { type: "checkbox" });
+        box.style.width = "auto";
+        box.style.marginRight = "6px";
+        box.checked = !!entry.sub_italic;
+        box.addEventListener("change", (e) => { entry.sub_italic = e.target.checked; schedule(); });
+        return box;
+      })(),
+      document.createTextNode(" italic sub-left"),
+    ]),
+    field("Note (optional)", entry.note, (e) => { entry.note = e.target.value; schedule(); }),
+    el("label", { text: "Bullets" }),
+    ...bullets.map((text, i) => el("div", { class: "bullet-field" }, [
+      (() => {
+        const area = el("textarea", {
+          oninput: (e) => { bullets[i] = e.target.value; schedule(); },
+        });
+        area.value = text;
+        return area;
+      })(),
+      el("button", { class: "tiny", text: "✕",
+        onclick: () => { bullets.splice(i, 1); draw(); } }),
+    ])),
+    el("button", { class: "tiny", text: "+ bullet",
+      onclick: () => { bullets.push(""); draw(); } }),
+  ]);
+}
+
+function drawSection(section, index) {
+  const body = [];
+  if (section.type === "paragraph") {
+    body.push(field("Text", section.text,
+      (e) => { section.text = e.target.value; schedule(); }, { area: true }));
+  } else if (section.type === "entries") {
+    const entries = section.entries || (section.entries = []);
+    entries.forEach((entry, i) => body.push(drawEntry(entries, entry, i)));
+    body.push(el("button", { class: "tiny", text: "+ entry",
+      onclick: () => { entries.push({ left: "", right: "", bullets: [] }); draw(); } }));
+  } else {
+    const items = section.items || (section.items = []);
+    items.forEach((item, i) => body.push(el("div", { class: "row-item" }, [
+      el("div", { class: "row-head" }, rowControls(items, i, item.label || `item ${i + 1}`)),
+      field("Label", item.label, (e) => { item.label = e.target.value; schedule(); }),
+      field("Text", item.text, (e) => { item.text = e.target.value; schedule(); }, { area: true }),
+    ])));
+    body.push(el("button", { class: "tiny", text: "+ item",
+      onclick: () => { items.push({ label: "", text: "" }); draw(); } }));
+  }
+
+  return foldable(section, "row-item",
+    rowControls(cv.sections, index, `${section.heading} (${section.type})`), [
+    field("Heading", section.heading, (e) => { section.heading = e.target.value; schedule(); }),
+    ...body,
+  ]);
+}
+
+function drawSections() {
+  const host = $("sections");
+  host.textContent = "";
+  cv.sections.forEach((section, index) => host.append(drawSection(section, index)));
+}
+
+function drawFonts() {
+  const select = $("font");
+  select.textContent = "";
+  for (const font of fonts) {
+    select.append(el("option", {
+      value: font.name,
+      text: font.installed ? font.name : `${font.name} (not installed here)`,
+    }));
+  }
+  if (!fonts.some((f) => f.name === style().font)) {
+    select.append(el("option", { value: style().font, text: style().font }));
+  }
+  select.value = style().font;
+  updateFontNote();
+}
+
+function updateFontNote() {
+  const font = fonts.find((f) => f.name === style().font);
+  $("font-note").textContent = font
+    ? font.note + (font.ships_with_office ? "" : " DOCX will substitute on machines without it.")
+    : "Custom font.";
+}
+
+function header() {
+  return documentMode === "cover" ? cover : cv;
+}
+
+function style() {
+  return documentMode === "cover" ? themeCover : themeCv;
+}
+
+function fillStyleForm() {
+  const theme = style();
+  for (const key of THEME_NUMBERS) $(key).value = theme[key];
+  $("bullet_char").value = theme.bullet_char;
+  $("page_size").value = matchPageSize();
+  applyPageSize($("page_size").value);
+  drawFonts();
+}
+
+function payload() {
+  return { cv, theme: themeCv, cover, cover_theme: themeCover, document: documentMode };
+}
+
+// Each document has its own address, so a reload or a bookmark reopens it.
+const MODE_PATHS = { cv: "/resume", cover: "/cover-letter" };
+const modeFromPath = (path) => (path === MODE_PATHS.cover ? "cover" : "cv");
+
+function setMode(next, { push = true } = {}) {
+  documentMode = next;
+  if (push && location.pathname !== MODE_PATHS[next]) {
+    history.pushState({ mode: next }, "", MODE_PATHS[next]);
+  }
+  $("mode-cv").setAttribute("aria-pressed", next === "cv" ? "true" : "false");
+  $("mode-cover").setAttribute("aria-pressed", next === "cover" ? "true" : "false");
+  $("panel-cv-sections").hidden = next !== "cv";
+  $("panel-letter").hidden = next !== "cover";
+  $("panel-footer").hidden = next !== "cover";
+  // Section titles exist only on the CV; the letter has none to size or space.
+  for (const node of document.querySelectorAll(".cv-only")) node.hidden = next === "cover";
+  if (next === "cv") {
+    $("panel-cv-sections").open = true;
+  } else {
+    $("panel-letter").open = true;
+  }
+  $("name").value = header().name || "";
+  fillStyleForm();
+  drawContact();
+  schedule();
+}
+
+/* -------------------------------------------------------------- preview */
+
+function drawLetter() {
+  const host = $("letter-paras");
+  host.textContent = "";
+  (cover.paragraphs || (cover.paragraphs = [])).forEach((text, index) => {
+    host.append(el("div", { class: "bullet-field" }, [
+      (() => {
+        const area = el("textarea", {
+          oninput: (e) => { cover.paragraphs[index] = e.target.value; schedule(); },
+        });
+        area.value = text;
+        return area;
+      })(),
+      el("button", { class: "tiny", text: "✕",
+        onclick: () => { cover.paragraphs.splice(index, 1); draw(); } }),
+    ]));
+  });
+  $("cover_role").value = cover.role || "";
+  $("cover_company").value = cover.company || "";
+  $("cover_greeting").value = cover.greeting || "";
+  $("cover_closing").value = cover.closing || "";
+  $("cover_signoff").value = cover.signoff || "";
+}
+
+function draw() {
+  drawContact();
+  drawSections();
+  if (cover) drawLetter();
+  schedule();
+}
+
+function sendZoom() {
+  const frame = $("preview");
+  // Scroll when zoomed in or when the document runs past one page.
+  const scrolls = previewZoom > 1 || previewPages > 1;
+  frame.setAttribute("scrolling", scrolls ? "yes" : "no");
+  frame.style.overflow = scrolls ? "auto" : "hidden";
+  if (frame.contentWindow) {
+    frame.contentWindow.postMessage({ type: "resume-zoom", zoom: previewZoom }, "*");
+  }
+}
+
+async function refresh() {
+  try {
+    const response = await api("/api/preview", payload());
+    const data = await response.json();
+    // The sandboxed srcdoc frame has no usable base URL, so point relative
+    // links (the preview's bitmap-free fonts) back at this server.
+    $("preview").srcdoc = data.html.replace("<head>", `<head><base href="${location.origin}/">`);
+    lastIssues = data.issues;
+    showIssues(data.issues);
+    setStatus("ready");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+const schedule = debounce(refresh, 250);
+
+function showIssues(issues) {
+  const host = $("issues");
+  host.textContent = "";
+  const all = issues.concat(overflowing.map((label) => ({
+    level: "error", where: label,
+    message: "left and right text do not fit on one line; shorten one side",
+  })));
+  for (const issue of all) {
+    host.append(el("div", { class: `issue ${issue.level}` },
+      el("span", { text: `${issue.where} — ${issue.message}` })));
+  }
+  $("no-issues").hidden = all.length > 0;
+}
+
+window.addEventListener("message", (event) => {
+  if (event.source !== $("preview").contentWindow) return;
+  if (!event.data) return;
+  if (event.data.type === "resume-pages") {
+    previewPages = Number(event.data.count) || 1;
+    sendZoom();
+    return;
+  }
+  if (event.data.type !== "resume-overflow") return;
+  overflowing = Array.isArray(event.data.offenders) ? event.data.offenders : [];
+  // Redraw the Checks list only; re-rendering the preview here would reload
+  // the frame, which measures again and posts again, forever.
+  showIssues(lastIssues);
+});
+
+/* --------------------------------------------------------------- events */
+
+$("name").addEventListener("input", (e) => { header().name = e.target.value; schedule(); });
+$("add-contact").addEventListener("click", () => { header().contact.push({ text: "" }); draw(); });
+$("mode-cv").addEventListener("click", () => setMode("cv"));
+$("mode-cover").addEventListener("click", () => setMode("cover"));
+window.addEventListener("popstate", () => setMode(modeFromPath(location.pathname), { push: false }));
+$("cover_role").addEventListener("input", (e) => { cover.role = e.target.value; schedule(); });
+$("cover_company").addEventListener("input", (e) => { cover.company = e.target.value; schedule(); });
+$("cover_greeting").addEventListener("input", (e) => { cover.greeting = e.target.value; schedule(); });
+$("cover_closing").addEventListener("input", (e) => { cover.closing = e.target.value; schedule(); });
+$("cover_signoff").addEventListener("input", (e) => { cover.signoff = e.target.value; schedule(); });
+$("add-letter-para").addEventListener("click", () => {
+  cover.paragraphs.push("");
+  draw();
+});
+
+for (const button of document.querySelectorAll("[data-add]")) {
+  button.addEventListener("click", () => {
+    const type = button.dataset.add;
+    const section = { heading: "NEW SECTION", type };
+    if (type === "paragraph") section.text = "";
+    else if (type === "entries") section.entries = [];
+    else section.items = [];
+    cv.sections.push(section);
+    draw();
+  });
+}
+
+$("font").addEventListener("change", (e) => {
+  const theme = style();
+  theme.font = e.target.value;
+  const font = fonts.find((f) => f.name === theme.font);
+  if (font) theme.font_stack = font.stack;
+  updateFontNote();
+  schedule();
+});
+
+$("page_size").addEventListener("change", (e) => {
+  applyPageSize(e.target.value);
+  schedule();
+});
+
+for (const key of THEME_NUMBERS) {
+  $(key).addEventListener("input", (e) => {
+    const value = parseFloat(e.target.value);
+    if (!Number.isNaN(value)) { style()[key] = value; schedule(); }
+  });
+}
+$("bullet_char").addEventListener("input", (e) => {
+  if (e.target.value) { style().bullet_char = e.target.value; schedule(); }
+});
+
+$("save").addEventListener("click", async () => {
+  setStatus("saving and rebuilding…");
+  try {
+    const data = await api("/api/save", payload()).then((r) => r.json());
+    if (data.build_error) {
+      setStatus(`saved JSON, but rebuild failed: ${data.build_error}`, true);
+      return;
+    }
+    const files = (data.written || []).map((p) => p.split("/").pop()).join(", ");
+    const pages = data.pages && data.pages !== 1 ? ` — ${data.pages} pages` : "";
+    setStatus(`saved and rebuilt ${files}${pages}`);
+  } catch (error) { setStatus(error.message, true); }
+});
+
+async function download(format) {
+  setStatus(`building ${format.toUpperCase()}…`);
+  try {
+    const stem = documentMode === "cover" ? "cover" : "cv";
+    const response = await api("/api/export", { ...payload(), format, stem });
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = el("a", { href: url, download: `${stem}.${format}` });
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    const pages = response.headers.get("X-Pages");
+    setStatus(pages && pages !== "1" ? `downloaded — ${pages} pages` : "downloaded");
+  } catch (error) { setStatus(error.message, true); }
+}
+
+$("export-docx").addEventListener("click", () => download("docx"));
+$("export-pdf").addEventListener("click", () => download("pdf"));
+$("preview").addEventListener("load", sendZoom);
+$("zoom-in").addEventListener("click", () => {
+  previewZoom = Math.min(3, Math.round((previewZoom + 0.2) * 10) / 10);
+  sendZoom();
+});
+$("zoom-out").addEventListener("click", () => {
+  previewZoom = Math.max(1, Math.round((previewZoom - 0.2) * 10) / 10);
+  sendZoom();
+});
+
+/* ----------------------------------------------------------------- boot */
+
+(async function start() {
+  try {
+    const [document_, fontList] = await Promise.all([
+      api("/api/document").then((r) => r.json()),
+      api("/api/fonts").then((r) => r.json()),
+    ]);
+    cv = document_.cv;
+    themeCv = document_.theme;
+    themeCover = document_.cover_theme || JSON.parse(JSON.stringify(document_.theme));
+    cover = document_.cover;
+    if (!cover.name) cover.name = cv.name;
+    if (!Array.isArray(cover.contact)) {
+      cover.contact = JSON.parse(JSON.stringify(cv.contact));
+    }
+    fonts = fontList;
+    $("name").value = cv.name;
+    fillStyleForm();
+    draw();
+    const mode = modeFromPath(location.pathname);
+    history.replaceState({ mode }, "", MODE_PATHS[mode]);
+    if (mode === "cover") setMode("cover", { push: false });
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+})();
+</script>
+</body>
+</html>
