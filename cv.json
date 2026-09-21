@@ -1,0 +1,92 @@
+{
+  "name": "YOUR NAME",
+  "contact": [
+    {
+      "text": "you@example.com",
+      "href": "mailto:you@example.com",
+      "header": true
+    },
+    {
+      "text": "+1 555 000 0000"
+    },
+    {
+      "text": "linkedin.com/in/your-name",
+      "href": "https://linkedin.com/in/your-name"
+    },
+    {
+      "text": "City, State"
+    }
+  ],
+  "sections": [
+    {
+      "heading": "PROFESSIONAL SUMMARY",
+      "type": "paragraph",
+      "text": "Two or three sentences on who you are, what you do and the result you are known for."
+    },
+    {
+      "heading": "EDUCATION",
+      "type": "entries",
+      "entries": [
+        {
+          "left": "UNIVERSITY NAME, School",
+          "right": "City, State",
+          "sub_left": "Degree, Subject",
+          "sub_right": "Month Year - Month Year",
+          "sub_italic": true,
+          "bullets": []
+        }
+      ]
+    },
+    {
+      "heading": "SKILLS",
+      "type": "labeled",
+      "items": [
+        {
+          "label": "Product",
+          "text": "Skill, Skill & Skill."
+        },
+        {
+          "label": "Programming",
+          "text": "Language, Framework & Tool."
+        }
+      ]
+    },
+    {
+      "heading": "EXPERIENCE",
+      "type": "entries",
+      "entries": [
+        {
+          "left": "LATEST COMPANY, Team",
+          "right": "City, State",
+          "sub_left": "Job Title",
+          "sub_right": "Month Year - Month Year",
+          "bullets": [
+            "Led a project that solved a real problem, with the number that shows it worked.",
+            "Ran the research or analysis behind a decision and what it changed.",
+            "Worked with other teams to ship something and what it delivered."
+          ]
+        },
+        {
+          "left": "EARLIER COMPANY, Industry",
+          "right": "City, State",
+          "sub_left": "Job Title",
+          "sub_right": "Month Year - Month Year",
+          "bullets": [
+            "Built or improved something people used, and how much it moved a metric.",
+            "Fixed a recurring problem and what that saved the team."
+          ]
+        }
+      ]
+    },
+    {
+      "heading": "ADDITIONAL INFORMATION",
+      "type": "labeled",
+      "items": [
+        {
+          "label": "Interests",
+          "text": "A line about what you do outside work."
+        }
+      ]
+    }
+  ]
+}
