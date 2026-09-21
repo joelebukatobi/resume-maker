@@ -1,0 +1,21 @@
+{
+  "font": "Cambria",
+  "font_stack": "Cambria, Caladea, Georgia, serif",
+  "size_name_pt": 14,
+  "size_contact_pt": 11.5,
+  "size_heading_pt": 10,
+  "size_body_pt": 11.5,
+  "page_width_in": 8.5,
+  "page_height_in": 11,
+  "margin_in": 0.5,
+  "space_before_heading_pt": 8,
+  "space_after_heading_pt": 2,
+  "space_between_entries_pt": 6,
+  "bullet_char": "-",
+  "bullet_indent_in": 0.25,
+  "bullet_hang_in": 0.125,
+  "line_height": 1.15,
+  "date_separator": "-",
+  "link_color": "0563C1",
+  "link_underline": true
+}
