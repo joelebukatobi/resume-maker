@@ -1,0 +1,118 @@
+# resume-maker
+
+Renders a CV from JSON to DOCX and PDF, with both margins pinned exactly.
+
+No dependencies. Python 3.12 standard library plus a Chromium-family browser
+for PDF export. No LibreOffice, no `pip install`, no `npm install`, no GUI
+application installed on the system.
+
+## Quick start
+
+```bash
+python3 server.py
+```
+
+Opens a local editor at `http://127.0.0.1:8000`. Edit the fields, watch the
+preview, then Save or Export.
+
+Command line, for the same result without the UI:
+
+```bash
+python3 -m resume_maker --format both
+```
+
+Writes `out/cv.docx` and `out/cv.pdf`. Other flags: `--format docx|pdf|html|both|all`,
+`--cv`, `--theme`, `--out`, `--name`, `--check-only`.
+
+Run the self-checks:
+
+```bash
+python3 -m unittest discover -s tests
+```
+
+## The problem this solves
+
+Word documents usually place a location or a date on the right by padding with
+spaces until it looks about right. That padding is measured in the current
+font. Change the font, the size, or a single word, and every right-hand column
+drifts.
+
+Here, each two-column line is one paragraph containing `left <tab> right` with
+a **right-aligned tab stop at the right margin**. The stop is a coordinate on
+the page — page width minus margins — and owes nothing to font metrics. The
+renderer places the *last* character of the right-hand text on that coordinate
+and lays the text out leftward from it.
+
+So the left text starts on the left margin, the right text ends on the right
+margin, on one line, in any font, at any size, with any wording.
+
+The CSS side uses `justify-content: space-between` on a flex row, which
+produces the same result by the same logic.
+
+The only way this can fail is if the two texts together are wider than the text
+column. Both the CLI and the editor measure every such line in the browser
+before export and name any that overflow, so the failure is reported rather
+than discovered later in the PDF.
+
+## Files
+
+| Path | Role |
+| --- | --- |
+| `cv.json` | Content: name, contact line, sections |
+| `theme.json` | Font, sizes, margins, spacing — every measurement |
+| `resume_maker/theme.py` | Geometry. The only place page numbers are defined |
+| `resume_maker/model.py` | Immutable content model; parses and rejects untrusted input |
+| `resume_maker/render_docx.py` | Office Open XML output |
+| `resume_maker/render_html.py` | HTML output for preview and PDF |
+| `resume_maker/export_pdf.py` | Headless browser: PDF and line measurement |
+| `resume_maker/validate.py` | Advisory ATS checks |
+| `resume_maker/build.py` | Orchestration shared by CLI and server |
+| `resume_maker/fonts.py` | Curated font list with local availability |
+| `server.py` | Loopback-only editor |
+| `static/index.html` | Editor UI, vanilla JS |
+
+Both renderers read the same `Theme`, so DOCX and PDF cannot disagree about
+margins, tab stops, sizes or spacing. Adding a section kind means adding a
+dataclass in `model.py` and one handler per renderer; nothing existing changes.
+
+## Changing the font
+
+Set `font` and `font_stack` in `theme.json`, or pick from the dropdown in the
+editor. Nothing else moves: the font is declared once, in the DOCX
+`docDefaults` and in one CSS rule, and no measurement is derived from it. The
+bullet glyph inherits it too.
+
+Fonts that ship with Office are safest for DOCX. A font the recipient does not
+have is silently substituted by Word and the document reflows on their screen.
+PDF embeds its font and is unaffected — the editor marks fonts that are not
+installed locally.
+
+## ATS notes
+
+- No tables, text boxes, columns, headers, footers or images.
+- Bullets are real list items; the glyph is a hyphen in the document font.
+- Hyperlinks are real, and contact links show the URL as visible text, because
+  many parsers keep anchor text and discard the target.
+- Section headings are checked against the vocabulary most parsers recognise.
+- Date separators are normalised across the document.
+- Phone numbers are checked for ten national digits.
+
+Checks are advisory. They report; they never rewrite content or block export.
+
+## Security
+
+- The server binds `127.0.0.1` only and refuses cross-origin requests.
+- Request bodies are capped at 1 MiB; only `application/json` is accepted.
+- Static serving is a fixed filename allowlist — no path is taken from the URL.
+- Saves go only to the two JSON paths the server was started with, written
+  atomically via a temporary file and `os.replace`.
+- Export filenames are reduced to alphanumerics, so a stem cannot traverse.
+- Content is escaped for XML and for HTML; the injection tests assert it.
+- Link schemes are restricted to `http`, `https` and `mailto`.
+- Font names are restricted to characters that cannot terminate a CSS or XML
+  context.
+- The browser is launched from an argument list, never a shell string, in a
+  private profile directory inside a 0700 temporary directory, so it cannot
+  attach to a running browser session or touch the user's profile.
+- The preview runs in an iframe sandboxed without same-origin access; it
+  reports measurements by `postMessage`.
