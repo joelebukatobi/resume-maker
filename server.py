@@ -27,11 +27,16 @@ from urllib.parse import parse_qs
 
 from resume_maker.build import FORMAT_ALIASES, Builder, safe_stem
 from resume_maker.export_pdf import BrowserNotFound, ExportError
+from resume_maker import assistant, llm, setup
 from resume_maker.fonts import catalogue, preview_face
 from resume_maker.model import CV, ContentError, CoverLetter
 from resume_maker.theme import Theme, ThemeError
 
 MAX_BODY = 1 << 20  # 1 MiB is far more than any CV needs.
+MAX_IMPORT_BODY = 8 << 20  # a 5 MB file, base64 encoded
+MAX_HISTORY = 2 << 20
+MAX_TURNS = 200
+DOCUMENTS = ("cv", "cover")
 HOST = "127.0.0.1"
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 
@@ -57,8 +62,14 @@ class EditorHandler(BaseHTTPRequestHandler):
         cover_path: Path,
         cover_theme_path: Path,
         out_dir: Path,
+        chat_dir: Path,
+        assistant_path: Path,
+        notes_path: Path,
         **kwargs: Any,
     ) -> None:
+        self._chat_dir = chat_dir
+        self._assistant_path = assistant_path
+        self._notes_path = notes_path
         self._cv_path = cv_path
         self._theme_path = theme_path
         self._cover_path = cover_path
@@ -113,7 +124,7 @@ class EditorHandler(BaseHTTPRequestHandler):
         }
         return origin in allowed
 
-    def _read_json(self) -> dict[str, Any] | None:
+    def _read_json(self, limit: int = MAX_BODY) -> dict[str, Any] | None:
         if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
             self._error(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "expected application/json")
             return None
@@ -122,7 +133,7 @@ class EditorHandler(BaseHTTPRequestHandler):
         except ValueError:
             self._error(HTTPStatus.BAD_REQUEST, "bad Content-Length")
             return None
-        if length <= 0 or length > MAX_BODY:
+        if length <= 0 or length > limit:
             self._error(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "request body out of range")
             return None
         try:
@@ -147,14 +158,32 @@ class EditorHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 - http.server API
         route = self.path.split("?", 1)[0]
-        if route in ("/", "/index.html", "/resume", "/cover-letter"):
+        if route == "/":
+            return self._static("home.html", "text/html; charset=utf-8")
+        if route in ("/style", "/notes"):
+            return self._static(f"{route.lstrip('/')}.html", "text/html; charset=utf-8")
+        if route == "/api/setup":
+            return self._setup_get()
+        if route in ("/index.html", "/resume", "/cover-letter"):
             return self._static("index.html", "text/html; charset=utf-8")
+        if route == "/static/chat.js":
+            return self._static("chat.js", "text/javascript; charset=utf-8")
         if route == "/api/document":
             return self._document()
         if route == "/api/fonts":
             return self._json(HTTPStatus.OK, [asdict(f) for f in catalogue()])
         if route == "/api/font-face":
             return self._font_face()
+        if route == "/api/llm/providers":
+            return self._json(HTTPStatus.OK, [
+                {"id": p.id, "label": p.label, "available": p.available,
+                 "key_env": p.key_env, "source": p.key_source}
+                for p in llm.PROVIDERS.values()
+            ])
+        if route == "/api/llm/models":
+            return self._models()
+        if route == "/api/chat/history":
+            return self._history_get()
         self._error(HTTPStatus.NOT_FOUND, "not found")
 
     def _font_face(self) -> None:
@@ -187,11 +216,18 @@ class EditorHandler(BaseHTTPRequestHandler):
             "/api/preview": self._preview,
             "/api/export": self._export,
             "/api/save": self._save,
+            "/api/chat": self._chat,
+            "/api/import": self._import,
+            "/api/chat/history": self._history_put,
+            "/api/chat/fields": self._fields,
+            "/api/setup/assistant": self._setup_assistant,
+            "/api/setup/notes": self._setup_notes,
+            "/api/llm/key": self._key,
         }
         handler = handlers.get(route)
         if handler is None:
             return self._error(HTTPStatus.NOT_FOUND, "not found")
-        payload = self._read_json()
+        payload = self._read_json(MAX_IMPORT_BODY if route == "/api/import" else MAX_BODY)
         if payload is None:
             return
         try:
@@ -204,6 +240,10 @@ class EditorHandler(BaseHTTPRequestHandler):
             self._error(HTTPStatus.SERVICE_UNAVAILABLE, str(exc))
         except ExportError as exc:
             self._error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
+        except llm.LLMError as exc:
+            self._error(HTTPStatus.BAD_GATEWAY, str(exc))
+        except assistant.ImportFailed as exc:
+            self._error(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc))
 
     def _static(self, name: str, content_type: str) -> None:
         path = STATIC_ROOT / name
@@ -299,6 +339,205 @@ class EditorHandler(BaseHTTPRequestHandler):
         self._json(HTTPStatus.OK, response)
 
 
+    # -- assistant -------------------------------------------------------
+
+    @staticmethod
+    def _document_kind(value: Any) -> str:
+        if value not in DOCUMENTS:
+            raise ValueError("document must be 'cv' or 'cover'")
+        return value
+
+    @staticmethod
+    def _checked_document(kind: str, data: Any) -> dict[str, Any]:
+        """The editor's unsaved document, validated before it reaches a model."""
+        if not isinstance(data, dict):
+            raise ValueError("doc must be an object")
+        if kind == "cover":
+            CoverLetter.from_mapping(data)
+        else:
+            CV.from_mapping(data)
+        return data
+
+    @staticmethod
+    def _checked_turns(messages: Any) -> list[dict[str, str]]:
+        if not isinstance(messages, list) or not messages or len(messages) > MAX_TURNS:
+            raise ValueError("messages must be a non-empty list")
+        turns, total = [], 0
+        for m in messages:
+            if not isinstance(m, dict) or m.get("role") not in ("user", "assistant"):
+                raise ValueError("each message needs role user or assistant")
+            content = m.get("content")
+            if not isinstance(content, str) or not content.strip():
+                raise ValueError("each message needs text content")
+            total += len(content)
+            turns.append({"role": m["role"], "content": content})
+        if total > 400_000:
+            raise ValueError("conversation is too long; clear the chat")
+        if turns[-1]["role"] != "user":
+            raise ValueError("the last message must be from the user")
+        return turns
+
+    def _key(self, payload: dict[str, Any]) -> None:
+        """Connect (test + save) or disconnect a provider. The key is never echoed."""
+        provider_id = str(payload.get("provider", ""))
+        key = payload.get("key") or ""
+        if not isinstance(key, str):
+            raise ValueError("key must be text")
+        if key.strip():
+            models = llm.connect(provider_id, key.strip())
+            return self._json(HTTPStatus.OK, {"connected": True, "models": models})
+        llm.save_key(provider_id, "")
+        self._json(HTTPStatus.OK, {"connected": False})
+
+    # -- setup pillars ---------------------------------------------------
+
+    def _style_and_notes(self) -> tuple[str, str]:
+        """The user's Style and Notes files, empty when not written yet."""
+        return assistant.load_text(self._assistant_path), assistant.load_text(self._notes_path)
+
+    def _setup_get(self) -> None:
+        style, notes = self._style_and_notes()
+        self._json(HTTPStatus.OK, {
+            "assistant": style,
+            "notes": notes,
+            "status": setup.readiness(style, notes, _read_json(self._cv_path), _read_json(self._cover_path)),
+        })
+
+    def _save_setup_file(self, kind: str, path: Path, payload: dict[str, Any]) -> None:
+        text = setup.check_text(kind, payload.get("text", ""))
+        _atomic_write(path, text)
+        style, notes = self._style_and_notes()
+        self._json(HTTPStatus.OK, {
+            "saved": True,
+            "status": setup.readiness(style, notes, _read_json(self._cv_path), _read_json(self._cover_path)),
+        })
+
+    def _setup_assistant(self, payload: dict[str, Any]) -> None:
+        self._save_setup_file("assistant", self._assistant_path, payload)
+
+    def _setup_notes(self, payload: dict[str, Any]) -> None:
+        self._save_setup_file("notes", self._notes_path, payload)
+
+    def _fields(self, payload: dict[str, Any]) -> None:
+        kind = self._document_kind(payload.get("document"))
+        doc = self._checked_document(kind, payload.get("doc"))
+        self._json(HTTPStatus.OK, [
+            {"path": path, "label": label, "text": text}
+            for path, label, text in assistant.field_paths(kind, doc)
+        ])
+
+    def _models(self) -> None:
+        query = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+        try:
+            models = llm.list_models((query.get("provider") or [""])[0])
+        except llm.LLMError as exc:
+            return self._error(HTTPStatus.BAD_GATEWAY, str(exc))
+        self._json(HTTPStatus.OK, models)  # [{"id", "label"}]
+
+    def _chat(self, payload: dict[str, Any]) -> None:
+        """Stream a reply as plain text. A mid-stream failure is sent as a
+        line starting with NUL so the editor can tell it from reply text."""
+        kind = self._document_kind(payload.get("document"))
+        doc = self._checked_document(kind, payload.get("doc"))
+        jd = payload.get("job_description") or ""
+        if not isinstance(jd, str) or len(jd) > 40_000:
+            raise ValueError("job description must be text under 40,000 characters")
+        style, notes = self._style_and_notes()
+        system = assistant.system_prompt(kind, doc, jd, assistant_md=style, notes_md=notes)
+        chunks = llm.stream_chat(
+            str(payload.get("provider", "")), llm.check_model(payload.get("model", "")),
+            system, self._checked_turns(payload.get("messages")),
+        )
+        # Pull the first chunk before answering, so a bad key or model comes
+        # back as a normal error response rather than a broken stream.
+        try:
+            first = next(chunks)
+        except StopIteration:
+            first = ""
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        try:
+            for chunk in [first] if first else []:
+                self.wfile.write(chunk.encode("utf-8")); self.wfile.flush()
+            for chunk in chunks:
+                self.wfile.write(chunk.encode("utf-8")); self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # the editor pressed Stop
+        except llm.LLMError as exc:
+            try:
+                self.wfile.write(f"\0{exc}".encode("utf-8"))
+            except OSError:
+                pass
+        finally:
+            chunks.close()
+
+    def _import(self, payload: dict[str, Any]) -> None:
+        kind = self._document_kind(payload.get("document"))
+        example = self._checked_document(kind, payload.get("doc"))
+        if payload.get("file"):
+            text = assistant.extract_text(
+                str(payload.get("filename", "")), assistant.decode_upload(str(payload["file"]))
+            )
+        else:
+            text = str(payload.get("text", "")).strip()[: assistant.MAX_IMPORT_TEXT]
+            if not text:
+                raise assistant.ImportFailed("paste some text or choose a file to import")
+        reply = llm.complete(
+            str(payload.get("provider", "")), llm.check_model(payload.get("model", "")),
+            assistant.import_prompt(kind, example), text,
+        )
+        self._json(HTTPStatus.OK, {"doc": assistant.parse_import(kind, reply)})
+
+    def _history_path(self, kind: str) -> Path:
+        return self._chat_dir / f"{self._document_kind(kind)}.json"
+
+    def _history_get(self) -> None:
+        query = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+        try:
+            path = self._history_path((query.get("document") or [""])[0])
+        except ValueError as exc:
+            return self._error(HTTPStatus.BAD_REQUEST, str(exc))
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = {"messages": [], "job_description": ""}
+        self._json(HTTPStatus.OK, data)
+
+    def _history_put(self, payload: dict[str, Any]) -> None:
+        path = self._history_path(payload.get("document"))
+        messages = payload.get("messages") or []
+        jd = payload.get("job_description") or ""
+        if not isinstance(messages, list) or len(messages) > MAX_TURNS or not isinstance(jd, str):
+            raise ValueError("invalid chat history")
+        clean = []
+        for m in messages:
+            if not isinstance(m, dict) or m.get("role") not in ("user", "assistant") \
+                    or not isinstance(m.get("content"), str):
+                raise ValueError("invalid chat message")
+            item = {"role": m["role"], "content": m["content"]}
+            if isinstance(m.get("resolved"), dict):  # which proposals were accepted/dismissed
+                item["resolved"] = {str(k): str(v) for k, v in m["resolved"].items()
+                                    if v in ("accepted", "dismissed")}
+            clean.append(item)
+        text = json.dumps({"messages": clean, "job_description": jd}, ensure_ascii=False)
+        if len(text) > MAX_HISTORY:
+            raise ValueError("chat history is too large; clear the chat")
+        path.parent.mkdir(mode=0o700, exist_ok=True)
+        _atomic_write(path, text)
+        self._json(HTTPStatus.OK, {"saved": True})
+
+def _read_json(path: Path) -> dict[str, Any]:
+    """A JSON document from disk, or {} when it is missing or unreadable."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def _atomic_write(path: Path, text: str) -> None:
     """Write via a temporary file in the same directory, then rename."""
     path = Path(path)
@@ -320,6 +559,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--theme", type=Path, default=Path("theme.json"))
     parser.add_argument("--cover", type=Path, default=Path("cover.json"))
     parser.add_argument("--cover-theme", type=Path, default=Path("cover-theme.json"))
+    parser.add_argument("--assistant", type=Path, default=Path("assistant.md"),
+                        help="Style file fed into every chat turn")
+    parser.add_argument("--notes", type=Path, default=Path("notes.md"),
+                        help="shared experience bank fed into every chat turn")
     parser.add_argument("--out", type=Path, default=Path("out"),
                         help="directory rebuilt on every save")
     parser.add_argument("--no-open", action="store_true", help="do not open a browser")
@@ -332,9 +575,13 @@ def main(argv: list[str] | None = None) -> int:
         cover_path=args.cover.resolve(),
         cover_theme_path=args.cover_theme.resolve(),
         out_dir=args.out.resolve(),
+        # Chat history holds CV text: kept beside the data, git-ignored.
+        chat_dir=args.cv.resolve().parent / ".chat",
+        assistant_path=args.assistant.resolve(),
+        notes_path=args.notes.resolve(),
     )
     with ThreadingHTTPServer((HOST, args.port), handler) as httpd:
-        url = f"http://{HOST}:{httpd.server_address[1]}/resume"
+        url = f"http://{HOST}:{httpd.server_address[1]}/"
         print(f"resume-maker editor on {url}  (ctrl-c to stop)")
         if not args.no_open:
             webbrowser.open(url)
