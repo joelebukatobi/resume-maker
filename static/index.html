@@ -104,6 +104,13 @@ body {
   background: #3d5a43; border-color: #3d5a43; color: #e6ede7;
 }
 .topbar .spacer { flex: 1; }
+/* Quiet links back to the setup pages; the chips stay the loud control. */
+.hub-links { display: flex; align-items: center; gap: 14px; margin-left: 8px; flex: none; }
+.hub-links a {
+  font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  color: #6a6a6a; text-decoration: none;
+}
+.hub-links a:hover, .hub-links a:focus-visible { color: #e6ede7; }
 .topbar button { width: auto; margin: 0; padding: 0 0.85rem; }
 /* One row at any width: --topbar-sticky-height assumes a single line. The
    status gives way first, then gaps and padding tighten. */
@@ -112,6 +119,8 @@ body {
   .topbar { gap: 6px; }
   .modes { gap: 4px; }
   .topbar .mode-chip { padding: 0 8px; letter-spacing: .04em; }
+  .hub-links { gap: 8px; margin-left: 2px; }
+  .hub-links a { letter-spacing: .04em; }
   .topbar button { padding: 0 0.55rem; }
 }
 body > main {  /* matches Pico's body>main so its 9px block padding is overridden */
@@ -133,6 +142,9 @@ body:not(.chat-open) .chat { display: none; }
 .chat-head strong { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--pico-muted-color); }
 .chat-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 8px; }
 .chat-empty { font-size: 13px; color: var(--pico-muted-color); margin: auto; text-align: center; max-width: 85%; }
+.chat-empty p { margin: 0 0 8px; }
+.chat-tip { font-size: 12px; }
+.chat-tip a { color: #cfe0d2; }
 .chat-msg { font-size: 13px; line-height: 1.45; }
 .chat-msg p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .chat-msg strong { font-weight: 600; color: #fff; }
@@ -525,6 +537,11 @@ details.row-item:not([open]) > summary { margin-bottom: 0; padding-bottom: 0; bo
   <nav class="modes">
     <button type="button" class="mode-chip" id="mode-cv" aria-pressed="true">resume</button>
     <button type="button" class="mode-chip" id="mode-cover" aria-pressed="false">cover letter</button>
+  </nav>
+  <nav class="hub-links" aria-label="Setup">
+    <a href="/">Hub</a>
+    <a href="/style">Style</a>
+    <a href="/notes">Notes</a>
   </nav>
   <span class="spacer"></span>
   <button id="chat-toggle" class="secondary" aria-pressed="true" title="Show or hide the chat">Chat</button>
@@ -1234,6 +1251,11 @@ $("zoom-out").addEventListener("click", () => {
 /* ----------------------------------------------------------------- boot */
 
 (async function start() {
+  // Press the right chip before the document loads, so /cover-letter does not
+  // flash "resume" while the data is in flight.
+  const initial = modeFromPath(location.pathname);
+  $("mode-cv").setAttribute("aria-pressed", initial === "cv" ? "true" : "false");
+  $("mode-cover").setAttribute("aria-pressed", initial === "cover" ? "true" : "false");
   try {
     const [document_, fontList] = await Promise.all([
       api("/api/document").then((r) => r.json()),
