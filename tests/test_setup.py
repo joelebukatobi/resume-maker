@@ -170,6 +170,18 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn("/api/setup", page)          # paints readiness
         self.assertIn("/api/llm/providers", page)  # model strip
 
+    def test_style_page_is_wired_to_templates_and_save(self):
+        with urllib.request.urlopen(f"{self.base}/style", timeout=10) as response:
+            page = response.read().decode()
+        self.assertIn("/api/setup/templates", page)   # role chips
+        self.assertIn('kind: "assistant"', page)      # saves to assistant.md
+        self.assertIn("/static/setup.js", page)       # shared load/save
+        self.assertIn("/static/setup.css", page)
+        for asset, kind in (("/static/setup.js", "javascript"), ("/static/setup.css", "css")):
+            with urllib.request.urlopen(f"{self.base}{asset}", timeout=10) as response:
+                self.assertEqual(response.status, 200)
+                self.assertIn(kind, response.headers["Content-Type"])
+
     def test_style_and_notes_paths_serve_their_own_page(self):
         """Routed now; each answers 200 as soon as its page lands (Tasks 5-6)."""
         for path, page in (("/style", "style.html"), ("/notes", "notes.html")):

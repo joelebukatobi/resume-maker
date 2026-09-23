@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Style · resume-maker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans+Condensed:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<link rel="stylesheet" href="/static/setup.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="back" href="/">&#8592; Hub</a>
+  <span class="brand title">Style</span>
+  <span class="state" id="state"><span class="dot"></span><span class="label">…</span></span>
+  <span class="spacer"></span>
+  <a class="back" href="/notes">Notes</a>
+  <a class="back" href="/resume">Documents</a>
+</header>
+
+<main>
+  <h1>How the editor writes for you</h1>
+  <p class="lead">
+    Saved as <code>assistant.md</code> and sent with every chat turn: your method,
+    bullet shape, banned words and voice. Start from a role below, then make it yours.
+  </p>
+
+  <div class="chips" id="roles" aria-label="Start from a role"></div>
+
+  <textarea class="editor" id="editor" spellcheck="false"
+            placeholder="Pick a role above, or write your own rules here."></textarea>
+
+  <div class="actions">
+    <button type="button" class="primary" id="save">Save</button>
+    <span class="count" id="count"></span>
+    <span class="spacer"></span>
+    <span class="note" id="note"></span>
+  </div>
+</main>
+
+<script src="/static/setup.js"></script>
+<script>
+"use strict";
+
+const page = setupPage({ kind: "assistant", statusKey: "style" });
+
+// Role chips fill an empty editor outright; otherwise they ask first.
+async function loadRoles() {
+  let roles = [];
+  try {
+    roles = await api("/api/setup/templates");
+  } catch (error) {
+    page.say(`Could not load starters: ${error.message}`, true);
+    return;
+  }
+  const host = $("roles");
+  for (const role of roles) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = role.label;
+    button.addEventListener("click", () => {
+      const current = page.editor.value.trim();
+      if (current && current !== role.text.trim()
+          && !confirm(`Replace what you have with the ${role.label} starter?`)) return;
+      page.editor.value = role.text;
+      page.count();
+      page.say(`${role.label} starter loaded — edit it, then save.`);
+    });
+    host.append(button);
+  }
+}
+
+loadRoles();
+</script>
+</body>
+</html>
