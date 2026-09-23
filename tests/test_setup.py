@@ -160,6 +160,16 @@ class SetupApiTests(unittest.TestCase):
                     self.assertEqual(response.status, 200)
                     self.assertIn("text/html", response.headers["Content-Type"])
 
+    def test_hub_offers_the_three_pillars_and_both_documents(self):
+        with urllib.request.urlopen(f"{self.base}/", timeout=10) as response:
+            page = response.read().decode()
+        for pillar in ("Style", "Notes", "Documents"):
+            self.assertIn(f">{pillar}</h2>", page)
+        for href in ('href="/style"', 'href="/notes"', 'href="/resume"', 'href="/cover-letter"'):
+            self.assertIn(href, page)
+        self.assertIn("/api/setup", page)          # paints readiness
+        self.assertIn("/api/llm/providers", page)  # model strip
+
     def test_style_and_notes_paths_serve_their_own_page(self):
         """Routed now; each answers 200 as soon as its page lands (Tasks 5-6)."""
         for path, page in (("/style", "style.html"), ("/notes", "notes.html")):

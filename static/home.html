@@ -14,50 +14,167 @@
   --pico-font-family: "Fira Sans Condensed", "Segoe UI", system-ui, sans-serif;
   --pico-muted-color: #9a9a9a;
   --green: #3d5a43;
+  --chrome-gutter: 24px;
 }
 html, body { height: 100%; }
 body {
   margin: 0; background: var(--pico-background-color); font-family: var(--pico-font-family);
-  display: flex; align-items: center; justify-content: center; padding: 24px;
+  display: flex; align-items: center; justify-content: center; padding: var(--chrome-gutter);
 }
-main { width: min(640px, 100%); padding: 0; }
+main { width: min(880px, 100%); padding: 0; }
 .brand {
   display: inline-block; margin-bottom: 20px; padding: 7px 14px; border: 1px solid #3a3a3a;
   border-radius: var(--pico-border-radius); font-size: 13px; font-weight: 600;
   letter-spacing: .08em; text-transform: uppercase; color: var(--pico-muted-color);
 }
 h1 { font-size: 28px; font-weight: 500; margin: 0 0 6px; color: #ececec; }
-.lead { margin: 0 0 28px; color: var(--pico-muted-color); }
-.choices { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-@media (max-width: 520px) { .choices { grid-template-columns: 1fr; } }
-.choice {
-  display: flex; flex-direction: column; justify-content: flex-end; gap: 6px;
-  aspect-ratio: 1; padding: 22px; border-radius: 10px; text-decoration: none;
+.lead { margin: 0 0 24px; color: var(--pico-muted-color); }
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+@media (max-width: 760px) { .tiles { grid-template-columns: 1fr; } }
+.tile {
+  display: flex; flex-direction: column; gap: 8px; min-height: 210px;
+  padding: 18px; border-radius: 10px; text-decoration: none;
   background: rgba(61, 90, 67, .15); border: 1px solid rgba(61, 90, 67, .45); color: #fff;
   transition: background .15s ease, border-color .15s ease, transform .15s ease;
 }
-.choice:hover, .choice:focus-visible {
+a.tile:hover, a.tile:focus-visible {
   background: rgba(61, 90, 67, .35); border-color: var(--green); transform: translateY(-2px);
 }
-.choice strong { font-size: 22px; font-weight: 600; }
-.choice span { font-size: 14px; color: rgba(255, 255, 255, .75); line-height: 1.4; }
+.tile.next { border-color: var(--green); box-shadow: 0 0 0 1px var(--green) inset; }
+.tile h2 { font-size: 20px; font-weight: 600; margin: 0; color: #fff; }
+.tile p { margin: 0; font-size: 14px; line-height: 1.45; color: rgba(255, 255, 255, .75); }
+.tile .foot { margin-top: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.state {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+  text-transform: uppercase; letter-spacing: .06em; color: rgba(255, 255, 255, .7);
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #5a5a5a; }
+.state[data-state="started"] .dot { background: #9a9a9a; }
+.state[data-state="ready"] .dot { background: #6f9e78; }
+.docs-links { display: flex; gap: 8px; flex-wrap: wrap; }
+.docs-links a {
+  font-size: 13px; padding: 5px 10px; border-radius: 6px; text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, .25); color: #fff;
+}
+.docs-links a:hover { border-color: #fff; background: rgba(255, 255, 255, .08); }
+.model {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 16px; padding: 12px 16px; border-radius: 10px;
+  background: #171717; border: 1px solid #2e2e2e; font-size: 13px; color: var(--pico-muted-color);
+}
+.model strong { color: #ececec; font-weight: 600; }
+.model .spacer { flex: 1; }
+.model a { color: #cfe0d2; }
+.hint { margin: 14px 0 0; font-size: 13px; color: var(--pico-muted-color); }
 </style>
 </head>
 <body>
 <main>
   <span class="brand">resume-maker</span>
-  <h1>What are you working on?</h1>
-  <p class="lead">Pick one. You can switch between them at any time.</p>
-  <nav class="choices" aria-label="Choose a document">
-    <a class="choice" href="/resume">
-      <strong>Resume</strong>
-      <span>Edit your CV, preview it on the page, and export DOCX or PDF.</span>
+  <h1>Start here</h1>
+  <p class="lead">Style is how you write. Notes are what you have done. Documents are what you send.</p>
+
+  <nav class="tiles" aria-label="Setup">
+    <a class="tile" id="tile-style" href="/style">
+      <h2>Style</h2>
+      <p>How the editor writes for you: method, bullet shape, the words to avoid.</p>
+      <span class="foot"><span class="state" id="state-style"><span class="dot"></span><span class="label">…</span></span></span>
     </a>
-    <a class="choice" href="/cover-letter">
-      <strong>Cover Letter</strong>
-      <span>Write a letter for a role, with your details carried over.</span>
+
+    <a class="tile" id="tile-notes" href="/notes">
+      <h2>Notes</h2>
+      <p>Your experience bank. The raw truth a job description gets matched against.</p>
+      <span class="foot"><span class="state" id="state-notes"><span class="dot"></span><span class="label">…</span></span></span>
     </a>
+
+    <div class="tile" id="tile-docs">
+      <h2>Documents</h2>
+      <p>The CV and cover letter you send, with live preview and DOCX or PDF export.</p>
+      <span class="foot">
+        <span class="docs-links">
+          <a href="/resume">Resume</a>
+          <a href="/cover-letter">Cover letter</a>
+        </span>
+      </span>
+      <span class="foot">
+        <span class="state" id="state-cv"><span class="dot"></span><span class="label">…</span></span>
+        <span class="state" id="state-cover"><span class="dot"></span><span class="label">…</span></span>
+      </span>
+    </div>
   </nav>
+
+  <div class="model">
+    <span id="model-text">Checking for a connected model…</span>
+    <span class="spacer"></span>
+    <a href="/resume" id="model-link">Connect in the editor</a>
+  </div>
+
+  <p class="hint" id="hint"></p>
 </main>
+
+<script>
+"use strict";
+
+const LABELS = { empty: "Empty", started: "Started", ready: "Ready" };
+const DOC_LABELS = { cv: "CV", cover: "Letter" };
+
+function paint(id, state, prefix) {
+  const node = document.getElementById(`state-${id}`);
+  if (!node) return;
+  node.dataset.state = state;
+  node.querySelector(".label").textContent = prefix ? `${prefix} ${LABELS[state]}` : LABELS[state];
+}
+
+// Point the newcomer at the first thing that is still empty.
+function nudge(status) {
+  const order = [["style", "Style"], ["notes", "Notes"]];
+  const next = order.find(([key]) => status[key] === "empty");
+  const hint = document.getElementById("hint");
+  if (next) {
+    document.getElementById(`tile-${next[0]}`).classList.add("next");
+    hint.textContent = `Start with ${next[1]} — the model leans on it in every chat.`;
+  } else if (status.cv === "empty" && status.cover === "empty") {
+    document.getElementById("tile-docs").classList.add("next");
+    hint.textContent = "Style and Notes are set. Open a document and paste a job description.";
+  } else {
+    hint.textContent = "Everything is set. Open a document to tailor it to a role.";
+  }
+}
+
+async function loadSetup() {
+  try {
+    const { status } = await fetch("/api/setup").then((r) => r.json());
+    paint("style", status.style);
+    paint("notes", status.notes);
+    paint("cv", status.cv, DOC_LABELS.cv);
+    paint("cover", status.cover, DOC_LABELS.cover);
+    nudge(status);
+  } catch (error) {
+    document.getElementById("hint").textContent = `Could not read your setup: ${error.message}`;
+  }
+}
+
+async function loadModel() {
+  const text = document.getElementById("model-text");
+  try {
+    const providers = await fetch("/api/llm/providers").then((r) => r.json());
+    const connected = providers.filter((p) => p.available);
+    if (!connected.length) {
+      text.textContent = "No model connected. Chat needs one.";
+      return;
+    }
+    text.textContent = "";
+    text.append(document.createTextNode("Connected: "));
+    text.append(Object.assign(document.createElement("strong"),
+      { textContent: connected.map((p) => p.label).join(", ") }));
+    document.getElementById("model-link").textContent = "Change in the editor";
+  } catch (error) {
+    text.textContent = `Could not check models: ${error.message}`;
+  }
+}
+
+loadSetup();
+loadModel();
+</script>
 </body>
 </html>
