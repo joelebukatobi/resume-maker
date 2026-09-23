@@ -8,6 +8,7 @@ handler so it can be tested directly and reused by any page.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Mapping
 
 # A file past this is substantial enough to call "ready"; below it the user
@@ -17,6 +18,15 @@ MAX_ASSISTANT_SAVE = 40_000
 MAX_NOTES_SAVE = 400_000
 
 _LIMITS = {"assistant": MAX_ASSISTANT_SAVE, "notes": MAX_NOTES_SAVE}
+
+TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates"
+# Offered in this order on the Style page; "other" last as the fallback.
+ROLES: tuple[tuple[str, str], ...] = (
+    ("pm", "Product Manager"),
+    ("swe", "Software Engineer"),
+    ("consultant", "Consultant"),
+    ("other", "Other"),
+)
 
 State = str  # "empty" | "started" | "ready"
 
@@ -63,6 +73,19 @@ def readiness(
         "cv": cv_state(cv),
         "cover": cover_state(cover),
     }
+
+
+def templates() -> list[dict[str, str]]:
+    """Role starter text for the Style page, skipping any missing file."""
+    found = []
+    for role_id, label in ROLES:
+        path = TEMPLATE_DIR / f"assistant-{role_id}.md"
+        try:
+            text = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        found.append({"id": role_id, "label": label, "text": text})
+    return found
 
 
 def check_text(kind: str, text: Any) -> str:

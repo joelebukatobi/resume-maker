@@ -164,6 +164,8 @@ class EditorHandler(BaseHTTPRequestHandler):
             return self._static(f"{route.lstrip('/')}.html", "text/html; charset=utf-8")
         if route == "/api/setup":
             return self._setup_get()
+        if route == "/api/setup/templates":
+            return self._json(HTTPStatus.OK, setup.templates())
         if route in ("/index.html", "/resume", "/cover-letter"):
             return self._static("index.html", "text/html; charset=utf-8")
         if route == "/static/chat.js":

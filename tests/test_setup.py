@@ -56,6 +56,31 @@ class ReadinessTests(unittest.TestCase):
             setup.check_text("notes", 42)
 
 
+class TemplateTests(unittest.TestCase):
+    """Role starter text offered on the Style page."""
+
+    def test_four_roles_are_offered_in_a_sensible_order(self):
+        roles = setup.templates()
+        self.assertEqual([r["id"] for r in roles], ["pm", "swe", "consultant", "other"])
+        self.assertEqual([r["label"] for r in roles],
+                         ["Product Manager", "Software Engineer", "Consultant", "Other"])
+
+    def test_every_template_carries_the_shared_method_and_a_role_section(self):
+        for role in setup.templates():
+            with self.subTest(role=role["id"]):
+                text = role["text"]
+                self.assertGreater(len(text), 400)  # substantial enough to be "ready"
+                self.assertIn("Never invent", text)       # ask-before-invent rule
+                self.assertIn("## Method", text)          # JD map -> matches/gaps -> ask
+                self.assertIn("## Role:", text)           # role addendum
+                self.assertNotIn("spearheaded.", text.split("## Never")[0])
+
+    def test_templates_are_saveable_as_style(self):
+        for role in setup.templates():
+            with self.subTest(role=role["id"]):
+                self.assertEqual(setup.check_text("assistant", role["text"]), role["text"].strip())
+
+
 class SetupApiTests(unittest.TestCase):
     """The routes the hub, Style and Notes pages will call."""
 
@@ -122,6 +147,11 @@ class SetupApiTests(unittest.TestCase):
             self.post("/api/setup/notes", {"text": "x" * (setup.MAX_NOTES_SAVE + 1)})
         self.assertEqual(caught.exception.code, 400)
         self.assertEqual(self.notes_path.read_text().strip(), "Keep me.")
+
+    def test_templates_are_served_for_the_style_page(self):
+        roles = self.get("/api/setup/templates")
+        self.assertEqual([r["id"] for r in roles], ["pm", "swe", "consultant", "other"])
+        self.assertIn("## Method", roles[0]["text"])
 
     def test_editor_and_hub_pages_are_served(self):
         for path in ("/", "/resume", "/cover-letter"):
