@@ -8,9 +8,9 @@
   --chrome-gutter: 24px;
 }
 * { box-sizing: border-box; }
-html, body { height: 100%; }
 body {
-  margin: 0; padding: var(--chrome-gutter);
+  /* Fill the window, but grow past it rather than clip on short screens. */
+  min-height: 100vh; margin: 0; padding: var(--chrome-gutter);
   background: var(--pico-background-color); font-family: var(--pico-font-family);
   display: flex; flex-direction: column; gap: 16px;
 }
@@ -37,12 +37,19 @@ main {
 }
 h1 { font-size: 22px; font-weight: 500; margin: 0; color: #ececec; }
 .lead { margin: 0; font-size: 14px; color: var(--pico-muted-color); max-width: 70ch; }
-.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.chips .upload { margin: 0; }
+.chips button, .chips .upload span { height: 38px; line-height: 1; }
 .chips button {
-  width: auto; margin: 0; padding: 7px 12px; font-size: 13px;
+  width: auto; margin: 0; padding: 0 12px; font-size: 13px;
   background: transparent; border: 1px solid #3a3a3a; color: #cfcfcf;
 }
 .chips button:hover { border-color: var(--green); color: #e6ede7; }
+.chips .upload span {
+  display: inline-flex; align-items: center; padding: 0 12px; cursor: pointer;
+  font-size: 13px; border: 1px solid #3a3a3a; border-radius: var(--pico-border-radius); color: #cfcfcf;
+}
+.chips .upload span:hover { border-color: var(--green); color: #e6ede7; }
 .editor {
   flex: 1; min-height: 240px; width: 100%; margin: 0; resize: none;
   font-family: ui-monospace, "Fira Mono", SFMono-Regular, Menlo, monospace;

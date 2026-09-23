@@ -182,6 +182,23 @@ class SetupApiTests(unittest.TestCase):
                 self.assertEqual(response.status, 200)
                 self.assertIn(kind, response.headers["Content-Type"])
 
+    def test_notes_page_is_wired_to_save_and_file_extract(self):
+        with urllib.request.urlopen(f"{self.base}/notes", timeout=10) as response:
+            page = response.read().decode()
+        self.assertIn('kind: "notes"', page)
+        self.assertIn("/api/setup/extract", page)
+        self.assertIn("data-heading", page)  # section stubs
+
+    def test_extract_reads_an_uploaded_file_without_a_model(self):
+        import base64
+        text = self.post("/api/setup/extract",
+                         {"filename": "notes.txt", "file": base64.b64encode(b"Ran weekly triage.").decode()})
+        self.assertEqual(text["text"], "Ran weekly triage.")
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/setup/extract",
+                      {"filename": "notes.exe", "file": base64.b64encode(b"MZ").decode()})
+        self.assertEqual(caught.exception.code, 422)
+
     def test_style_and_notes_paths_serve_their_own_page(self):
         """Routed now; each answers 200 as soon as its page lands (Tasks 5-6)."""
         for path, page in (("/style", "style.html"), ("/notes", "notes.html")):

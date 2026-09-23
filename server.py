@@ -228,18 +228,24 @@ class EditorHandler(BaseHTTPRequestHandler):
             "/api/chat/fields": self._fields,
             "/api/setup/assistant": self._setup_assistant,
             "/api/setup/notes": self._setup_notes,
+            "/api/setup/extract": self._setup_extract,
             "/api/llm/key": self._key,
         }
         handler = handlers.get(route)
         if handler is None:
             return self._error(HTTPStatus.NOT_FOUND, "not found")
-        payload = self._read_json(MAX_IMPORT_BODY if route == "/api/import" else MAX_BODY)
+        big_body = route in ("/api/import", "/api/setup/extract", "/api/setup/notes")
+        payload = self._read_json(MAX_IMPORT_BODY if big_body else MAX_BODY)
         if payload is None:
             return
         try:
             handler(payload)
         except KeyError as exc:
             self._error(HTTPStatus.BAD_REQUEST, f"missing field: {exc}")
+        # ImportFailed subclasses ValueError: it must be caught first, or a
+        # bad upload reports as a plain bad request.
+        except assistant.ImportFailed as exc:
+            self._error(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc))
         except (ThemeError, ContentError, ValueError) as exc:
             self._error(HTTPStatus.BAD_REQUEST, str(exc))
         except BrowserNotFound as exc:
@@ -248,8 +254,6 @@ class EditorHandler(BaseHTTPRequestHandler):
             self._error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
         except llm.LLMError as exc:
             self._error(HTTPStatus.BAD_GATEWAY, str(exc))
-        except assistant.ImportFailed as exc:
-            self._error(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc))
 
     def _static(self, name: str, content_type: str) -> None:
         path = STATIC_ROOT / name
@@ -417,6 +421,16 @@ class EditorHandler(BaseHTTPRequestHandler):
             "saved": True,
             "status": setup.readiness(style, notes, _read_json(self._cv_path), _read_json(self._cover_path)),
         })
+
+    def _setup_extract(self, payload: dict[str, Any]) -> None:
+        """Plain text from an uploaded file, for pasting into Notes.
+
+        No model involved: this is the same extractor the import flow uses.
+        """
+        text = assistant.extract_text(
+            str(payload.get("filename", "")), assistant.decode_upload(str(payload.get("file", "")))
+        )
+        self._json(HTTPStatus.OK, {"text": text})
 
     def _setup_assistant(self, payload: dict[str, Any]) -> None:
         self._save_setup_file("assistant", self._assistant_path, payload)

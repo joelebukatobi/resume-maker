@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notes · resume-maker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans+Condensed:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<link rel="stylesheet" href="/static/setup.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="back" href="/">&#8592; Hub</a>
+  <span class="brand title">Notes</span>
+  <span class="state" id="state"><span class="dot"></span><span class="label">…</span></span>
+  <span class="spacer"></span>
+  <a class="back" href="/style">Style</a>
+  <a class="back" href="/resume">Documents</a>
+</header>
+
+<main>
+  <h1>What you have actually done</h1>
+  <p class="lead">
+    Saved as <code>notes.md</code> and shared by the CV and the cover letter. Write
+    freely: projects, numbers, decisions, the messy parts. The model matches a job
+    description against this instead of inventing something that sounds right.
+  </p>
+
+  <div class="chips" id="stubs" aria-label="Add a section">
+    <button type="button" data-heading="Owned end-to-end"
+            data-hint="What was yours from start to finish? What shipped, and what changed because of it?">+ Owned end-to-end</button>
+    <button type="button" data-heading="Ops, QA and triage"
+            data-hint="The unglamorous work: incidents, escalations, quality gates, what you fixed for good.">+ Ops / QA / triage</button>
+    <button type="button" data-heading="People don't know this about my work"
+            data-hint="The part that never fits on a CV but explains how you operate.">+ People don't know</button>
+    <button type="button" data-heading="Numbers I can defend"
+            data-hint="Figures you could explain in an interview: where they came from, and over what period.">+ Numbers</button>
+    <label class="upload">
+      <input type="file" id="file" accept=".txt,.md,.docx,.pdf" hidden>
+      <span>+ From a file</span>
+    </label>
+  </div>
+
+  <textarea class="editor" id="editor" spellcheck="false"
+            placeholder="## Amazon — Customer eXperience Impressions&#10;Ran weekly triage across the impressions dataset…"></textarea>
+
+  <div class="actions">
+    <button type="button" class="primary" id="save">Save</button>
+    <span class="count" id="count"></span>
+    <span class="spacer"></span>
+    <span class="note" id="note"></span>
+  </div>
+</main>
+
+<script src="/static/setup.js"></script>
+<script>
+"use strict";
+
+const page = setupPage({ kind: "notes", statusKey: "notes" });
+
+function append(text) {
+  const current = page.editor.value.replace(/\s+$/, "");
+  page.editor.value = current ? `${current}\n\n${text}\n` : `${text}\n`;
+  page.editor.focus();
+  page.editor.setSelectionRange(page.editor.value.length, page.editor.value.length);
+  page.editor.scrollTop = page.editor.scrollHeight;
+  page.count();
+}
+
+// Section stubs: a heading plus the question it answers, so the page is never
+// a blank box staring back at you.
+for (const button of document.querySelectorAll("#stubs button[data-heading]")) {
+  button.addEventListener("click", () => {
+    append(`## ${button.dataset.heading}\n<!-- ${button.dataset.hint} -->\n`);
+    page.say(`Added "${button.dataset.heading}" — fill it in, then save.`);
+  });
+}
+
+// Files are read server-side by the same extractor the CV import uses.
+$("file").addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+  page.say(`Reading ${file.name}…`);
+  try {
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",", 2)[1] || "");
+      reader.onerror = () => reject(new Error("could not read the file"));
+      reader.readAsDataURL(file);
+    });
+    const { text } = await api("/api/setup/extract", { filename: file.name, file: base64 });
+    append(`## From ${file.name}\n${text}`);
+    page.say(`Added ${text.length.toLocaleString()} characters from ${file.name}. Not saved yet.`);
+  } catch (error) {
+    page.say(error.message, true);
+  }
+});
+</script>
+</body>
+</html>
