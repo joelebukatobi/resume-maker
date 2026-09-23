@@ -8,55 +8,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans+Condensed:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<link rel="stylesheet" href="/static/base.css">
 <style>
-/* Pico's dark theme is navy (#11191f). Force a grey chrome instead. */
-html[data-theme="dark"] {
-  --pico-background-color: #101010;
-  --pico-color: #e8e8e8;
-  --pico-muted-color: #9a9a9a;
-  /* Iconoir nav-arrow-down, in the muted grey. */
-  --pico-icon-chevron: url("data:image/svg+xml,%3Csvg%20width%3D%2224%22%20height%3D%2224%22%20stroke-width%3D%221.5%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M6%209L12%2015L18%209%22%20stroke%3D%22%239a9a9a%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E");
-  --pico-muted-border-color: #2e2e2e;
-  --pico-primary: #d0d0d0;
-  --pico-primary-background: #3a3a3a;
-  --pico-primary-border: #3a3a3a;
-  --pico-primary-hover: #ececec;
-  --pico-primary-hover-background: #4a4a4a;
-  --pico-primary-focus: rgba(180, 180, 180, 0.22);
-  --pico-primary-inverse: #f5f5f5;
-  --pico-secondary-background: #222;
-  --pico-secondary-border: #222;
-  --pico-secondary-hover-background: #2c2c2c;
-  --pico-form-element-background-color: #1a1a1a;
-  --pico-form-element-border-color: #3a3a3a;
-  --pico-form-element-color: #f0f0f0;
-  --pico-form-element-placeholder-color: #7a7a7a;
-  --pico-form-element-active-background-color: #1a1a1a;
-  --pico-form-element-active-border-color: #7a7a7a;
-  --pico-form-element-focus-color: rgba(180, 180, 180, 0.22);
-  --pico-card-background-color: #171717;
-  --pico-card-border-color: #2e2e2e;
-  --pico-card-sectioning-background-color: #171717;
-  --pico-font-family: "Fira Sans Condensed", "Segoe UI", system-ui, sans-serif;
-  --pico-font-size: 15px;
-  --pico-line-height: 1.4;
-  --pico-spacing: 0.6rem;
-  --pico-typography-spacing-vertical: 0.6rem;
-  --pico-form-element-spacing-vertical: 0.4rem;
-  --pico-form-element-spacing-horizontal: 0.65rem;
-  --chrome-gutter: 24px;
-  --chrome-bottom: 24px;
-  --panel-pad-x: 18px;
-  --panel-stick-edge: 16px;
-  --panel-stick-gap: 12px;
-  --editor-scroll-gap: 8px;
-  --editor-scroll-size: 5px;
-  --panel-chevron: 12px;
-  --topbar-gap: 24px;
-  --topbar-sticky-height: calc(var(--chrome-gutter) + 2.25rem + var(--topbar-gap));
-  --error: #e07070;
-  --warn: #d4b24a;
-}
 html { height: 100%; overflow: hidden; }
 body {
   margin: 0; background: var(--pico-background-color);
@@ -79,12 +32,11 @@ body {
 .topbar .mode-chip,
 .topbar button {
   box-sizing: border-box;
-  height: 2.25rem;
+  height: var(--control-height);
   display: inline-flex; align-items: center;
-  font-size: 13px; line-height: 1; font-weight: 600;
+  font-size: var(--control-font-size); line-height: 1; font-weight: var(--control-font-weight);
   border-radius: var(--pico-border-radius);
 }
-.modes { display: flex; gap: 8px; align-items: center; }
 .topbar h1,
 .topbar .mode-chip {
   margin: 0;
@@ -103,14 +55,6 @@ body {
 .topbar .mode-chip[aria-pressed="true"] {
   background: #3d5a43; border-color: #3d5a43; color: #e6ede7;
 }
-.topbar .spacer { flex: 1; }
-/* Quiet links back to the setup pages; the chips stay the loud control. */
-.hub-links { display: flex; align-items: center; gap: 14px; margin-left: 8px; flex: none; }
-.hub-links a {
-  font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
-  color: #6a6a6a; text-decoration: none;
-}
-.hub-links a:hover, .hub-links a:focus-visible { color: #e6ede7; }
 .topbar button { width: auto; margin: 0; padding: 0 0.85rem; }
 /* One row at any width: --topbar-sticky-height assumes a single line. The
    status gives way first, then gaps and padding tighten. */

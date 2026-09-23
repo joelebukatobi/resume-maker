@@ -1,0 +1,103 @@
+/* Shared design tokens for every page: editor, hub, Style, Notes.
+   Load after Pico and before any page CSS. */
+
+/* Pico's dark theme is navy (#11191f). Force a grey chrome instead. */
+html[data-theme="dark"] {
+  --pico-background-color: #101010;
+  --pico-color: #e8e8e8;
+  --pico-muted-color: #9a9a9a;
+  /* Iconoir nav-arrow-down, in the muted grey. */
+  --pico-icon-chevron: url("data:image/svg+xml,%3Csvg%20width%3D%2224%22%20height%3D%2224%22%20stroke-width%3D%221.5%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M6%209L12%2015L18%209%22%20stroke%3D%22%239a9a9a%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E");
+  --pico-muted-border-color: #2e2e2e;
+  --pico-primary: #d0d0d0;
+  --pico-primary-background: #3a3a3a;
+  --pico-primary-border: #3a3a3a;
+  --pico-primary-hover: #ececec;
+  --pico-primary-hover-background: #4a4a4a;
+  --pico-primary-focus: rgba(180, 180, 180, 0.22);
+  --pico-primary-inverse: #f5f5f5;
+  --pico-secondary-background: #222;
+  --pico-secondary-border: #222;
+  --pico-secondary-hover-background: #2c2c2c;
+  --pico-form-element-background-color: #1a1a1a;
+  --pico-form-element-border-color: #3a3a3a;
+  --pico-form-element-color: #f0f0f0;
+  --pico-form-element-placeholder-color: #7a7a7a;
+  --pico-form-element-active-background-color: #1a1a1a;
+  --pico-form-element-active-border-color: #7a7a7a;
+  --pico-form-element-focus-color: rgba(180, 180, 180, 0.22);
+  --pico-card-background-color: #171717;
+  --pico-card-border-color: #2e2e2e;
+  --pico-card-sectioning-background-color: #171717;
+  --pico-font-family: "Fira Sans Condensed", "Segoe UI", system-ui, sans-serif;
+  --pico-font-size: 15px;
+  --pico-line-height: 1.4;
+  --pico-spacing: 0.6rem;
+  --pico-typography-spacing-vertical: 0.6rem;
+  --pico-form-element-spacing-vertical: 0.4rem;
+  --pico-form-element-spacing-horizontal: 0.65rem;
+  --chrome-gutter: 24px;
+  --chrome-bottom: 24px;
+  --panel-pad-x: 18px;
+  --panel-stick-edge: 16px;
+  --panel-stick-gap: 12px;
+  --editor-scroll-gap: 8px;
+  --editor-scroll-size: 5px;
+  --panel-chevron: 12px;
+  --topbar-gap: 24px;
+  --topbar-sticky-height: calc(var(--chrome-gutter) + 2.25rem + var(--topbar-gap));
+  /* Controls: every chip and button in a top bar or action row. The editor's
+     top bar is the reference; this is what keeps the pages identical. */
+  --control-height: 2.25rem;
+  --control-font-size: 13px;
+  --control-font-weight: 600;
+  --chip-pad-x: calc(var(--panel-pad-x) - 1px);
+  --button-pad-x: 0.85rem;
+  --accent: #3d5a43;
+  --accent-ink: #e6ede7;
+  --error: #e07070;
+  --warn: #d4b24a;
+}
+
+/* A top-bar chip (the "resume" / "cover letter" look). */
+.chip {
+  box-sizing: border-box; height: var(--control-height); margin: 0;
+  display: inline-flex; align-items: center; padding: 0 var(--chip-pad-x);
+  font-family: var(--pico-font-family); font-size: var(--control-font-size);
+  font-weight: var(--control-font-weight); line-height: 1; letter-spacing: .08em;
+  text-transform: uppercase; text-decoration: none; white-space: nowrap;
+  border: 1px solid var(--pico-form-element-border-color);
+  border-radius: var(--pico-border-radius); background: transparent;
+  color: var(--pico-muted-color);
+}
+a.chip:hover, a.chip:focus-visible { border-color: var(--accent); color: var(--accent-ink); }
+.chip.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+/* A top-bar / action button (the "Save" / "Export PDF" look). */
+.btn {
+  box-sizing: border-box; height: var(--control-height); width: auto; margin: 0;
+  display: inline-flex; align-items: center; padding: 0 var(--button-pad-x);
+  font-family: var(--pico-font-family); font-size: var(--control-font-size);
+  font-weight: var(--control-font-weight); line-height: 1; white-space: nowrap;
+  border-radius: var(--pico-border-radius);
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+/* Pico's a[role=button] outranks a single class; restate the sizing so a
+   link-button is the same box as a real button. */
+a.btn[role="button"] {
+  display: inline-flex; align-items: center; height: var(--control-height);
+  padding: 0 var(--button-pad-x); line-height: 1;
+}
+
+/* Quiet text links to the other pages. The chip says where you are; these
+   say where else you can go. Same on every page. */
+.hub-links { display: flex; align-items: center; gap: 14px; margin-left: 8px; flex: none; }
+.hub-links a {
+  font-family: var(--pico-font-family); font-size: 12px; font-weight: 600;
+  letter-spacing: .08em; text-transform: uppercase; color: #6a6a6a; text-decoration: none;
+}
+.hub-links a:hover, .hub-links a:focus-visible { color: var(--accent-ink); }
+
+/* Every page's top bar: page chips, quiet links, then actions on the right. */
+.topbar .spacer { flex: 1; }
+.modes { display: flex; gap: 8px; align-items: center; }

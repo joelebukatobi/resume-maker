@@ -172,6 +172,8 @@ class EditorHandler(BaseHTTPRequestHandler):
             return self._static("chat.js", "text/javascript; charset=utf-8")
         if route == "/static/setup.js":
             return self._static("setup.js", "text/javascript; charset=utf-8")
+        if route == "/static/base.css":
+            return self._static("base.css", "text/css; charset=utf-8")
         if route == "/static/setup.css":
             return self._static("setup.css", "text/css; charset=utf-8")
         if route == "/api/document":
