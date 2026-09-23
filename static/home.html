@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>resume-maker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans+Condensed:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<style>
+:root {
+  --pico-background-color: #101010;
+  --pico-font-family: "Fira Sans Condensed", "Segoe UI", system-ui, sans-serif;
+  --pico-muted-color: #9a9a9a;
+  --green: #3d5a43;
+}
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--pico-background-color); font-family: var(--pico-font-family);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+main { width: min(640px, 100%); padding: 0; }
+.brand {
+  display: inline-block; margin-bottom: 20px; padding: 7px 14px; border: 1px solid #3a3a3a;
+  border-radius: var(--pico-border-radius); font-size: 13px; font-weight: 600;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--pico-muted-color);
+}
+h1 { font-size: 28px; font-weight: 500; margin: 0 0 6px; color: #ececec; }
+.lead { margin: 0 0 28px; color: var(--pico-muted-color); }
+.choices { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 520px) { .choices { grid-template-columns: 1fr; } }
+.choice {
+  display: flex; flex-direction: column; justify-content: flex-end; gap: 6px;
+  aspect-ratio: 1; padding: 22px; border-radius: 10px; text-decoration: none;
+  background: rgba(61, 90, 67, .15); border: 1px solid rgba(61, 90, 67, .45); color: #fff;
+  transition: background .15s ease, border-color .15s ease, transform .15s ease;
+}
+.choice:hover, .choice:focus-visible {
+  background: rgba(61, 90, 67, .35); border-color: var(--green); transform: translateY(-2px);
+}
+.choice strong { font-size: 22px; font-weight: 600; }
+.choice span { font-size: 14px; color: rgba(255, 255, 255, .75); line-height: 1.4; }
+</style>
+</head>
+<body>
+<main>
+  <span class="brand">resume-maker</span>
+  <h1>What are you working on?</h1>
+  <p class="lead">Pick one. You can switch between them at any time.</p>
+  <nav class="choices" aria-label="Choose a document">
+    <a class="choice" href="/resume">
+      <strong>Resume</strong>
+      <span>Edit your CV, preview it on the page, and export DOCX or PDF.</span>
+    </a>
+    <a class="choice" href="/cover-letter">
+      <strong>Cover Letter</strong>
+      <span>Write a letter for a role, with your details carried over.</span>
+    </a>
+  </nav>
+</main>
+</body>
+</html>
