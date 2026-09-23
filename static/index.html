@@ -14,6 +14,8 @@ html[data-theme="dark"] {
   --pico-background-color: #101010;
   --pico-color: #e8e8e8;
   --pico-muted-color: #9a9a9a;
+  /* Iconoir nav-arrow-down, in the muted grey. */
+  --pico-icon-chevron: url("data:image/svg+xml,%3Csvg%20width%3D%2224%22%20height%3D%2224%22%20stroke-width%3D%221.5%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M6%209L12%2015L18%209%22%20stroke%3D%22%239a9a9a%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E");
   --pico-muted-border-color: #2e2e2e;
   --pico-primary: #d0d0d0;
   --pico-primary-background: #3a3a3a;
@@ -118,6 +120,129 @@ body > main {  /* matches Pico's body>main so its 9px block padding is overridde
   align-items: stretch; flex: 1; min-height: 0; overflow: hidden;
 }
 @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+/* Chat open: inputs, a narrower preview, then the chat. */
+body.chat-open > main { grid-template-columns: minmax(360px, 480px) minmax(0, 1fr) 380px; }
+body:not(.chat-open) .chat { display: none; }
+.chat {
+  min-height: 0; display: flex; flex-direction: column; gap: 10px;
+  background: var(--pico-card-background-color, #171717); border-radius: var(--pico-border-radius);
+  padding: 14px; overflow: hidden;
+}
+.chat textarea, .chat select, .chat input { margin: 0; font-size: 13px; }
+.chat-head { display: flex; align-items: center; justify-content: space-between; }
+.chat-head strong { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--pico-muted-color); }
+.chat-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 8px; }
+.chat-empty { font-size: 13px; color: var(--pico-muted-color); margin: auto; text-align: center; max-width: 85%; }
+.chat-msg { font-size: 13px; line-height: 1.45; }
+.chat-msg p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-msg strong { font-weight: 600; color: #fff; }
+.chat-msg code {
+  font-size: 12px; padding: 1px 4px; border-radius: 4px; background: #2a2a2a; color: #e6ede7;
+}
+.chat-list { margin: 0; padding-left: 18px; }
+.chat-list li { margin: 2px 0; overflow-wrap: anywhere; }
+.chat-heading { font-weight: 600; color: #fff; }
+.chat-group { display: flex; flex-direction: column; gap: 6px; }
+.chat-msg.user { align-self: flex-end; max-width: 88%; background: #2a2a2a; padding: 8px 10px; border-radius: 10px; }
+.chat-msg.assistant { display: flex; flex-direction: column; gap: 8px; }
+.chat-para { position: relative; }
+.chat-replace-btn { display: none; position: absolute; right: 0; top: -2px; padding: 1px 6px; font-size: 11px; width: auto; }
+.chat-para:hover .chat-replace-btn { display: inline-block; }
+.chat-replace { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
+.chat-card { border-left: 3px solid #3d5a43; background: #1f1f1f; border-radius: 6px; padding: 8px 10px; }
+.chat-card.dismissed { opacity: .55; border-left-color: #555; }
+.chat-card-head { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--pico-muted-color); margin-bottom: 4px; }
+.chat-diff { font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-diff ins { background: rgba(61, 160, 90, .28); text-decoration: none; }
+.chat-diff del { background: rgba(190, 70, 70, .28); color: #c9a0a0; }
+.chat-card-actions { display: flex; gap: 6px; margin-top: 8px; }
+.chat-card-actions button, .chat-replace-btn { margin: 0; }
+.chat-card-state { font-size: 11px; color: var(--pico-muted-color); margin-top: 6px; }
+.chat-pending { font-size: 12px; color: var(--pico-muted-color); }
+.chat-head-actions { display: flex; gap: 12px; align-items: center; }
+.chat-link {
+  width: auto; margin: 0; padding: 0; border: 0; background: none; box-shadow: none;
+  font-size: 12px; color: var(--pico-muted-color); text-decoration: underline; text-underline-offset: 3px;
+  cursor: pointer;
+}
+.chat-link:hover { color: #e6ede7; }
+/* Two square tiles: pasted job description, uploaded document. */
+.chat-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.tile {
+  position: relative; aspect-ratio: 1; border: 1px dashed #3a3a3a; border-radius: 8px;
+  background: rgba(61, 90, 67, .15); color: #fff;
+  overflow: hidden; display: flex; align-items: center; justify-content: center;
+}
+.tile:hover, .tile:focus-within, .tile.drag { border-color: #5a7a60; }
+.tile textarea {
+  position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; resize: none;
+  border: 0; background: transparent; padding: 12px; font-size: 12px; text-align: center;
+  box-shadow: none;
+}
+.tile textarea { color: #fff; }
+.tile textarea::placeholder { color: #fff; opacity: 1; }
+.tile textarea:not(:placeholder-shown) { text-align: left; }
+/* Empty: centre the placeholder like the upload tile (tile is square, so % of width = % of height). */
+.tile textarea:placeholder-shown { padding-top: calc(50% - 0.7em); }
+.tile-chip {
+  position: absolute; inset: 0; padding: 12px; display: flex; flex-direction: column; gap: 6px;
+  cursor: pointer; background: transparent;
+}
+.tile-chip[hidden] { display: none; }
+.tile-tag {
+  align-self: flex-start; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  padding: 2px 6px; border-radius: 4px; background: rgba(0, 0, 0, .25); color: #fff;
+}
+.tile-chip p {
+  margin: 0; font-size: 12px; line-height: 1.35; color: #fff; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical;
+}
+.tile-meta { margin-top: auto; font-size: 11px; color: rgba(255, 255, 255, .75); }
+#cv-tile { cursor: pointer; }
+.tile-empty, .tile-doc {
+  display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px;
+  font-size: 12px; color: #fff; text-align: center;
+}
+.tile-empty[hidden], .tile-doc[hidden] { display: none; }
+.tile-doc { color: #fff; font-size: 13px; }
+.tile-doc span { overflow-wrap: anywhere; }
+.tile-x {
+  position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; margin: 0; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1;
+  border: 0; border-radius: 50%; background: rgba(0, 0, 0, .3); color: #fff; z-index: 2;
+}
+.tile-x[hidden] { display: none; }
+/* Message box: full width, send icon in its bottom-right corner. */
+.chat-compose { position: relative; }
+.chat-compose textarea { width: 100%; margin: 0; resize: none; min-height: 84px; padding: 10px 48px 10px 12px; }
+.chat-icon {
+  position: absolute; right: 8px; bottom: 8px; width: 26px; height: 26px; margin: 0; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center; border-radius: 50%;
+  background: transparent; border: 0; box-shadow: none; color: var(--pico-muted-color);
+}
+.chat-icon:hover, .chat-icon:focus-visible { background: transparent; color: #e6ede7; }
+.chat-icon[hidden] { display: none; }
+.chat-icon:disabled { opacity: .45; }
+dialog article { width: min(460px, 92vw); padding: 20px; }
+.dialog-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.dialog-foot { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+.dialog-foot button { width: auto; margin: 0; }
+.agent-providers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 10px 0 14px; }
+.agent-providers button {
+  margin: 0; padding: 8px 4px; font-size: 12px; width: 100%;
+  background: transparent; border: 1px solid #3a3a3a; color: #cfcfcf;
+}
+.agent-providers button[aria-pressed="true"] { background: #3d5a43; border-color: #3d5a43; color: #e6ede7; }
+.agent-providers small { display: block; font-size: 10px; color: var(--pico-muted-color); }
+.agent-providers button[aria-pressed="true"] small { color: #cfe0d2; }
+#jd-full { width: 100%; margin: 0; font-size: 13px; }
+.import-bar {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px; margin-bottom: 8px;
+  background: #22301f; border-radius: var(--pico-border-radius); font-size: 12px;
+}
+.import-bar[hidden] { display: none; }
+.import-bar span { flex: 1; }
+.import-bar button { margin: 0; width: auto; }
 .editor-wrap {
   min-height: 0; height: 100%; overflow: hidden;
   display: flex; flex-direction: column;
@@ -147,38 +272,38 @@ details.panel[open]::details-content {
   margin-right: calc(var(--panel-pad-x) + (var(--panel-chevron) - var(--editor-scroll-size)) / 2);
   padding: 0 var(--editor-scroll-gap) var(--panel-stick-gap) var(--panel-pad-x);
 }
-.panel-body::-webkit-scrollbar {
+.panel-body::-webkit-scrollbar, .chat-log::-webkit-scrollbar {
   width: var(--editor-scroll-size);
   height: var(--editor-scroll-size);
   background: transparent;
 }
-.panel-body::-webkit-scrollbar-button {
+.panel-body::-webkit-scrollbar-button, .chat-log::-webkit-scrollbar-button {
   display: none !important;
   width: 0 !important;
   height: 0 !important;
   background: transparent;
   border: 0;
 }
-.panel-body::-webkit-scrollbar-button:single-button,
-.panel-body::-webkit-scrollbar-button:double-button,
-.panel-body::-webkit-scrollbar-button:vertical:decrement,
-.panel-body::-webkit-scrollbar-button:vertical:increment,
-.panel-body::-webkit-scrollbar-button:horizontal:decrement,
-.panel-body::-webkit-scrollbar-button:horizontal:increment {
+.panel-body::-webkit-scrollbar-button:single-button, .chat-log::-webkit-scrollbar-button:single-button,
+.panel-body::-webkit-scrollbar-button:double-button, .chat-log::-webkit-scrollbar-button:double-button,
+.panel-body::-webkit-scrollbar-button:vertical, .chat-log::-webkit-scrollbar-button:vertical:decrement,
+.panel-body::-webkit-scrollbar-button:vertical, .chat-log::-webkit-scrollbar-button:vertical:increment,
+.panel-body::-webkit-scrollbar-button:horizontal, .chat-log::-webkit-scrollbar-button:horizontal:decrement,
+.panel-body::-webkit-scrollbar-button:horizontal, .chat-log::-webkit-scrollbar-button:horizontal:increment {
   display: none !important;
   width: 0 !important;
   height: 0 !important;
 }
-.panel-body::-webkit-scrollbar-track {
+.panel-body::-webkit-scrollbar-track, .chat-log::-webkit-scrollbar-track {
   background: transparent;
   margin: 0;
 }
-.panel-body::-webkit-scrollbar-thumb {
+.panel-body::-webkit-scrollbar-thumb, .chat-log::-webkit-scrollbar-thumb {
   background: #5a5a5a; border-radius: 8px;
 }
-.panel-body::-webkit-scrollbar-corner { background: transparent; }
+.panel-body::-webkit-scrollbar-corner, .chat-log::-webkit-scrollbar-corner { background: transparent; }
 @supports not selector(::-webkit-scrollbar) {
-  .panel-body {
+  .panel-body, .chat-log {
     scrollbar-width: thin;
     scrollbar-color: #5a5a5a transparent;
   }
@@ -296,6 +421,13 @@ iframe {
 /* Toast: slides in from the right, top aligned with the preview's sheet
    (position set from the preview frame). Only shown while something is
    happening or went wrong. */
+.ico { width: 1em; height: 1em; flex: none; display: block; }
+button.icon-only { display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+button.icon-only .ico { width: 15px; height: 15px; }
+.tile-x .ico { width: 13px; height: 13px; }
+.chat-link .ico { width: 16px; height: 16px; }
+.chat-icon .ico { width: 14px; height: 14px; }
+.zoom-controls button .ico { width: 16px; height: 16px; margin: auto; }
 .toast {
   position: fixed; z-index: 20;
   top: var(--toast-top, 96px); right: var(--toast-right, 48px);
@@ -378,12 +510,24 @@ details.row-item:not([open]) > summary { margin-bottom: 0; padding-bottom: 0; bo
 </style>
 </head>
 <body>
+<!-- Icons: Iconoir v7.12.1 (MIT, https://iconoir.com), regular set. -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <symbol id="i-send-diagonal" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M22.1525 3.55321L11.1772 21.0044L9.50686 12.4078L2.00002 7.89795L22.1525 3.55321Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M9.45557 12.4436L22.1524 3.55321" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-square" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M21 3.6V20.4C21 20.7314 20.7314 21 20.4 21H3.6C3.26863 21 3 20.7314 3 20.4V3.6C3 3.26863 3.26863 3 3.6 3H20.4C20.7314 3 21 3.26863 21 3.6Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-xmark" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M6.75827 17.2426L12.0009 12M17.2435 6.75736L12.0009 12M12.0009 12L6.75827 6.75736M12.0009 12L17.2435 17.2426" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-arrow-up" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M12 21L12 3M12 3L20.5 11.5M12 3L3.5 11.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-arrow-down" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M12 3L12 21M12 21L20.5 12.5M12 21L3.5 12.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M6 12H12M18 12H12M12 12V6M12 12V18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M6 12H18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
 <header class="topbar">
   <nav class="modes">
     <button type="button" class="mode-chip" id="mode-cv" aria-pressed="true">resume</button>
     <button type="button" class="mode-chip" id="mode-cover" aria-pressed="false">cover letter</button>
   </nav>
   <span class="spacer"></span>
+  <button id="chat-toggle" class="secondary" aria-pressed="true" title="Show or hide the chat">Chat</button>
   <button id="save" class="secondary">Save</button>
   <button id="export-docx" class="secondary">Export DOCX</button>
   <button id="export-pdf">Export PDF</button>
@@ -505,12 +649,49 @@ details.row-item:not([open]) > summary { margin-bottom: 0; padding-bottom: 0; bo
   </div>
 
   <div class="preview-wrap">
+    <div id="import-bar" class="import-bar" hidden>
+      <span>Imported, not applied. Review it in the preview.</span>
+      <button type="button" class="tiny" id="import-accept">Accept</button>
+      <button type="button" class="tiny secondary" id="import-discard">Discard</button>
+    </div>
     <iframe id="preview" sandbox="allow-scripts" title="CV preview" scrolling="no"></iframe>
     <div class="zoom-controls">
-      <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
-      <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+      <button type="button" id="zoom-out" aria-label="Zoom out"><svg class="ico" aria-hidden="true"><use href="#i-minus"/></svg></button>
+      <button type="button" id="zoom-in" aria-label="Zoom in"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg></button>
     </div>
   </div>
+  <aside id="chat" class="chat" aria-label="Chat">
+    <div class="chat-head">
+      <strong id="chat-title">Chat</strong>
+      <span class="chat-head-actions">
+        <button type="button" class="chat-link" id="agent-link">Connect Agent</button>
+        <button type="button" class="chat-link" id="chat-clear">Clear</button>
+      </span>
+    </div>
+    <div id="chat-log" class="chat-log" aria-live="polite"></div>
+    <div class="chat-tiles">
+      <div class="tile" id="jd-tile">
+        <textarea id="jd-input" aria-label="Job description" placeholder="Paste Job Description"></textarea>
+        <div class="tile-chip" id="jd-chip" hidden>
+          <span class="tile-tag">Pasted</span>
+          <p id="jd-preview"></p>
+          <span class="tile-meta" id="jd-meta"></span>
+        </div>
+        <button type="button" class="tile-x" id="jd-clear" aria-label="Remove job description" hidden><svg class="ico" aria-hidden="true"><use href="#i-xmark"/></svg></button>
+      </div>
+      <div class="tile" id="cv-tile" role="button" tabindex="0" aria-label="Upload a document to import">
+        <input type="file" id="cv-file" accept=".docx,.pdf,.txt" hidden>
+        <span class="tile-empty" id="cv-empty"><span id="cv-empty-label">Upload CV</span></span>
+        <span class="tile-doc" id="cv-doc" hidden><span id="cv-doc-name"></span></span>
+        <button type="button" class="tile-x" id="cv-clear" aria-label="Remove document" hidden><svg class="ico" aria-hidden="true"><use href="#i-xmark"/></svg></button>
+      </div>
+    </div>
+    <div class="chat-compose">
+      <textarea id="chat-input" rows="3" placeholder="Ask anything about this document"></textarea>
+      <button type="button" class="chat-icon" id="chat-send" aria-label="Send"><svg class="ico" aria-hidden="true"><use href="#i-send-diagonal"/></svg></button>
+      <button type="button" class="chat-icon" id="chat-stop" aria-label="Stop" hidden><svg class="ico" aria-hidden="true"><use href="#i-square"/></svg></button>
+    </div>
+  </aside>
 </main>
 
 <script>
@@ -566,6 +747,21 @@ function el(tag, attrs = {}, children = []) {
   }
   for (const child of [].concat(children)) if (child) node.append(child);
   return node;
+}
+
+// Iconoir symbol from the sprite at the top of <body>.
+function icon(name) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "ico");
+  svg.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", `#i-${name}`);
+  svg.append(use);
+  return svg;
+}
+
+function iconButton(name, label, onclick) {
+  return el("button", { class: "tiny icon-only", type: "button", "aria-label": label, title: label, onclick }, icon(name));
 }
 
 function field(label, value, oninput, { area = false } = {}) {
@@ -642,10 +838,10 @@ function foldable(record, className, summaryChildren, body) {
 function rowControls(list, index, label) {
   return [
     el("strong", { text: label }),
-    el("button", { class: "tiny", text: "↑", onclick: noToggle(() => moveRow(list, index, -1)) }),
-    el("button", { class: "tiny", text: "↓", onclick: noToggle(() => moveRow(list, index, 1)) }),
-    el("button", { class: "tiny", text: "✕",
-      onclick: noToggle(() => { list.splice(index, 1); draw(); }) }),
+    iconButton("arrow-up", "Move up", noToggle(() => moveRow(list, index, -1))),
+    iconButton("arrow-down", "Move down", noToggle(() => moveRow(list, index, 1))),
+    el("button", { class: "tiny icon-only", type: "button", "aria-label": "Remove", title: "Remove",
+      onclick: noToggle(() => { list.splice(index, 1); draw(); }) }, icon("xmark")),
   ];
 }
 
@@ -721,8 +917,7 @@ function drawEntry(entries, entry, index) {
         area.value = text;
         return area;
       })(),
-      el("button", { class: "tiny", text: "✕",
-        onclick: () => { bullets.splice(i, 1); draw(); } }),
+      iconButton("xmark", "Remove bullet", () => { bullets.splice(i, 1); draw(); }),
     ])),
     el("button", { class: "tiny", text: "+ bullet",
       onclick: () => { bullets.push(""); draw(); } }),
@@ -807,6 +1002,15 @@ function payload() {
   return { cv, theme: themeCv, cover, cover_theme: themeCover, document: documentMode };
 }
 
+// The preview may show an import awaiting review; Save and Export use payload().
+function previewPayload() {
+  const data = payload();
+  if (typeof pendingImport !== "undefined" && pendingImport && pendingImport.mode === documentMode) {
+    data[documentMode === "cover" ? "cover" : "cv"] = pendingImport.doc;
+  }
+  return data;
+}
+
 // Each document has its own address, so a reload or a bookmark reopens it.
 const MODE_PATHS = { cv: "/resume", cover: "/cover-letter" };
 const modeFromPath = (path) => (path === MODE_PATHS.cover ? "cover" : "cv");
@@ -832,6 +1036,7 @@ function setMode(next, { push = true } = {}) {
   fillStyleForm();
   drawContact();
   schedule();
+  if (typeof chatModeChanged === "function") chatModeChanged();
 }
 
 /* -------------------------------------------------------------- preview */
@@ -848,8 +1053,7 @@ function drawLetter() {
         area.value = text;
         return area;
       })(),
-      el("button", { class: "tiny", text: "✕",
-        onclick: () => { cover.paragraphs.splice(index, 1); draw(); } }),
+      iconButton("xmark", "Remove paragraph", () => { cover.paragraphs.splice(index, 1); draw(); }),
     ]));
   });
   $("cover_role").value = cover.role || "";
@@ -879,7 +1083,7 @@ function sendZoom() {
 
 async function refresh() {
   try {
-    const response = await api("/api/preview", payload());
+    const response = await api("/api/preview", previewPayload());
     const data = await response.json();
     // The sandboxed srcdoc frame has no usable base URL, so point relative
     // links (the preview's bitmap-free fonts) back at this server.
@@ -1050,10 +1254,38 @@ $("zoom-out").addEventListener("click", () => {
     const mode = modeFromPath(location.pathname);
     history.replaceState({ mode }, "", MODE_PATHS[mode]);
     if (mode === "cover") setMode("cover", { push: false });
+    else if (typeof chatModeChanged === "function") chatModeChanged();
   } catch (error) {
     setStatus(error.message, true);
   }
 })();
 </script>
+<dialog id="agent-dialog">
+  <article>
+    <header class="dialog-head"><strong>Agent</strong>
+      <button type="button" class="chat-link" id="agent-close" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-xmark"/></svg></button></header>
+    <p class="status">Pick a provider and paste its API key. The key is checked, then kept on this machine only.</p>
+    <div class="agent-providers" id="agent-providers"></div>
+    <label for="agent-key">API key</label>
+    <input type="password" id="agent-key" autocomplete="off" spellcheck="false">
+    <label for="agent-model">Model</label>
+    <select id="agent-model"></select>
+    <p class="status" id="agent-note"></p>
+    <footer class="dialog-foot">
+      <button type="button" class="secondary" id="agent-disconnect">Disconnect</button>
+      <span class="spacer"></span>
+      <button type="button" id="agent-connect">Connect</button>
+      <button type="button" id="agent-done">Done</button>
+    </footer>
+  </article>
+</dialog>
+<dialog id="jd-dialog">
+  <article>
+    <header class="dialog-head"><strong>Job description</strong>
+      <button type="button" class="chat-link" id="jd-dialog-close" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-xmark"/></svg></button></header>
+    <textarea id="jd-full" rows="16"></textarea>
+  </article>
+</dialog>
+<script src="/static/chat.js"></script>
 </body>
 </html>
