@@ -30,6 +30,30 @@ Run the self-checks:
 python3 -m unittest discover -s tests
 ```
 
+## Chat and import
+
+The right-hand panel talks to an LLM about the open document. Click **Connect
+agent**, pick Claude, OpenAI, DeepSeek or Kimi, and paste an API key. The key is
+checked against the provider, then saved to `~/.config/resume-maker/keys.json`
+(owner-only, outside the repo); it is never sent back to the browser. Keys in
+the environment work too and take precedence:
+
+```bash
+export ANTHROPIC_API_KEY=...   # also OPENAI_API_KEY, DEEPSEEK_API_KEY, MOONSHOT_API_KEY
+python3 server.py
+```
+
+Models are listed live from each provider. Override an endpoint with
+`<PROVIDER>_BASE_URL`, e.g. `MOONSHOT_BASE_URL=https://api.moonshot.cn/v1`.
+
+- **Proposals**: text the model writes for a field appears as a before/after
+  diff with Accept. Any other paragraph has **Replace…** to drop it into a field.
+  Nothing changes until you accept, and nothing is written to disk until Save.
+- **Job description**: paste into the left tile; it collapses to a *Pasted* card (click to view or edit).
+- **Import**: click or drop a .docx, .pdf or .txt on the right tile. The result shows
+  in the preview as *not applied* until you Accept. PDF import uses `pdftotext`.
+- **History** is kept per document in `.chat/` (git-ignored; it holds CV text).
+
 ## The problem this solves
 
 Word documents usually place a location or a date on the right by padding with
