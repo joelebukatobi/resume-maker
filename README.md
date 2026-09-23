@@ -12,8 +12,32 @@ application installed on the system.
 python3 server.py
 ```
 
-Opens a local editor at `http://127.0.0.1:8000`. Edit the fields, watch the
+Opens the hub at `http://127.0.0.1:8000`. Edit the fields, watch the
 preview, then Save or Export.
+
+## The spine: Style → Notes → Documents → Model → Chat
+
+The hub at `/` walks you through five pieces, each showing whether it is
+empty, started or ready:
+
+| Pillar | Where | File | What it is |
+|---|---|---|---|
+| **Style** | `/style` | `assistant.md` | How the editor writes for you: method, bullet shape, banned words, voice. Start from a role (Product Manager, Software Engineer, Consultant, Other) and make it yours. |
+| **Notes** | `/notes` | `notes.md` | Your experience bank: what you actually did, the numbers you can defend, the work a CV never captures. |
+| **Documents** | `/resume`, `/cover-letter` | `cv.json`, `cover.json` | What you send, with live preview and DOCX/PDF export. |
+| **Model** | Agent link in the chat | `~/.config/resume-maker/keys.json` | The provider the chat talks to. |
+| **Chat** | right-hand panel | `.chat/` | Where you tailor a document to a job. |
+
+Style and Notes are sent with every chat turn, for both the CV and the cover
+letter — **Notes are shared**, so one bank feeds both. The model is told to map
+a job description against them, name the gaps, and ask before inventing
+anything. Notes over 60,000 characters are trimmed in the prompt, with a marker
+telling the model so.
+
+Both files live next to `cv.json` by default; point elsewhere with
+`--assistant path/to/assistant.md` and `--notes path/to/notes.md`. They are
+git-ignored because they hold personal detail; the role starters in
+`templates/` are tracked.
 
 Command line, for the same result without the UI:
 
@@ -92,8 +116,15 @@ than discovered later in the PDF.
 | `resume_maker/validate.py` | Advisory ATS checks |
 | `resume_maker/build.py` | Orchestration shared by CLI and server |
 | `resume_maker/fonts.py` | Curated font list with local availability |
+| `resume_maker/assistant.py` | What the chat model sees (fields, Style, Notes) and how its output is checked |
+| `resume_maker/llm.py` | Provider-agnostic chat: Claude, OpenAI, DeepSeek, Kimi |
+| `resume_maker/setup.py` | Readiness of each pillar and limits on what is saved |
+| `templates/assistant-*.md` | Role starters for Style |
 | `server.py` | Loopback-only editor |
 | `static/index.html` | Editor UI, vanilla JS |
+| `static/chat.js` | Chat panel |
+| `static/home.html` | Hub: Style, Notes, Documents |
+| `static/style.html`, `static/notes.html` | Setup pages, sharing `setup.css` / `setup.js` |
 
 Both renderers read the same `Theme`, so DOCX and PDF cannot disagree about
 margins, tab stops, sizes or spacing. Adding a section kind means adding a
