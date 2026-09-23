@@ -256,16 +256,42 @@ function renderAssistant(message, index, streaming) {
   return box;
 }
 
+// Style and Notes readiness, read once so the empty state can point at them.
+let setupStatus = null;
+fetch("/api/setup").then((r) => r.json()).then((d) => { setupStatus = d.status; renderChat(); })
+  .catch(() => { /* the plain empty state still works */ });
+
+function emptyState() {
+  const doc = documentMode === "cover" ? "cover letter" : "CV";
+  const box = el("div", { class: "chat-empty" });
+  const style = setupStatus && setupStatus.style !== "empty";
+  const notes = setupStatus && setupStatus.notes !== "empty";
+  if (style && notes) {
+    box.append(el("p", { text: `Your Style and Notes are loaded into every answer. ` +
+      `Paste a job description below and ask me to tailor your ${doc}.` }));
+    return box;
+  }
+  box.append(el("p", { text: `Ask about your ${doc}, paste a job description below, ` +
+    "or upload an existing document." }));
+  if (setupStatus) {
+    const missing = [!style && ["Style", "/style"], !notes && ["Notes", "/notes"]].filter(Boolean);
+    const tip = el("p", { class: "chat-tip" }, [document.createTextNode("Add your ")]);
+    missing.forEach(([label, href], i) => {
+      if (i) tip.append(document.createTextNode(" and "));
+      tip.append(el("a", { href, text: label }));
+    });
+    tip.append(document.createTextNode(" so I write like you and draw on what you have actually done."));
+    box.append(tip);
+  }
+  return box;
+}
+
 function renderChat({ streaming = false } = {}) {
   const host = $("chat-log");
   const state = chats[documentMode];
   host.textContent = "";
   if (!state) return;
-  if (!state.messages.length) {
-    host.append(el("p", { class: "chat-empty",
-      text: "Ask about your " + (documentMode === "cover" ? "cover letter" : "CV") +
-        ", paste a job description below, or upload an existing document." }));
-  }
+  if (!state.messages.length) host.append(emptyState());
   state.messages.forEach((m, i) => {
     const isLast = i === state.messages.length - 1;
     host.append(m.role === "user"

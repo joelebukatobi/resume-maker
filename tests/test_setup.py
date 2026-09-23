@@ -199,6 +199,20 @@ class SetupApiTests(unittest.TestCase):
                       {"filename": "notes.exe", "file": base64.b64encode(b"MZ").decode()})
         self.assertEqual(caught.exception.code, 422)
 
+    def test_editor_links_back_to_the_setup_pages(self):
+        for path in ("/resume", "/cover-letter"):
+            with self.subTest(path=path):
+                with urllib.request.urlopen(f"{self.base}{path}", timeout=10) as response:
+                    page = response.read().decode()
+                for href in ('href="/"', 'href="/style"', 'href="/notes"'):
+                    self.assertIn(href, page)
+
+    def test_chat_empty_state_reads_setup_readiness(self):
+        with urllib.request.urlopen(f"{self.base}/static/chat.js", timeout=10) as response:
+            script = response.read().decode()
+        self.assertIn('fetch("/api/setup")', script)
+        self.assertIn("function emptyState()", script)
+
     def test_style_and_notes_paths_serve_their_own_page(self):
         """Routed now; each answers 200 as soon as its page lands (Tasks 5-6)."""
         for path, page in (("/style", "style.html"), ("/notes", "notes.html")):
