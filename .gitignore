@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 .chat/
 .serena/
+# Personal: your Style and experience notes. Role starters in templates/ stay tracked.
+assistant.md
+notes.md
