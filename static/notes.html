@@ -8,16 +8,19 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans+Condensed:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<link rel="stylesheet" href="/static/base.css">
 <link rel="stylesheet" href="/static/setup.css">
 </head>
 <body>
 <header class="topbar">
-  <a class="back" href="/">&#8592; Hub</a>
-  <span class="brand title">Notes</span>
-  <span class="state" id="state"><span class="dot"></span><span class="label">…</span></span>
+  <nav class="modes"><span class="chip active">Notes</span></nav>
+  <nav class="hub-links" aria-label="Pages">
+    <a href="/">Hub</a>
+    <a href="/style">Style</a>
+    <a href="/resume">Documents</a>
+  </nav>
   <span class="spacer"></span>
-  <a class="back" href="/style">Style</a>
-  <a class="back" href="/resume">Documents</a>
+  <button type="button" class="btn secondary" id="save">Save</button>
 </header>
 
 <main>
@@ -47,7 +50,7 @@
             placeholder="## Amazon — Customer eXperience Impressions&#10;Ran weekly triage across the impressions dataset…"></textarea>
 
   <div class="actions">
-    <button type="button" class="primary" id="save">Save</button>
+    <span class="state" id="state"><span class="dot"></span><span class="label">…</span></span>
     <span class="count" id="count"></span>
     <span class="spacer"></span>
     <span class="note" id="note"></span>

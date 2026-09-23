@@ -213,6 +213,22 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn('fetch("/api/setup")', script)
         self.assertIn("function emptyState()", script)
 
+    def test_every_page_shares_one_set_of_design_tokens(self):
+        """One base.css for all pages, so sizes and colours cannot drift."""
+        for path in ("/", "/resume", "/cover-letter", "/style", "/notes"):
+            with self.subTest(path=path):
+                with urllib.request.urlopen(f"{self.base}{path}", timeout=10) as response:
+                    page = response.read().decode()
+                self.assertIn("/static/base.css", page)
+                # Pages may read the tokens; only base.css defines them.
+                self.assertNotRegex(page, r"--pico-font-size\s*:")
+                self.assertNotRegex(page, r"--(green|accent)\s*:")
+                self.assertNotIn("&#8592;", page)           # buttons are text or icon, never both
+        with urllib.request.urlopen(f"{self.base}/static/base.css", timeout=10) as response:
+            css = response.read().decode()
+        self.assertIn("--pico-font-size: 15px", css)
+        self.assertIn("--control-height", css)
+
     def test_style_and_notes_paths_serve_their_own_page(self):
         """Routed now; each answers 200 as soon as its page lands (Tasks 5-6)."""
         for path, page in (("/style", "style.html"), ("/notes", "notes.html")):

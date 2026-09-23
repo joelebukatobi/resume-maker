@@ -1,29 +1,13 @@
-/* Shared chrome for the setup pages (Style, Notes). Same language as the
-   hub and the editor: dark grey, dull green accent, Fira Sans Condensed. */
-:root {
-  --pico-background-color: #101010;
-  --pico-font-family: "Fira Sans Condensed", "Segoe UI", system-ui, sans-serif;
-  --pico-muted-color: #9a9a9a;
-  --green: #3d5a43;
-  --chrome-gutter: 24px;
-}
+/* Layout for the setup pages (Style, Notes). Tokens and control sizing
+   come from base.css, shared with the editor and the hub. */
 * { box-sizing: border-box; }
 body {
   /* Fill the window, but grow past it rather than clip on short screens. */
   min-height: 100vh; margin: 0; padding: var(--chrome-gutter);
   background: var(--pico-background-color); font-family: var(--pico-font-family);
-  display: flex; flex-direction: column; gap: 16px;
+  display: flex; flex-direction: column; gap: var(--topbar-gap);
 }
-.topbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.topbar .spacer { flex: 1; }
-.brand, .back {
-  display: inline-flex; align-items: center; height: 2.25rem; padding: 0 14px;
-  border: 1px solid #3a3a3a; border-radius: var(--pico-border-radius);
-  font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
-  color: var(--pico-muted-color); text-decoration: none; background: transparent;
-}
-.back:hover { border-color: var(--green); color: #e6ede7; }
-.title { color: #ececec; border-color: var(--green); background: rgba(61, 90, 67, .35); }
+.topbar { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; padding: 0; }
 .state {
   display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
   text-transform: uppercase; letter-spacing: .06em; color: var(--pico-muted-color);
@@ -36,31 +20,29 @@ main {
   background: #171717; border: 1px solid #2e2e2e; border-radius: 10px; padding: 18px;
 }
 h1 { font-size: 22px; font-weight: 500; margin: 0; color: #ececec; }
-.lead { margin: 0; font-size: 14px; color: var(--pico-muted-color); max-width: 70ch; }
+.lead { margin: 0; color: var(--pico-muted-color); max-width: 70ch; }
 .chips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .chips .upload { margin: 0; }
-.chips button, .chips .upload span { height: 38px; line-height: 1; }
-.chips button {
-  width: auto; margin: 0; padding: 0 12px; font-size: 13px;
-  background: transparent; border: 1px solid #3a3a3a; color: #cfcfcf;
+/* Role and section chips: button-sized, outlined like the inactive chip. */
+.chips button, .chips .upload span {
+  box-sizing: border-box; height: var(--control-height); width: auto; margin: 0;
+  display: inline-flex; align-items: center; padding: 0 var(--button-pad-x);
+  font-size: var(--control-font-size); font-weight: var(--control-font-weight); line-height: 1;
+  background: transparent; border: 1px solid var(--pico-form-element-border-color);
+  border-radius: var(--pico-border-radius); color: #cfcfcf; cursor: pointer;
 }
-.chips button:hover { border-color: var(--green); color: #e6ede7; }
-.chips .upload span {
-  display: inline-flex; align-items: center; padding: 0 12px; cursor: pointer;
-  font-size: 13px; border: 1px solid #3a3a3a; border-radius: var(--pico-border-radius); color: #cfcfcf;
-}
-.chips .upload span:hover { border-color: var(--green); color: #e6ede7; }
+.chips button:hover, .chips .upload span:hover { border-color: var(--accent); color: var(--accent-ink); }
 .editor {
   flex: 1; min-height: 240px; width: 100%; margin: 0; resize: none;
-  font-family: ui-monospace, "Fira Mono", SFMono-Regular, Menlo, monospace;
-  font-size: 13px; line-height: 1.55; background: #101010; color: #ececec;
+  font-family: var(--pico-font-family); font-size: var(--pico-font-size);
+  line-height: var(--pico-line-height); background: var(--pico-form-element-background-color);
+  color: var(--pico-form-element-color);
   border: 1px solid #2e2e2e; border-radius: 8px; padding: 14px;
 }
-.editor:focus { border-color: var(--green); box-shadow: none; }
+.editor:focus { border-color: var(--pico-form-element-active-border-color); box-shadow: none; }
 .actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .actions .spacer { flex: 1; }
-.actions button { width: auto; margin: 0; }
-button.primary { background: var(--green); border-color: var(--green); color: #e6ede7; }
+
 .note { font-size: 12px; color: var(--pico-muted-color); }
 .note.bad { color: #d98a8a; }
 .count { font-size: 12px; color: var(--pico-muted-color); font-variant-numeric: tabular-nums; }
