@@ -3,15 +3,18 @@
  *
  * Replies stream in as plain text. Text the model writes for a specific field
  * arrives as a ```proposal {"path","text"}``` block and is shown as a diff
- * card; nothing changes until the user accepts. Any other paragraph can be
- * dropped into a field with "Replace…", through the same diff and Accept.
+ * card; nothing changes until the user accepts. Text meant for somewhere else
+ * entirely — an application form's questions — arrives as an ```answer```
+ * block and is copy-only. Any other paragraph can be copied, or dropped into a
+ * field with "Replace…", through the same diff and Accept.
  *
  * Shares the editor's globals: $, el, api, setStatus, header(), draw(),
  * schedule(), documentMode.
  */
 
-const PROPOSAL = /```proposal\s*([\s\S]*?)```/g;
-const chats = { cv: null, cover: null };
+const BLOCK = /```(proposal|answer)\s*([\s\S]*?)```/g;
+// One conversation per application, covering both documents.
+let chat = null;
 let chatController = null;
 let pendingImport = null; // { mode, doc } shown in the preview until accepted
 let fieldCache = null;
@@ -56,8 +59,11 @@ async function fields() {
   return list;
 }
 
-function fieldLabel(path) {
-  const found = fieldCache && fieldCache.list.find((f) => f.path === path);
+// Labels are cached for the open document only; a proposal for the other one
+// shows its raw path rather than a label borrowed from the wrong document.
+function fieldLabel(path, kind = documentMode) {
+  const found = kind === documentMode && fieldCache
+    && fieldCache.list.find((f) => f.path === path);
   return found ? found.label : path;
 }
 
@@ -95,21 +101,34 @@ function diffView(before, after) {
 
 /* ------------------------------------------------------------ proposals */
 
-function applyText(path, text) {
-  const doc = header();
-  if (!canSet(doc, path)) throw new Error(`"${path}" is not a field in this document`);
+// The conversation spans both documents, so a proposal says which one it was
+// written for and is applied there, open or not. Save writes both.
+function docFor(kind) {
+  return kind === "cover" ? cover : cv;
+}
+
+function applyText(path, text, kind = documentMode) {
+  const doc = docFor(kind);
+  if (!canSet(doc, path)) throw new Error(`"${path}" is not a field in that document`);
   setPath(doc, path, text);
   fieldCache = null;
+  if (kind !== documentMode) {
+    setStatus(`Applied to your ${kind === "cover" ? "cover letter" : "CV"}`);
+    return;
+  }
   $("name").value = header().name || "";
   draw();
   refreshLabels();
 }
 
-function proposalCard(path, text, { state, onResolve }) {
-  const before = getPath(header(), path);
-  const valid = canSet(header(), path);
+function proposalCard(path, text, { state, onResolve, kind = documentMode }) {
+  const doc = docFor(kind);
+  const before = getPath(doc, path);
+  const valid = canSet(doc, path);
   const card = el("div", { class: `chat-card ${state || ""}` });
-  card.append(el("div", { class: "chat-card-head", text: valid ? fieldLabel(path) : `Unknown field: ${path}` }));
+  const where = kind === documentMode ? "" : ` · ${kind === "cover" ? "cover letter" : "CV"}`;
+  card.append(el("div", { class: "chat-card-head",
+    text: valid ? fieldLabel(path, kind) + where : `Unknown field: ${path}` }));
   card.append(diffView(typeof before === "string" ? before : "", text));
   if (state) {
     card.append(el("div", { class: "chat-card-state", text: state === "accepted" ? "Applied" : "Dismissed" }));
@@ -118,13 +137,46 @@ function proposalCard(path, text, { state, onResolve }) {
   const actions = el("div", { class: "chat-card-actions" });
   if (valid) {
     actions.append(el("button", { class: "tiny", text: "Accept", onclick: () => {
-      try { applyText(path, text); onResolve("accepted"); }
+      try { applyText(path, text, kind); onResolve("accepted"); }
       catch (error) { setStatus(error.message, true); }
     } }));
   }
+  actions.append(el("button", { class: "tiny secondary", text: "Copy",
+    onclick: (e) => copyText(text, e.target) }));
   actions.append(el("button", { class: "tiny secondary", text: "Dismiss", onclick: () => onResolve("dismissed") }));
   card.append(actions);
   return card;
+}
+
+// An answer to an application question: it belongs on someone else's form, so
+// the card offers no way to write it into the document.
+function answerCard(text) {
+  const card = el("div", { class: "chat-card" });
+  card.append(el("div", { class: "chat-card-head", text: "Answer to copy" }));
+  for (const para of text.split(/\n{2,}/)) {
+    if (para.trim()) card.append(el("p", { class: "chat-answer-text", text: para.trim() }));
+  }
+  card.append(el("div", { class: "chat-card-actions" }, [
+    el("button", { class: "tiny", text: "Copy", onclick: (e) => copyText(text, e.target) }),
+  ]));
+  return card;
+}
+
+// "Copy" on any paragraph: the text goes to the clipboard, nothing is edited.
+async function copyText(text, button) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Clipboard API refused (older browser, focus lost); fall back to a selection.
+    const box = document.body.appendChild(document.createElement("textarea"));
+    box.value = text;
+    box.select();
+    document.execCommand("copy");
+    box.remove();
+  }
+  const was = button.textContent;
+  button.textContent = "Copied";
+  setTimeout(() => { button.textContent = was; }, 1200);
 }
 
 // "Replace…" on any paragraph: pick a field, see the diff, accept.
@@ -216,28 +268,37 @@ function plainText(text) {
 function renderAssistant(message, index, streaming) {
   const box = el("div", { class: "chat-msg assistant" });
   const content = message.content;
+  const kind = message.document || documentMode;
   let last = 0, n = 0;
   const addText = (text) => {
     for (const para of text.split(/\n{2,}/)) {
       if (!para.trim()) continue;
       const p = el("div", { class: "chat-para" }, [markdownBlock(para.trim())]);
       if (!streaming) {
-        p.append(el("button", { class: "chat-replace-btn", text: "Replace…",
-          onclick: () => replacePicker(plainText(para.trim()), p) }));
+        const plain = plainText(para.trim());
+        p.append(el("div", { class: "chat-card-actions" }, [
+          el("button", { class: "tiny secondary", text: "Copy", onclick: (e) => copyText(plain, e.target) }),
+          el("button", { class: "tiny secondary", text: "Replace…", onclick: () => replacePicker(plain, p) }),
+        ]));
       }
       box.append(p);
     }
   };
-  for (const match of content.matchAll(PROPOSAL)) {
+  for (const match of content.matchAll(BLOCK)) {
     addText(content.slice(last, match.index));
     last = match.index + match[0].length;
+    if (match[1] === "answer") {
+      box.append(answerCard(match[2].trim()));
+      continue;
+    }
     const key = String(n++);
     let parsed = null;
-    try { parsed = JSON.parse(match[1]); } catch { /* shown as text below */ }
+    try { parsed = JSON.parse(match[2]); } catch { /* shown as text below */ }
     if (parsed && typeof parsed.path === "string" && typeof parsed.text === "string") {
       const state = message.resolved && message.resolved[key];
       box.append(proposalCard(parsed.path, parsed.text, {
         state,
+        kind,
         onResolve: (result) => {
           message.resolved = { ...(message.resolved || {}), [key]: result };
           saveHistory();
@@ -245,11 +306,11 @@ function renderAssistant(message, index, streaming) {
         },
       }));
     } else {
-      addText(match[1]);
+      addText(match[2]);
     }
   }
   const tail = content.slice(last);
-  const open = tail.indexOf("```proposal");
+  const open = tail.search(/```(proposal|answer)/);
   addText(open === -1 ? tail : tail.slice(0, open));
   if (open !== -1) box.append(el("div", { class: "chat-pending", text: "Writing a proposal…" }));
   if (streaming && !content) box.append(el("div", { class: "chat-pending", text: "Thinking…" }));
@@ -288,7 +349,7 @@ function emptyState() {
 
 function renderChat({ streaming = false } = {}) {
   const host = $("chat-log");
-  const state = chats[documentMode];
+  const state = chat;
   host.textContent = "";
   if (!state) return;
   if (!state.messages.length) host.append(emptyState());
@@ -303,24 +364,23 @@ function renderChat({ streaming = false } = {}) {
 
 /* ---------------------------------------------------------- persistence */
 
-async function loadHistory(mode) {
-  if (chats[mode]) return;
+async function loadHistory() {
+  if (chat) return;
   try {
-    const data = await fetch(`/api/chat/history?document=${mode}`).then((r) => r.json());
-    chats[mode] = {
+    const data = await fetch(withApp("/api/chat/history")).then((r) => r.json());
+    chat = {
       messages: Array.isArray(data.messages) ? data.messages : [],
       job_description: typeof data.job_description === "string" ? data.job_description : "",
     };
   } catch {
-    chats[mode] = { messages: [], job_description: "" };
+    chat = { messages: [], job_description: "" };
   }
 }
 
 async function saveHistory() {
-  const state = chats[documentMode];
-  if (!state) return;
+  if (!chat) return;
   try {
-    await api("/api/chat/history", { document: documentMode, ...state });
+    await api("/api/chat/history", { ...chat, app: APP });
   } catch (error) { setStatus(`chat history not saved: ${error.message}`, true); }
 }
 
@@ -450,18 +510,57 @@ function setBusy(busy) {
   $("chat-send").hidden = busy;
   $("chat-stop").hidden = !busy;
   $("chat-input").disabled = busy;
+  $("chat-mic").disabled = busy;
+}
+
+/* ------------------------------------------------------------ dictation */
+
+// The browser's own speech recognition. Note this one is not local: Chrome
+// streams the audio to Google to transcribe it. Browsers without it (Firefox)
+// simply do not get the button.
+const Dictation = window.SpeechRecognition || window.webkitSpeechRecognition;
+let listener = null;
+
+function toggleDictation() {
+  if (listener) { listener.stop(); return; }
+  const input = $("chat-input");
+  const speech = new Dictation();
+  speech.lang = navigator.language || "en-US";
+  speech.continuous = true;
+  speech.onresult = (event) => {
+    let heard = "";
+    for (let i = event.resultIndex; i < event.results.length; i += 1) {
+      if (event.results[i].isFinal) heard += event.results[i][0].transcript;
+    }
+    heard = heard.trim();
+    if (!heard) return;
+    input.value += input.value && !/\s$/.test(input.value) ? ` ${heard}` : heard;
+  };
+  speech.onerror = (event) => {
+    const why = event.error === "not-allowed" ? "microphone access was refused" : event.error;
+    setStatus(`Dictation stopped: ${why}`, true);
+  };
+  // Fires however it ended: stopped, errored, or the browser gave up on silence.
+  speech.onend = () => {
+    listener = null;
+    $("chat-mic").classList.remove("listening");
+  };
+  speech.start();
+  listener = speech;
+  $("chat-mic").classList.add("listening");
+  input.focus();
 }
 
 async function sendMessage() {
   const input = $("chat-input");
   const text = input.value.trim();
-  const state = chats[documentMode];
+  const state = chat;
   if (!text || !state || chatController) return;
   const agent = agentModel();
   if (!agent) { openAgent(); setStatus("Connect an agent first", true); return; }
   input.value = "";
-  state.messages.push({ role: "user", content: text });
-  const reply = { role: "assistant", content: "" };
+  state.messages.push({ role: "user", content: text, document: documentMode });
+  const reply = { role: "assistant", content: "", document: documentMode };
   state.messages.push(reply);
   renderChat({ streaming: true });
   setBusy(true);
@@ -525,7 +624,7 @@ async function sendMessage() {
 /* ------------------------------------------------------ job description */
 
 function drawJobTile() {
-  const jd = (chats[documentMode] && chats[documentMode].job_description) || "";
+  const jd = (chat && chat.job_description) || "";
   const text = jd.trim();
   $("jd-input").hidden = Boolean(text);
   $("jd-chip").hidden = !text;
@@ -539,10 +638,35 @@ function drawJobTile() {
 }
 
 function setJobDescription(text) {
-  chats[documentMode].job_description = text;
+  chat.job_description = text;
   drawJobTile();
   saveHistorySoon();
+  nameFromJob(text);
 }
+
+// A new application has no name until a job description arrives: the posting
+// says who the company is and what the role is called, so the application,
+// the cover letter's address and the exported filenames all come from it.
+async function nameFromJob(text) {
+  if (!document.body.dataset.unnamed || !text.trim()) return;
+  const agent = agentModel();
+  if (!agent) { setStatus("Connect an agent to name this application", true); return; }
+  delete document.body.dataset.unnamed;  // one attempt, not one per keystroke
+  setStatus("Reading the job description…");
+  try {
+    const found = await api("/api/apps", {
+      action: "identify", slug: APP, job_description: text,
+      provider: agent.provider, model: agent.model,
+    }).then((r) => r.json());
+    await saveHistory();  // the chat follows the folder to its new name
+    window.location.replace(`/${encodeURIComponent(found.application.slug)}${documentPath()}`);
+  } catch (error) {
+    document.body.dataset.unnamed = "1";
+    setStatus(`Could not name this application: ${error.message}`, true);
+  }
+}
+
+const documentPath = () => (documentMode === "cover" ? "/cover-letter" : "/resume");
 
 /* --------------------------------------------------------------- import */
 
@@ -627,13 +751,16 @@ function discardImport() {
 // Called by the editor whenever the open document changes.
 async function chatModeChanged() {
   fieldCache = null;
-  await loadHistory(documentMode);
+  await loadHistory();
   $("chat-title").textContent = "Chat";
   drawJobTile();
   drawDocTile();
   showImportBar();
   renderChat();
   refreshLabels();
+  // The hub's model line links here with #agent: open the dialog on arrival
+  // rather than making you find it again.
+  if (window.location.hash === "#agent") openAgent();
 }
 
 // Proposal cards show field names ("Professional Summary"), not paths.
@@ -642,14 +769,16 @@ function refreshLabels() {
 }
 
 $("chat-send").addEventListener("click", sendMessage);
+if (Dictation) $("chat-mic").addEventListener("click", toggleDictation);
+else $("chat-mic").hidden = true;
 $("chat-stop").addEventListener("click", () => chatController && chatController.abort());
 $("chat-input").addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendMessage(); }
 });
 $("chat-clear").addEventListener("click", () => {
-  if (!chats[documentMode].messages.length) return;
+  if (!chat.messages.length) return;
   if (!confirm("Clear this chat? The job description is kept.")) return;
-  chats[documentMode].messages = [];
+  chat.messages = [];
   saveHistory();
   renderChat();
 });
@@ -672,7 +801,7 @@ $("jd-input").addEventListener("blur", (event) => {
   if (event.target.value.trim()) setJobDescription(event.target.value.trim());
 });
 $("jd-chip").addEventListener("click", () => {
-  $("jd-full").value = chats[documentMode].job_description;
+  $("jd-full").value = chat.job_description;
   $("jd-dialog").showModal();
 });
 $("jd-dialog").addEventListener("close", () => setJobDescription($("jd-full").value.trim()));
@@ -702,16 +831,24 @@ $("cv-clear").addEventListener("click", () => {
 
 $("import-accept").addEventListener("click", acceptImport);
 $("import-discard").addEventListener("click", discardImport);
-$("chat-toggle").addEventListener("click", () => {
-  const open = document.body.classList.toggle("chat-open");
-  $("chat-toggle").setAttribute("aria-pressed", open ? "true" : "false");
+function setChatOpen(open) {
+  document.body.classList.toggle("chat-open", open);
+  const button = $("chat-toggle");
+  button.setAttribute("aria-pressed", open ? "true" : "false");
+  button.setAttribute("aria-label", open ? "Hide chat" : "Show chat");
+  button.title = open ? "Hide chat" : "Show chat";
+  const use = button.querySelector("use");
+  if (use) use.setAttribute("href", open ? "#i-sidebar-collapse" : "#i-sidebar-expand");
   try { localStorage.setItem(`${PREFS}.open`, open ? "1" : "0"); } catch { /* optional */ }
+}
+
+$("chat-toggle").addEventListener("click", () => {
+  setChatOpen(!document.body.classList.contains("chat-open"));
 });
 
 (function startChat() {
   let open = true;
   try { open = localStorage.getItem(`${PREFS}.open`) !== "0"; } catch { /* default open */ }
-  document.body.classList.toggle("chat-open", open);
-  $("chat-toggle").setAttribute("aria-pressed", open ? "true" : "false");
+  setChatOpen(open);
   loadProviders().catch((error) => setStatus(error.message, true));
 })();

@@ -99,6 +99,13 @@ How to answer:
   no markdown, no bullet characters, no surrounding quotes.
 - To add a bullet to an experience entry, use the next unused index, e.g. if
   bullets 0 and 1 exist, propose "...bullets.2".
+- Some questions are not about the {kind} at all: the user is answering an
+  application form, a screening question or an interview prompt, and will paste
+  your text into that form. Never propose those; put them in an answer block,
+  which the tool offers to copy rather than to apply to a field:
+```answer
+<the answer, plain text, no markdown>
+```
 - Only use paths from the list. Never invent a path.
 - Never invent facts, employers, dates, numbers or credentials. Rephrase and
   prioritise what is there; if something is missing, ask the user.
@@ -131,27 +138,44 @@ def system_prompt(
     assistant_md: str = "",
     notes_md: str = "",
 ) -> str:
-    """The protocol, then the user's style, the document, and their notes.
+    """The whole prompt as one string (the stable part followed by the fields)."""
+    stable, volatile = prompt_parts(document, data, job_description,
+                                    assistant_md=assistant_md, notes_md=notes_md)
+    return f"{stable}\n\n{volatile}"
 
-    ``assistant_md`` is taste and method (how to write); ``notes_md`` is the
-    shared experience bank (what actually happened). The protocol rules stay
-    first so they are never buried by user text.
+
+def prompt_parts(
+    document: str,
+    data: Mapping[str, Any],
+    job_description: str = "",
+    *,
+    assistant_md: str = "",
+    notes_md: str = "",
+) -> tuple[str, str]:
+    """The prompt split into its cacheable prefix and the part that changes.
+
+    Providers cache by prefix: everything up to the first difference can be
+    reused, everything after is charged in full. The rules, the user's style,
+    their notes and the job description are identical turn after turn, so they
+    go first; the document's fields change with every edit, so they go last.
+    The protocol rules stay at the very top so user text cannot bury them.
     """
     kind = "cover letter" if document == "cover" else "CV"
-    lines = [_CHAT_RULES.format(kind=kind)]
+    stable = [_CHAT_RULES.format(kind=kind)]
     if assistant_md.strip():
-        lines += ["## Editor style", assistant_md.strip(), ""]
-    lines.append(f"## Current {kind} fields")
-    for path, label, text in field_paths(document, data):
-        lines.append(f"- `{path}` ({label}): {text}")
+        stable += ["## Editor style", assistant_md.strip(), ""]
     notes = clip_notes(notes_md)
     if notes:
-        lines += ["", "## Experience notes",
-                  "The candidate's own record of their work. Draw on it; never invent beyond it.",
-                  notes]
+        stable += ["## Experience notes",
+                   "The candidate's own record of their work. Draw on it; never invent beyond it.",
+                   notes, ""]
     if job_description.strip():
-        lines += ["", "## Target job description", job_description.strip()]
-    return "\n".join(lines)
+        stable += ["## Target job description", job_description.strip(), ""]
+
+    volatile = [f"## Current {kind} fields"]
+    for path, label, text in field_paths(document, data):
+        volatile.append(f"- `{path}` ({label}): {text}")
+    return "\n".join(stable).rstrip(), "\n".join(volatile)
 
 
 # ------------------------------------------------------------------ import
@@ -249,6 +273,37 @@ Rules:
 Example of the shape (content is someone else's; do not copy it):
 {example}
 """
+
+
+_JOB_RULES = """\
+Read the job posting below and name it.
+Reply with JSON only, nothing else:
+{"company": "<the hiring company>", "role": "<the job title>"}
+Copy both exactly as the posting writes them — no abbreviations, no additions.
+If the posting does not state one, use an empty string for it.
+"""
+
+
+def job_prompt() -> str:
+    return _JOB_RULES
+
+
+def parse_job(reply: str) -> dict[str, str]:
+    """``{"company", "role"}`` from the model's answer.
+
+    A job description is pasted text that reached the model, so the reply is
+    treated as untrusted: only two strings are taken from it, trimmed to a
+    length that fits a document field.
+    """
+    match = _FENCE.search(reply)
+    raw = match.group(1) if match else reply[reply.find("{") : reply.rfind("}") + 1]
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        raise ImportFailed("could not read the company and role from that posting") from exc
+    if not isinstance(data, dict):
+        raise ImportFailed("could not read the company and role from that posting")
+    return {key: " ".join(str(data.get(key) or "").split())[:120] for key in ("company", "role")}
 
 
 def import_prompt(document: str, example: Mapping[str, Any]) -> str:

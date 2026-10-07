@@ -151,6 +151,29 @@ class ProviderTests(unittest.TestCase):
             with self.subTest(override=override), mock.patch.dict(os.environ, {"ANTHROPIC_BASE_URL": override}):
                 self.assertEqual(llm.PROVIDERS["anthropic"].url, expected)
 
+    def test_claude_gets_the_prefix_marked_as_cacheable(self):
+        SEEN.clear()
+        system = "STABLE PREFIX\n\nVOLATILE FIELDS"
+        list(llm.stream_chat("anthropic", "chat-model", system,
+                             [{"role": "user", "content": "hi"}], cacheable="STABLE PREFIX"))
+        blocks = SEEN[0]["body"]["system"]
+        self.assertEqual(blocks[0]["text"], "STABLE PREFIX")
+        self.assertEqual(blocks[0]["cache_control"], {"type": "ephemeral"})
+        self.assertEqual(blocks[1]["text"], "VOLATILE FIELDS")
+        self.assertNotIn("cache_control", blocks[1])
+
+    def test_without_a_prefix_the_system_is_sent_as_plain_text(self):
+        SEEN.clear()
+        list(llm.stream_chat("anthropic", "chat-model", "SYS", [{"role": "user", "content": "hi"}]))
+        self.assertEqual(SEEN[0]["body"]["system"], "SYS")
+
+    def test_openai_style_providers_need_no_marker(self):
+        SEEN.clear()
+        list(llm.stream_chat("openai", "chat-model", "STABLE\n\nVOLATILE",
+                             [{"role": "user", "content": "hi"}], cacheable="STABLE"))
+        self.assertEqual(SEEN[0]["body"]["messages"][0],
+                         {"role": "system", "content": "STABLE\n\nVOLATILE"})
+
     def test_model_names_are_checked(self):
         with self.assertRaises(llm.LLMError):
             llm.check_model("gpt 4; rm -rf /")
@@ -172,6 +195,11 @@ class AssistantTests(unittest.TestCase):
         self.assertIn("`sections.0.text`", prompt)
         self.assertIn("Senior PM at Acme", prompt)
         self.assertIn("Never invent facts", prompt)
+
+    def test_system_prompt_offers_an_answer_block_for_form_questions(self):
+        prompt = assistant.system_prompt("cv", self.cv)
+        self.assertIn("```answer", prompt)
+        self.assertIn("application form", prompt)
 
     def test_import_accepts_valid_json_in_a_fence(self):
         reply = "Sure:\n```json\n" + json.dumps(self.cv) + "\n```"
@@ -261,3 +289,30 @@ class StyleAndNotesPromptTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PromptCacheTests(unittest.TestCase):
+    """The prompt is split so providers can bill the repeated part cheaply."""
+
+    def setUp(self):
+        self.cv = json.loads((ROOT / "cv.json").read_text())
+
+    def test_volatile_fields_come_after_the_stable_prefix(self):
+        stable, volatile = assistant.prompt_parts(
+            "cv", self.cv, "JOB TEXT", assistant_md="MY STYLE", notes_md="MY NOTES")
+        for piece in ("MY STYLE", "MY NOTES", "JOB TEXT", "Never invent facts"):
+            self.assertIn(piece, stable)
+        self.assertNotIn("sections.0", stable)      # fields never in the prefix
+        self.assertIn("`sections.0.text`", volatile)
+
+    def test_editing_the_document_leaves_the_prefix_untouched(self):
+        edited = json.loads(json.dumps(self.cv))
+        edited["sections"][0]["text"] = "A completely different summary."
+        first, _ = assistant.prompt_parts("cv", self.cv, "JD", notes_md="N")
+        second, _ = assistant.prompt_parts("cv", edited, "JD", notes_md="N")
+        self.assertEqual(first, second)
+
+    def test_system_prompt_still_returns_the_whole_thing(self):
+        whole = assistant.system_prompt("cv", self.cv, "JD", assistant_md="S", notes_md="N")
+        stable, volatile = assistant.prompt_parts("cv", self.cv, "JD", assistant_md="S", notes_md="N")
+        self.assertEqual(whole, f"{stable}\n\n{volatile}")
