@@ -12,7 +12,7 @@ from xml.etree import ElementTree
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from resume_maker.build import safe_stem  # noqa: E402
+from resume_maker.build import export_name, safe_stem  # noqa: E402
 from resume_maker.model import CV, ContentError, CoverLetter, normalise_dates  # noqa: E402
 from resume_maker.render_docx import DocxRenderer  # noqa: E402
 from resume_maker.render_html import HtmlRenderer  # noqa: E402
@@ -172,6 +172,23 @@ class InjectionTests(unittest.TestCase):
         with self.assertRaises(ContentError):
             CV.from_mapping({"name": "x", "contact": [], "sections": [], "extra": 1})
 
+    def test_export_names_read_like_documents(self):
+        cases = {
+            ("cv", "JOEL ONWUANAKU", "Meta", "Product Manager"):
+                "Joel Onwuanaku - CV - Meta - Product Manager",
+            ("cover", "JOEL ONWUANAKU", "Meta", "Product Manager"):
+                "Joel Onwuanaku - Cover Letter - Meta - Product Manager",
+            ("cv", "JOEL ONWUANAKU", "Meta", ""): "Joel Onwuanaku - CV - Meta",
+            ("cv", "JOEL ONWUANAKU", "", ""): "Joel Onwuanaku - CV",
+        }
+        for args, expected in cases.items():
+            with self.subTest(args=args):
+                self.assertEqual(export_name(*args), expected)
+
+    def test_export_name_cannot_carry_a_path(self):
+        self.assertEqual(export_name("cv", "Joel Onwuanaku", "../Evil Co", "a/b"),
+                         "Joel Onwuanaku - CV - Evil Co - ab")
+
     def test_theme_font_cannot_break_out_of_css(self):
         _, theme = load()
         base = {k: getattr(theme, k) for k in Theme.__dataclass_fields__}
@@ -182,7 +199,9 @@ class InjectionTests(unittest.TestCase):
         self.assertEqual(safe_stem("../../etc/passwd"), "etcpasswd")
         self.assertEqual(safe_stem(""), "cv")
         self.assertEqual(safe_stem("  ..  "), "cv")
-        self.assertEqual(safe_stem("my cv v2"), "mycvv2")
+        # spaces survive so export names read like titles; separators do not
+        self.assertEqual(safe_stem("my cv v2"), "my cv v2")
+        self.assertEqual(safe_stem("Meta/../.. Corp"), "Meta Corp")
 
 
 class ContentRuleTests(unittest.TestCase):

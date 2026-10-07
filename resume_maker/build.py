@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from .export_pdf import Browser, page_count
-from .model import CV, CoverLetter
+from .model import CV, title_case, CoverLetter
 from .render_docx import DocxRenderer
 from .render_html import HtmlRenderer
 from .theme import Theme
@@ -25,15 +25,31 @@ FORMAT_ALIASES: Mapping[str, tuple[str, ...]] = {
     "all": ("docx", "pdf", "html"),
 }
 
-_SAFE_STEM = "-_."
+_SAFE_STEM = "-_. "
 
 
 def safe_stem(stem: str) -> str:
-    """Reduce a user-supplied file stem to something that cannot escape a directory."""
-    cleaned = "".join(
-        ch for ch in stem.strip() if ch.isalnum() or ch in _SAFE_STEM
-    ).strip(". ")
+    """Reduce a user-supplied file stem to something that cannot escape a directory.
+
+    Spaces survive (the export names read like a document title); separators,
+    dot runs and anything exotic do not.
+    """
+    cleaned = "".join(ch for ch in stem if ch.isalnum() or ch in _SAFE_STEM)
+    cleaned = " ".join(cleaned.replace("..", " ").split()).strip(". ")
     return cleaned or "cv"
+
+
+def export_name(kind: str, name: str, company: str = "", role: str = "") -> str:
+    """``Joel Onwuanaku - CV - Meta - Product Manager``.
+
+    The company and role come from the cover letter, which is where the
+    application being worked on is recorded; either may be missing, and the
+    name simply gets shorter.
+    """
+    label = "Cover Letter" if kind == "cover" else "CV"
+    parts = [title_case(name.strip()) or "Document", label]
+    parts += [p.strip() for p in (company, role) if p and p.strip()]
+    return safe_stem(" - ".join(parts))
 
 
 @dataclass(frozen=True, slots=True)
