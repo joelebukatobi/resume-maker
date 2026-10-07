@@ -6,20 +6,45 @@
 <title>resume-maker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans+Condensed:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
 <link rel="stylesheet" href="/static/base.css">
 <style>
-html, body { height: 100%; }
-body {
-  margin: 0; background: var(--pico-background-color); font-family: var(--pico-font-family);
-  display: flex; align-items: center; justify-content: center; padding: var(--chrome-gutter);
+/* Hero: a faint grid, masked so it fades out before the tiles start. Two
+   repeating gradients rather than an image. The layers stack with positive
+   z-index and the wordmark sits above them — a negative z-index behind a
+   parent with no background of its own is a coin toss across browsers. */
+.hero {
+  position: relative;
+  margin: 0 calc(var(--chrome-gutter) * -1) 32px;
+  padding: 72px var(--chrome-gutter) 64px;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
 }
-main { width: min(880px, 100%); padding: 0; }
-main > .chip { margin-bottom: 20px; }
-h1 { font-size: 28px; font-weight: 500; margin: 0 0 6px; color: #ececec; }
-.lead { margin: 0 0 24px; color: var(--pico-muted-color); }
-.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.hero-grid, .hero-glow { position: absolute; inset: 0; pointer-events: none; }
+.hero-grid {
+  z-index: 0;
+  background-image:
+    linear-gradient(to right, rgba(230, 237, 231, .10) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(230, 237, 231, .10) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: radial-gradient(ellipse 75% 80% at 50% 45%, #000 30%, transparent 100%);
+  mask-image: radial-gradient(ellipse 75% 80% at 50% 45%, #000 30%, transparent 100%);
+}
+/* A dull green wash under the wordmark, so the grid reads as depth. */
+.hero-glow {
+  z-index: 1;
+  background: radial-gradient(ellipse 50% 60% at 50% 50%, rgba(61, 90, 67, .35), transparent 70%);
+}
+.wordmark {
+  position: relative; z-index: 2;
+  margin: 0; font-size: clamp(34px, 7vw, 62px); font-weight: 700;
+  letter-spacing: -.02em; line-height: 1; color: #ececec;
+}
+
+/* Frame and top bar: base.css. The hub only sets its own column width. */
+main { width: min(880px, 100%); margin: 0 auto; padding: var(--chrome-gutter) var(--chrome-gutter) var(--chrome-bottom); overflow-y: auto; }
+.tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 @media (max-width: 760px) { .tiles { grid-template-columns: 1fr; } }
 .tile {
   display: flex; flex-direction: column; gap: 8px; min-height: 210px;
@@ -48,60 +73,62 @@ a.tile:hover, a.tile:focus-visible {
   background: #171717; border: 1px solid #2e2e2e; font-size: 13px; color: var(--pico-muted-color);
 }
 .model strong { color: #ececec; font-weight: 600; }
-.model .spacer { flex: 1; }
 .model a { color: #cfe0d2; }
+.model .spacer { flex: 1; }
+
 .hint { margin: 14px 0 0; font-size: 13px; color: var(--pico-muted-color); }
+.docs-links a[href$="resume"], .docs-links a[href$="cover-letter"] { white-space: nowrap; }
 </style>
 </head>
-<body>
+<body data-page="">
 <main>
-  <span class="chip">resume-maker</span>
-  <h1>Start here</h1>
-  <p class="lead">Style is how you write. Notes are what you have done. Documents are what you send.</p>
+  <header class="hero">
+    <div class="hero-grid" aria-hidden="true"></div>
+    <div class="hero-glow" aria-hidden="true"></div>
+    <h1 class="wordmark">Resume Maker</h1>
+  </header>
 
   <nav class="tiles" aria-label="Setup">
     <a class="tile" id="tile-style" href="/style">
-      <h2>Style</h2>
-      <p>How the editor writes for you: method, bullet shape, the words to avoid.</p>
+      <h2>Voice</h2>
+      <p>How you sound on paper. Set it once and every draft comes back in it.</p>
       <span class="foot"><span class="state" id="state-style"><span class="dot"></span><span class="label">…</span></span></span>
     </a>
 
     <a class="tile" id="tile-notes" href="/notes">
       <h2>Notes</h2>
-      <p>Your experience bank. The raw truth a job description gets matched against.</p>
+      <p>Everything you have actually done, in your own words. Nothing reaches a CV that is not in here first.</p>
       <span class="foot"><span class="state" id="state-notes"><span class="dot"></span><span class="label">…</span></span></span>
     </a>
 
-    <div class="tile" id="tile-docs">
-      <h2>Documents</h2>
-      <p>The CV and cover letter you send, with live preview and DOCX or PDF export.</p>
-      <span class="foot">
-        <span class="docs-links">
-          <a href="/resume" class="btn secondary" role="button">Resume</a>
-          <a href="/cover-letter" class="btn secondary" role="button">Cover letter</a>
-        </span>
-      </span>
-      <span class="foot">
-        <span class="state" id="state-cv"><span class="dot"></span><span class="label">…</span></span>
-        <span class="state" id="state-cover"><span class="dot"></span><span class="label">…</span></span>
-      </span>
-    </div>
   </nav>
 
   <div class="model">
     <span id="model-text">Checking for a connected model…</span>
     <span class="spacer"></span>
-    <a href="/resume" id="model-link">Connect in the editor</a>
+    <a href="/{app}/resume#agent" id="model-link">Connect a model</a>
   </div>
 
   <p class="hint" id="hint"></p>
+
+  <section class="apps" aria-labelledby="apps-head">
+    <div class="apps-head">
+      <div>
+        <h2 id="apps-head">Applications</h2>
+        <p class="app-note">One per job, each with its own CV, cover letter and chat. Voice and Notes are shared.</p>
+      </div>
+      <button type="button" class="btn primary" id="app-new">New Application</button>
+    </div>
+    <div id="app-list" class="app-list"></div>
+  </section>
 </main>
+
+
 
 <script>
 "use strict";
 
 const LABELS = { empty: "Empty", started: "Started", ready: "Ready" };
-const DOC_LABELS = { cv: "CV", cover: "Letter" };
 
 function paint(id, state, prefix) {
   const node = document.getElementById(`state-${id}`);
@@ -112,17 +139,13 @@ function paint(id, state, prefix) {
 
 // Point the newcomer at the first thing that is still empty.
 function nudge(status) {
-  const order = [["style", "Style"], ["notes", "Notes"]];
+  const order = [["style", "Voice"], ["notes", "Notes"]];
   const next = order.find(([key]) => status[key] === "empty");
   const hint = document.getElementById("hint");
+  // Only say something when there is something to do.
   if (next) {
     document.getElementById(`tile-${next[0]}`).classList.add("next");
     hint.textContent = `Start with ${next[1]} — the model leans on it in every chat.`;
-  } else if (status.cv === "empty" && status.cover === "empty") {
-    document.getElementById("tile-docs").classList.add("next");
-    hint.textContent = "Style and Notes are set. Open a document and paste a job description.";
-  } else {
-    hint.textContent = "Everything is set. Open a document to tailor it to a role.";
   }
 }
 
@@ -131,8 +154,6 @@ async function loadSetup() {
     const { status } = await fetch("/api/setup").then((r) => r.json());
     paint("style", status.style);
     paint("notes", status.notes);
-    paint("cv", status.cv, DOC_LABELS.cv);
-    paint("cover", status.cover, DOC_LABELS.cover);
     nudge(status);
   } catch (error) {
     document.getElementById("hint").textContent = `Could not read your setup: ${error.message}`;
@@ -152,7 +173,7 @@ async function loadModel() {
     text.append(document.createTextNode("Connected: "));
     text.append(Object.assign(document.createElement("strong"),
       { textContent: connected.map((p) => p.label).join(", ") }));
-    document.getElementById("model-link").textContent = "Change in the editor";
+    document.getElementById("model-link").textContent = "Change Model";
   } catch (error) {
     text.textContent = `Could not check models: ${error.message}`;
   }
@@ -161,5 +182,6 @@ async function loadModel() {
 loadSetup();
 loadModel();
 </script>
+<script src="/static/apps.js"></script>
 </body>
 </html>

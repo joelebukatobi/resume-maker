@@ -6,199 +6,20 @@
 <title>resume-maker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans+Condensed:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
 <link rel="stylesheet" href="/static/base.css">
+<link rel="stylesheet" href="/static/chat.css">
 <style>
-html { height: 100%; overflow: hidden; }
-body {
-  margin: 0; background: var(--pico-background-color);
-  box-sizing: border-box;
-  height: 100vh; display: flex; flex-direction: column; overflow: hidden;
-  padding-bottom: var(--chrome-bottom);
+/* The Resume / Cover letter editor: form panels, paper preview, toast.
+   Frame, top bar and scrollbars: base.css. Chat panel: chat.css. */
+/* Editor columns: the form beside the paper. */
+.workspace > main {
+  display: grid; grid-template-columns: minmax(420px, clamp(580px, 32vw, 820px)) minmax(0, 1fr);
+  gap: 20px; align-items: stretch; min-height: 0; overflow: hidden;
 }
-#editor, #editor input, #editor textarea, #editor select, #editor button, #editor label,
-.topbar, .topbar button {
-  font-family: var(--pico-font-family);
-}
-.topbar {
-  display: flex; gap: 12px; align-items: center; flex-wrap: nowrap;
-  padding: var(--chrome-gutter) var(--chrome-gutter) var(--topbar-gap);
-  margin: 0;
-  background: var(--pico-background-color);
-  flex-shrink: 0;
-}
-.topbar h1,
-.topbar .mode-chip,
-.topbar button {
-  box-sizing: border-box;
-  height: var(--control-height);
-  display: inline-flex; align-items: center;
-  font-size: var(--control-font-size); line-height: 1; font-weight: var(--control-font-weight);
-  border-radius: var(--pico-border-radius);
-}
-.topbar h1,
-.topbar .mode-chip {
-  margin: 0;
-  padding: 0 calc(var(--panel-pad-x) - 1px);
-  border: 1px solid var(--pico-form-element-border-color);
-  background: transparent;
-  letter-spacing: .08em;
-  text-transform: uppercase; color: var(--pico-muted-color);
-  width: auto;
-}
-.topbar .mode-chip { cursor: pointer; }
-.topbar .mode-chip[aria-pressed="false"] {
-  border-color: var(--pico-form-element-border-color); color: #6a6a6a;
-}
-/* The open document gets a dull green fill. */
-.topbar .mode-chip[aria-pressed="true"] {
-  background: #3d5a43; border-color: #3d5a43; color: #e6ede7;
-}
-.topbar button { width: auto; margin: 0; padding: 0 0.85rem; }
-/* One row at any width: --topbar-sticky-height assumes a single line. The
-   status gives way first, then gaps and padding tighten. */
-.topbar .modes, .topbar button { flex: none; white-space: nowrap; }
-@media (max-width: 640px) {
-  .topbar { gap: 6px; }
-  .modes { gap: 4px; }
-  .topbar .mode-chip { padding: 0 8px; letter-spacing: .04em; }
-  .hub-links { gap: 8px; margin-left: 2px; }
-  .hub-links a { letter-spacing: .04em; }
-  .topbar button { padding: 0 0.55rem; }
-}
-body > main {  /* matches Pico's body>main so its 9px block padding is overridden */
-  display: grid; grid-template-columns: minmax(420px, 580px) 1fr;
-  gap: 20px; padding: 0 var(--chrome-gutter);
-  align-items: stretch; flex: 1; min-height: 0; overflow: hidden;
-}
-@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
-/* Chat open: inputs, a narrower preview, then the chat. */
-body.chat-open > main { grid-template-columns: minmax(360px, 480px) minmax(0, 1fr) 380px; }
-body:not(.chat-open) .chat { display: none; }
-.chat {
-  min-height: 0; display: flex; flex-direction: column; gap: 10px;
-  background: var(--pico-card-background-color, #171717); border-radius: var(--pico-border-radius);
-  padding: 14px; overflow: hidden;
-}
-.chat textarea, .chat select, .chat input { margin: 0; font-size: 13px; }
-.chat-head { display: flex; align-items: center; justify-content: space-between; }
-.chat-head strong { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--pico-muted-color); }
-.chat-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 8px; }
-.chat-empty { font-size: 13px; color: var(--pico-muted-color); margin: auto; text-align: center; max-width: 85%; }
-.chat-empty p { margin: 0 0 8px; }
-.chat-tip { font-size: 12px; }
-.chat-tip a { color: #cfe0d2; }
-.chat-msg { font-size: 13px; line-height: 1.45; }
-.chat-msg p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.chat-msg strong { font-weight: 600; color: #fff; }
-.chat-msg code {
-  font-size: 12px; padding: 1px 4px; border-radius: 4px; background: #2a2a2a; color: #e6ede7;
-}
-.chat-list { margin: 0; padding-left: 18px; }
-.chat-list li { margin: 2px 0; overflow-wrap: anywhere; }
-.chat-heading { font-weight: 600; color: #fff; }
-.chat-group { display: flex; flex-direction: column; gap: 6px; }
-.chat-msg.user { align-self: flex-end; max-width: 88%; background: #2a2a2a; padding: 8px 10px; border-radius: 10px; }
-.chat-msg.assistant { display: flex; flex-direction: column; gap: 8px; }
-.chat-para { position: relative; }
-.chat-replace-btn { display: none; position: absolute; right: 0; top: -2px; padding: 1px 6px; font-size: 11px; width: auto; }
-.chat-para:hover .chat-replace-btn { display: inline-block; }
-.chat-replace { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
-.chat-card { border-left: 3px solid #3d5a43; background: #1f1f1f; border-radius: 6px; padding: 8px 10px; }
-.chat-card.dismissed { opacity: .55; border-left-color: #555; }
-.chat-card-head { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--pico-muted-color); margin-bottom: 4px; }
-.chat-diff { font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.chat-diff ins { background: rgba(61, 160, 90, .28); text-decoration: none; }
-.chat-diff del { background: rgba(190, 70, 70, .28); color: #c9a0a0; }
-.chat-card-actions { display: flex; gap: 6px; margin-top: 8px; }
-.chat-card-actions button, .chat-replace-btn { margin: 0; }
-.chat-card-state { font-size: 11px; color: var(--pico-muted-color); margin-top: 6px; }
-.chat-pending { font-size: 12px; color: var(--pico-muted-color); }
-.chat-head-actions { display: flex; gap: 12px; align-items: center; }
-.chat-link {
-  width: auto; margin: 0; padding: 0; border: 0; background: none; box-shadow: none;
-  font-size: 12px; color: var(--pico-muted-color); text-decoration: underline; text-underline-offset: 3px;
-  cursor: pointer;
-}
-.chat-link:hover { color: #e6ede7; }
-/* Two square tiles: pasted job description, uploaded document. */
-.chat-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.tile {
-  position: relative; aspect-ratio: 1; border: 1px dashed #3a3a3a; border-radius: 8px;
-  background: rgba(61, 90, 67, .15); color: #fff;
-  overflow: hidden; display: flex; align-items: center; justify-content: center;
-}
-.tile:hover, .tile:focus-within, .tile.drag { border-color: #5a7a60; }
-.tile textarea {
-  position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; resize: none;
-  border: 0; background: transparent; padding: 12px; font-size: 12px; text-align: center;
-  box-shadow: none;
-}
-.tile textarea { color: #fff; }
-.tile textarea::placeholder { color: #fff; opacity: 1; }
-.tile textarea:not(:placeholder-shown) { text-align: left; }
-/* Empty: centre the placeholder like the upload tile (tile is square, so % of width = % of height). */
-.tile textarea:placeholder-shown { padding-top: calc(50% - 0.7em); }
-.tile-chip {
-  position: absolute; inset: 0; padding: 12px; display: flex; flex-direction: column; gap: 6px;
-  cursor: pointer; background: transparent;
-}
-.tile-chip[hidden] { display: none; }
-.tile-tag {
-  align-self: flex-start; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
-  padding: 2px 6px; border-radius: 4px; background: rgba(0, 0, 0, .25); color: #fff;
-}
-.tile-chip p {
-  margin: 0; font-size: 12px; line-height: 1.35; color: #fff; overflow: hidden;
-  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical;
-}
-.tile-meta { margin-top: auto; font-size: 11px; color: rgba(255, 255, 255, .75); }
-#cv-tile { cursor: pointer; }
-.tile-empty, .tile-doc {
-  display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px;
-  font-size: 12px; color: #fff; text-align: center;
-}
-.tile-empty[hidden], .tile-doc[hidden] { display: none; }
-.tile-doc { color: #fff; font-size: 13px; }
-.tile-doc span { overflow-wrap: anywhere; }
-.tile-x {
-  position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; margin: 0; padding: 0;
-  display: inline-flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1;
-  border: 0; border-radius: 50%; background: rgba(0, 0, 0, .3); color: #fff; z-index: 2;
-}
-.tile-x[hidden] { display: none; }
-/* Message box: full width, send icon in its bottom-right corner. */
-.chat-compose { position: relative; }
-.chat-compose textarea { width: 100%; margin: 0; resize: none; min-height: 84px; padding: 10px 48px 10px 12px; }
-.chat-icon {
-  position: absolute; right: 8px; bottom: 8px; width: 26px; height: 26px; margin: 0; padding: 0;
-  display: inline-flex; align-items: center; justify-content: center; border-radius: 50%;
-  background: transparent; border: 0; box-shadow: none; color: var(--pico-muted-color);
-}
-.chat-icon:hover, .chat-icon:focus-visible { background: transparent; color: #e6ede7; }
-.chat-icon[hidden] { display: none; }
-.chat-icon:disabled { opacity: .45; }
-dialog article { width: min(460px, 92vw); padding: 20px; }
-.dialog-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.dialog-foot { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
-.dialog-foot button { width: auto; margin: 0; }
-.agent-providers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 10px 0 14px; }
-.agent-providers button {
-  margin: 0; padding: 8px 4px; font-size: 12px; width: 100%;
-  background: transparent; border: 1px solid #3a3a3a; color: #cfcfcf;
-}
-.agent-providers button[aria-pressed="true"] { background: #3d5a43; border-color: #3d5a43; color: #e6ede7; }
-.agent-providers small { display: block; font-size: 10px; color: var(--pico-muted-color); }
-.agent-providers button[aria-pressed="true"] small { color: #cfe0d2; }
-#jd-full { width: 100%; margin: 0; font-size: 13px; }
-.import-bar {
-  display: flex; align-items: center; gap: 8px; padding: 8px 12px; margin-bottom: 8px;
-  background: #22301f; border-radius: var(--pico-border-radius); font-size: 12px;
-}
-.import-bar[hidden] { display: none; }
-.import-bar span { flex: 1; }
-.import-bar button { margin: 0; width: auto; }
+body.chat-open .workspace > main { grid-template-columns: minmax(360px, clamp(480px, 26vw, 700px)) minmax(0, 1fr); }
+@media (max-width: 900px) { .workspace > main { grid-template-columns: 1fr; } }
 .editor-wrap {
   min-height: 0; height: 100%; overflow: hidden;
   display: flex; flex-direction: column;
@@ -228,42 +49,6 @@ details.panel[open]::details-content {
   margin-right: calc(var(--panel-pad-x) + (var(--panel-chevron) - var(--editor-scroll-size)) / 2);
   padding: 0 var(--editor-scroll-gap) var(--panel-stick-gap) var(--panel-pad-x);
 }
-.panel-body::-webkit-scrollbar, .chat-log::-webkit-scrollbar {
-  width: var(--editor-scroll-size);
-  height: var(--editor-scroll-size);
-  background: transparent;
-}
-.panel-body::-webkit-scrollbar-button, .chat-log::-webkit-scrollbar-button {
-  display: none !important;
-  width: 0 !important;
-  height: 0 !important;
-  background: transparent;
-  border: 0;
-}
-.panel-body::-webkit-scrollbar-button:single-button, .chat-log::-webkit-scrollbar-button:single-button,
-.panel-body::-webkit-scrollbar-button:double-button, .chat-log::-webkit-scrollbar-button:double-button,
-.panel-body::-webkit-scrollbar-button:vertical, .chat-log::-webkit-scrollbar-button:vertical:decrement,
-.panel-body::-webkit-scrollbar-button:vertical, .chat-log::-webkit-scrollbar-button:vertical:increment,
-.panel-body::-webkit-scrollbar-button:horizontal, .chat-log::-webkit-scrollbar-button:horizontal:decrement,
-.panel-body::-webkit-scrollbar-button:horizontal, .chat-log::-webkit-scrollbar-button:horizontal:increment {
-  display: none !important;
-  width: 0 !important;
-  height: 0 !important;
-}
-.panel-body::-webkit-scrollbar-track, .chat-log::-webkit-scrollbar-track {
-  background: transparent;
-  margin: 0;
-}
-.panel-body::-webkit-scrollbar-thumb, .chat-log::-webkit-scrollbar-thumb {
-  background: #5a5a5a; border-radius: 8px;
-}
-.panel-body::-webkit-scrollbar-corner, .chat-log::-webkit-scrollbar-corner { background: transparent; }
-@supports not selector(::-webkit-scrollbar) {
-  .panel-body, .chat-log {
-    scrollbar-width: thin;
-    scrollbar-color: #5a5a5a transparent;
-  }
-}
 .panel-foot {
   flex-shrink: 0;
   display: flex; flex-wrap: wrap; gap: 4px;
@@ -277,7 +62,10 @@ details.panel[open]::details-content {
 details.panel[open]:not(:has(.panel-foot)) .panel-body {
   padding-bottom: var(--panel-stick-edge);
 }
-#editor label { font-size: 11px; color: var(--pico-muted-color); margin: 0 0 6px;
+/* Field text reads at 16px; the small labels and the tiny + buttons keep
+   their own sizes. */
+#editor input, #editor textarea, #editor select { font-size: 16px; }
+#editor label { font-size: 12px; color: var(--pico-muted-color); margin: 0 0 6px;
   letter-spacing: .04em; }
 #editor label:has(> input[type="checkbox"]) { font-size: var(--pico-font-size); }
 #editor input[type="checkbox"] { width: 1.1em; height: 1.1em; flex: none; margin: 0 8px 0 0; vertical-align: -0.15em; }
@@ -303,16 +91,6 @@ details.panel[open]:not(:has(.panel-foot)) .panel-body {
   margin-bottom: 10px;
 }
 .bullet-field textarea { width: 100%; flex: 1; }
-button.tiny {
-  box-sizing: border-box;
-  width: auto; height: 1.5rem; min-width: 1.5rem; padding: 0 6px;
-  font-size: 12px; line-height: 1; margin: 0; display: inline-flex;
-  align-items: center; justify-content: center;
-  background: transparent; border-color: transparent; color: var(--pico-muted-color);
-}
-button.tiny:hover, button.tiny:focus {
-  background: #2a2a2a; border-color: transparent; color: #ececec;
-}
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; }
 .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 16px; }
 /* Consecutive field grids get the same 14px as rows inside one grid. */
@@ -343,9 +121,9 @@ button.tiny:hover, button.tiny:focus {
 }
 .row-head strong {
   flex: 1; min-width: 0; margin: 0; padding: 0;
-  font-size: 12px; font-weight: 600; line-height: 1.2;
+  font-size: 16px; font-weight: 600; line-height: 1.2;
   color: var(--pico-muted-color);
-  text-transform: uppercase; letter-spacing: .06em;
+  letter-spacing: .02em;
   transform: translateY(1px);
 }
 .row-head button.tiny { flex-shrink: 0; align-self: center; }
@@ -372,17 +150,9 @@ iframe {
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 16px; line-height: 1; font-weight: 600;
 }
-.status { font-size: 12px; color: var(--pico-muted-color); }
-.status.bad { color: var(--error); }
 /* Toast: slides in from the right, top aligned with the preview's sheet
    (position set from the preview frame). Only shown while something is
    happening or went wrong. */
-.ico { width: 1em; height: 1em; flex: none; display: block; }
-button.icon-only { display: inline-flex; align-items: center; justify-content: center; padding: 0; }
-button.icon-only .ico { width: 15px; height: 15px; }
-.tile-x .ico { width: 13px; height: 13px; }
-.chat-link .ico { width: 16px; height: 16px; }
-.chat-icon .ico { width: 14px; height: 14px; }
 .zoom-controls button .ico { width: 16px; height: 16px; margin: auto; }
 .toast {
   position: fixed; z-index: 20;
@@ -421,7 +191,7 @@ details.panel[open] > summary {
   cursor: pointer; list-style: none;
   display: flex; align-items: center; gap: 8px;
   background-image: none;
-  font-size: 12px;
+  font-size: 16px;
   line-height: 1.2;
   min-height: 0;
   padding: 0;
@@ -440,61 +210,50 @@ details.panel[open] > summary {
 #editor details.panel .panel-foot {
   margin-top: 0;
 }
-.panel > summary::after {
-  float: none;
-  margin: 0 0 0 auto;
-  flex-shrink: 0;
-  width: var(--panel-chevron); height: var(--panel-chevron);
-  background-size: var(--panel-chevron) auto;
-  align-self: center;
-}
-.row-item > summary::after {
-  float: none;
-  margin: 0 0 0 auto;
-  flex-shrink: 0;
-  width: 1rem; height: 1rem;
-  align-self: center;
-}
+/* No chevrons on the editor's accordions: the panel opening is the feedback. */
+.panel > summary::after, .row-item > summary::after { display: none; }
 #editor details { margin-bottom: 0; }
 #editor details.row-item { margin-bottom: 8px; }
 .panel > summary {
-  font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
+  font-size: 16px; text-transform: uppercase; letter-spacing: .08em;
   color: var(--pico-muted-color); font-weight: 600;
 }
 details.panel[hidden] { display: none !important; }
 details.row-item:not([open]) > summary { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
 </style>
 </head>
-<body>
+<body data-page="">
 <!-- Icons: Iconoir v7.12.1 (MIT, https://iconoir.com), regular set. -->
 <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <symbol id="i-sidebar-collapse" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M19 21L5 21C3.89543 21 3 20.1046 3 19L3 5C3 3.89543 3.89543 3 5 3L19 3C20.1046 3 21 3.89543 21 5L21 19C21 20.1046 20.1046 21 19 21Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/> <path d="M7.25 10L5.5 12L7.25 14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/> <path d="M9.5 21V3" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-sidebar-expand" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M19 21L5 21C3.89543 21 3 20.1046 3 19L3 5C3 3.89543 3.89543 3 5 3L19 3C20.1046 3 21 3.89543 21 5L21 19C21 20.1046 20.1046 21 19 21Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/> <path d="M9.5 21V3" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/> <path d="M5.5 10L7.25 12L5.5 14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-microphone" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M12 15C10.3431 15 9 13.6569 9 12V6C9 4.34315 10.3431 3 12 3C13.6569 3 15 4.34315 15 6V12C15 13.6569 13.6569 15 12 15Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/> <path d="M19 12C19 15.866 15.866 19 12 19M12 19C8.13401 19 5 15.866 5 12M12 19V22M12 22H9M12 22H15" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M3 9.5L12 2L21 9.5V20C21 20.5523 20.5523 21 20 21H4C3.44772 21 3 20.5523 3 20V9.5Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/> <path d="M9.5 21V14H14.5V21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-send-diagonal" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M22.1525 3.55321L11.1772 21.0044L9.50686 12.4078L2.00002 7.89795L22.1525 3.55321Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>
 <path d="M9.45557 12.4436L22.1524 3.55321" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-square" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M21 3.6V20.4C21 20.7314 20.7314 21 20.4 21H3.6C3.26863 21 3 20.7314 3 20.4V3.6C3 3.26863 3.26863 3 3.6 3H20.4C20.7314 3 21 3.26863 21 3.6Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-xmark" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M6.75827 17.2426L12.0009 12M17.2435 6.75736L12.0009 12M12.0009 12L6.75827 6.75736M12.0009 12L17.2435 17.2426" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-  <symbol id="i-arrow-up" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M12 21L12 3M12 3L20.5 11.5M12 3L3.5 11.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-  <symbol id="i-arrow-down" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M12 3L12 21M12 21L20.5 12.5M12 21L3.5 12.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-nav-arrow-up-solid" viewBox="0 0 24 24">
+    <path fill-rule="evenodd" clip-rule="evenodd" d="M5.30711 15.287C5.4232 15.5673 5.69668 15.75 6.00002 15.75H18C18.3034 15.75 18.5768 15.5673 18.6929 15.287C18.809 15.0068 18.7449 14.6842 18.5304 14.4697L12.5304 8.46967C12.2375 8.17678 11.7626 8.17678 11.4697 8.46967L5.46969 14.4697C5.25519 14.6842 5.19103 15.0068 5.30711 15.287Z" fill="currentColor"/>
+  </symbol>
+  <symbol id="i-nav-arrow-down-solid" viewBox="0 0 24 24">
+    <path fill-rule="evenodd" clip-rule="evenodd" d="M5.30711 8.71299C5.4232 8.43273 5.69668 8.25 6.00002 8.25H18C18.3034 8.25 18.5768 8.43273 18.6929 8.71299C18.809 8.99324 18.7449 9.31583 18.5304 9.53033L12.5304 15.5303C12.2375 15.8232 11.7626 15.8232 11.4697 15.5303L5.46969 9.53033C5.25519 9.31583 5.19103 8.99324 5.30711 8.71299Z" fill="currentColor"/>
+  </symbol>
   <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M6 12H12M18 12H12M12 12V6M12 12V18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-minus" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M6 12H18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 </svg>
 <header class="topbar">
-  <nav class="modes">
-    <button type="button" class="mode-chip" id="mode-cv" aria-pressed="true">resume</button>
-    <button type="button" class="mode-chip" id="mode-cover" aria-pressed="false">cover letter</button>
-  </nav>
-  <nav class="hub-links" aria-label="Setup">
-    <a href="/">Hub</a>
-    <a href="/style">Style</a>
-    <a href="/notes">Notes</a>
-  </nav>
+  <!-- site-nav -->
   <span class="spacer"></span>
-  <button id="chat-toggle" class="secondary" aria-pressed="true" title="Show or hide the chat">Chat</button>
-  <button id="save" class="secondary">Save</button>
-  <button id="export-docx" class="secondary">Export DOCX</button>
-  <button id="export-pdf">Export PDF</button>
+  <button type="button" class="btn secondary" id="save">Save</button>
+  <button type="button" class="btn secondary" id="export-docx">Export DOCX</button>
+  <button type="button" class="btn" id="export-pdf">Export PDF</button>
+  <button type="button" class="btn secondary chat-toggle" id="chat-toggle" aria-pressed="true"
+          aria-label="Hide chat" title="Hide chat"><svg class="ico" aria-hidden="true"><use href="#i-sidebar-collapse"/></svg></button>
 </header>
 <div id="toast" class="toast" role="status" aria-live="polite"><span class="toast-text"></span></div>
 
+<div class="workspace">
 <main>
   <div class="editor-wrap">
   <div id="editor">
@@ -621,6 +380,7 @@ details.row-item:not([open]) > summary { margin-bottom: 0; padding-bottom: 0; bo
       <button type="button" id="zoom-in" aria-label="Zoom in"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg></button>
     </div>
   </div>
+</main>
   <aside id="chat" class="chat" aria-label="Chat">
     <div class="chat-head">
       <strong id="chat-title">Chat</strong>
@@ -649,11 +409,12 @@ details.row-item:not([open]) > summary { margin-bottom: 0; padding-bottom: 0; bo
     </div>
     <div class="chat-compose">
       <textarea id="chat-input" rows="3" placeholder="Ask anything about this document"></textarea>
+      <button type="button" class="chat-icon chat-mic" id="chat-mic" aria-label="Dictate" title="Dictate"><svg class="ico" aria-hidden="true"><use href="#i-microphone"/></svg></button>
       <button type="button" class="chat-icon" id="chat-send" aria-label="Send"><svg class="ico" aria-hidden="true"><use href="#i-send-diagonal"/></svg></button>
       <button type="button" class="chat-icon" id="chat-stop" aria-label="Stop" hidden><svg class="ico" aria-hidden="true"><use href="#i-square"/></svg></button>
     </div>
   </aside>
-</main>
+</div>
 
 <script>
 "use strict";
@@ -697,6 +458,11 @@ let lastIssues = [];
 const collapsed = new WeakSet();
 
 /* ---------------------------------------------------------------- utils */
+
+// The application this page is for: it is in the URL, so two tabs on two
+// applications cannot write over one another.
+const APP = document.body.dataset.app || "";
+const withApp = (path) => (APP ? `${path}${path.includes("?") ? "&" : "?"}app=${encodeURIComponent(APP)}` : path);
 
 function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
@@ -796,11 +562,24 @@ function foldable(record, className, summaryChildren, body) {
   return box;
 }
 
+// Section headings are stored as they print — "PROFESSIONAL SUMMARY" — but a
+// form full of shouting is hard to scan. Display only: the same rule as
+// model.py's title_case, so an all-caps word is re-cased and anything already
+// mixed ("McDonald", "iOS") is left alone.
+function titleish(text) {
+  return String(text).split(" ").map((word) =>
+    word === word.toUpperCase() && word !== word.toLowerCase()
+      ? word.replace(/[A-Za-z]+/g, (w) => w[0] + w.slice(1).toLowerCase())
+      : word).join(" ");
+}
+
+const capitalise = (word) => word.charAt(0).toUpperCase() + word.slice(1);
+
 function rowControls(list, index, label) {
   return [
-    el("strong", { text: label }),
-    iconButton("arrow-up", "Move up", noToggle(() => moveRow(list, index, -1))),
-    iconButton("arrow-down", "Move down", noToggle(() => moveRow(list, index, 1))),
+    el("strong", { text: titleish(label) }),
+    iconButton("nav-arrow-up-solid", "Move up", noToggle(() => moveRow(list, index, -1))),
+    iconButton("nav-arrow-down-solid", "Move down", noToggle(() => moveRow(list, index, 1))),
     el("button", { class: "tiny icon-only", type: "button", "aria-label": "Remove", title: "Remove",
       onclick: noToggle(() => { list.splice(index, 1); draw(); }) }, icon("xmark")),
   ];
@@ -907,8 +686,11 @@ function drawSection(section, index) {
   }
 
   return foldable(section, "row-item",
-    rowControls(cv.sections, index, `${section.heading} (${section.type})`), [
-    field("Heading", section.heading, (e) => { section.heading = e.target.value; schedule(); }),
+    rowControls(cv.sections, index, `${section.heading} (${capitalise(section.type)})`), [
+    // Shown as "Professional Summary", stored as "PROFESSIONAL SUMMARY": the
+    // CV prints its headings in caps, and that is what the DOCX carries.
+    field("Heading", titleish(section.heading),
+      (e) => { section.heading = e.target.value.toUpperCase(); schedule(); }),
     ...body,
   ]);
 }
@@ -981,8 +763,9 @@ function setMode(next, { push = true } = {}) {
   if (push && location.pathname !== MODE_PATHS[next]) {
     history.pushState({ mode: next }, "", MODE_PATHS[next]);
   }
-  $("mode-cv").setAttribute("aria-pressed", next === "cv" ? "true" : "false");
-  $("mode-cover").setAttribute("aria-pressed", next === "cover" ? "true" : "false");
+  document.body.dataset.page = next === "cover" ? "cover" : "resume";
+  $("mode-cv").toggleAttribute("aria-current", next === "cv");
+  $("mode-cover").toggleAttribute("aria-current", next === "cover");
   $("panel-cv-sections").hidden = next !== "cv";
   $("panel-letter").hidden = next !== "cover";
   $("panel-footer").hidden = next !== "cover";
@@ -1100,8 +883,9 @@ window.addEventListener("message", (event) => {
 
 $("name").addEventListener("input", (e) => { header().name = e.target.value; schedule(); });
 $("add-contact").addEventListener("click", () => { header().contact.push({ text: "" }); draw(); });
-$("mode-cv").addEventListener("click", () => setMode("cv"));
-$("mode-cover").addEventListener("click", () => setMode("cover"));
+// Real links everywhere else; here they switch in place so unsaved edits stay.
+$("mode-cv").addEventListener("click", (event) => { event.preventDefault(); setMode("cv"); });
+$("mode-cover").addEventListener("click", (event) => { event.preventDefault(); setMode("cover"); });
 window.addEventListener("popstate", () => setMode(modeFromPath(location.pathname), { push: false }));
 $("cover_role").addEventListener("input", (e) => { cover.role = e.target.value; schedule(); });
 $("cover_company").addEventListener("input", (e) => { cover.company = e.target.value; schedule(); });
@@ -1152,7 +936,7 @@ $("bullet_char").addEventListener("input", (e) => {
 $("save").addEventListener("click", async () => {
   setStatus("saving and rebuilding…");
   try {
-    const data = await api("/api/save", payload()).then((r) => r.json());
+    const data = await api("/api/save", { ...payload(), app: APP }).then((r) => r.json());
     if (data.build_error) {
       setStatus(`saved JSON, but rebuild failed: ${data.build_error}`, true);
       return;
@@ -1166,11 +950,11 @@ $("save").addEventListener("click", async () => {
 async function download(format) {
   setStatus(`building ${format.toUpperCase()}…`);
   try {
-    const stem = documentMode === "cover" ? "cover" : "cv";
-    const response = await api("/api/export", { ...payload(), format, stem });
+    const response = await api("/api/export", { ...payload(), format });
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
-    const link = el("a", { href: url, download: `${stem}.${format}` });
+    const named = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") || "");
+    const link = el("a", { href: url, download: named ? named[1] : `document.${format}` });
     document.body.append(link);
     link.click();
     link.remove();
@@ -1195,14 +979,9 @@ $("zoom-out").addEventListener("click", () => {
 /* ----------------------------------------------------------------- boot */
 
 (async function start() {
-  // Press the right chip before the document loads, so /cover-letter does not
-  // flash "resume" while the data is in flight.
-  const initial = modeFromPath(location.pathname);
-  $("mode-cv").setAttribute("aria-pressed", initial === "cv" ? "true" : "false");
-  $("mode-cover").setAttribute("aria-pressed", initial === "cover" ? "true" : "false");
   try {
     const [document_, fontList] = await Promise.all([
-      api("/api/document").then((r) => r.json()),
+      api(withApp("/api/document")).then((r) => r.json()),
       api("/api/fonts").then((r) => r.json()),
     ]);
     cv = document_.cv;
@@ -1253,5 +1032,6 @@ $("zoom-out").addEventListener("click", () => {
   </article>
 </dialog>
 <script src="/static/chat.js"></script>
+<script src="/static/apps.js"></script>
 </body>
 </html>

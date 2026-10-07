@@ -29,13 +29,18 @@ html[data-theme="dark"] {
   --pico-card-background-color: #171717;
   --pico-card-border-color: #2e2e2e;
   --pico-card-sectioning-background-color: #171717;
-  --pico-font-family: "Fira Sans Condensed", "Segoe UI", system-ui, sans-serif;
+  --pico-font-family: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --pico-font-size: 15px;
   --pico-line-height: 1.4;
   --pico-spacing: 0.6rem;
   --pico-typography-spacing-vertical: 0.6rem;
   --pico-form-element-spacing-vertical: 0.4rem;
   --pico-form-element-spacing-horizontal: 0.65rem;
+  /* The page background as a value of our own: Pico redefines
+     --pico-background-color inside buttons. */
+  --page-bg: #101010;
+  /* The writing surface: off-white, easier on the eye than pure white. */
+  --paper: #f2f1ee;
   --chrome-gutter: 24px;
   --chrome-bottom: 24px;
   --panel-pad-x: 18px;
@@ -49,7 +54,7 @@ html[data-theme="dark"] {
   /* Controls: every chip and button in a top bar or action row. The editor's
      top bar is the reference; this is what keeps the pages identical. */
   --control-height: 2.25rem;
-  --control-font-size: 13px;
+  --control-font-size: 16px;
   --control-font-weight: 600;
   --chip-pad-x: calc(var(--panel-pad-x) - 1px);
   --button-pad-x: 0.85rem;
@@ -64,11 +69,11 @@ html[data-theme="dark"] {
   box-sizing: border-box; height: var(--control-height); margin: 0;
   display: inline-flex; align-items: center; padding: 0 var(--chip-pad-x);
   font-family: var(--pico-font-family); font-size: var(--control-font-size);
-  font-weight: var(--control-font-weight); line-height: 1; letter-spacing: .08em;
-  text-transform: uppercase; text-decoration: none; white-space: nowrap;
+  font-weight: var(--control-font-weight); line-height: 1; letter-spacing: .02em;
+  text-decoration: none; white-space: nowrap;
   border: 1px solid var(--pico-form-element-border-color);
   border-radius: var(--pico-border-radius); background: transparent;
-  color: var(--pico-muted-color);
+  color: var(--pico-secondary-inverse, #f5f5f5);
 }
 a.chip:hover, a.chip:focus-visible { border-color: var(--accent); color: var(--accent-ink); }
 .chip.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
@@ -89,15 +94,169 @@ a.btn[role="button"] {
   padding: 0 var(--button-pad-x); line-height: 1;
 }
 
-/* Quiet text links to the other pages. The chip says where you are; these
-   say where else you can go. Same on every page. */
-.hub-links { display: flex; align-items: center; gap: 14px; margin-left: 8px; flex: none; }
-.hub-links a {
-  font-family: var(--pico-font-family); font-size: 12px; font-weight: 600;
-  letter-spacing: .08em; text-transform: uppercase; color: #6a6a6a; text-decoration: none;
+/* The shared top-bar nav, identical on every page: Hub, Style, Notes,
+   Resume, Cover letter. The server tags <body data-page>; the matching chip
+   gets the dull green fill, the rest stay outlined. The application being
+   worked on is not here: it is the hub's title. */
+.site-nav { display: flex; gap: 8px; align-items: center; flex: none; flex-wrap: wrap; min-width: 0; }
+body[data-page="hub"] #nav-hub,
+body[data-page="style"] #nav-style,
+body[data-page="notes"] #nav-notes,
+body[data-page="resume"] #mode-cv,
+body[data-page="cover"] #mode-cover {
+  background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
 }
-.hub-links a:hover, .hub-links a:focus-visible { color: var(--accent-ink); }
+.topbar .spacer { flex: 1 1 12px; min-width: 0; }
+/* Style and Notes describe you, not a job: they are reached from the hub,
+   not from inside an application's documents. */
+body[data-page="resume"] :is(#nav-style, #nav-notes),
+body[data-page="cover"] :is(#nav-style, #nav-notes) { display: none; }
+/* Inside an application the way out is a house, not a word. */
+#nav-hub .ico { display: none; width: 18px; height: 18px; }
+body:is([data-page="resume"], [data-page="cover"]) #nav-hub {
+  width: var(--control-height); padding: 0; justify-content: center;
+}
+body:is([data-page="resume"], [data-page="cover"]) #nav-hub .ico { display: block; }
+body:is([data-page="resume"], [data-page="cover"]) #nav-hub .chip-label { display: none; }
+@media (max-width: 640px) {
+  .site-nav { gap: 4px; }
+  .chip { padding: 0 8px; letter-spacing: .04em; }
+}
 
-/* Every page's top bar: page chips, quiet links, then actions on the right. */
-.topbar .spacer { flex: 1; }
-.modes { display: flex; gap: 8px; align-items: center; }
+/* ---------------------------------------------------------------- shell
+   The page frame every page shares: full-height column, fixed top bar, then
+   a workspace of one main column plus the optional chat column. Only the
+   contents of <main> and the right-hand side of the top bar differ by page. */
+
+html { height: 100%; overflow: hidden; }
+body {
+  height: 100vh; margin: 0; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--pico-background-color); font-family: var(--pico-font-family);
+}
+
+.topbar {
+  position: relative;
+  display: flex; gap: 12px; align-items: center; flex-wrap: nowrap; flex-shrink: 0;
+  padding: var(--chrome-gutter) var(--chrome-gutter) var(--topbar-gap);
+  margin: 0; background: var(--pico-background-color);
+}
+.topbar .spacer { flex: 1 1 12px; min-width: 0; }
+/* Chat toggle: icon-only square at the far right; the icon mirrors when open. */
+.topbar .chat-toggle { width: var(--control-height); padding: 0; justify-content: center; }
+.topbar .chat-toggle .ico { width: 18px; height: 18px; transform: scaleX(-1); }
+
+.workspace {
+  display: flex; gap: 20px; flex: 1; min-height: 0;
+  padding: 0 var(--chrome-gutter) var(--chrome-bottom);
+}
+.workspace > main {
+  flex: 1; min-width: 0; min-height: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 12px;
+}
+body:not(.chat-open) .chat { display: none; }
+/* The chat and the form flank the paper. On a wide screen the paper does not
+   need the extra pixels, so they go to the columns you type in. */
+body.chat-open .workspace > .chat { flex: 0 0 clamp(440px, 24vw, 620px); }
+@media (max-width: 900px) {
+  body.chat-open .workspace { flex-direction: column; }
+  body.chat-open .workspace > .chat { flex: 1 1 auto; }
+}
+
+/* One scrollbar style everywhere: thin, no arrow buttons, grey thumb.
+   Named once here; every scrolling surface in the app is in this list. */
+:is(.thin-scroll, .chat-log, .panel-body, .editor, .preview)::-webkit-scrollbar {
+  width: var(--editor-scroll-size); height: var(--editor-scroll-size); background: transparent;
+}
+:is(.thin-scroll, .chat-log, .panel-body, .editor, .preview)::-webkit-scrollbar-button {
+  display: none !important; width: 0 !important; height: 0 !important;
+  background: transparent; border: 0;
+}
+:is(.thin-scroll, .chat-log, .panel-body, .editor, .preview)::-webkit-scrollbar-track { background: transparent; margin: 0; }
+:is(.thin-scroll, .chat-log, .panel-body, .editor, .preview)::-webkit-scrollbar-thumb { background: #5a5a5a; border-radius: 8px; }
+:is(.thin-scroll, .chat-log, .panel-body, .editor, .preview)::-webkit-scrollbar-corner { background: transparent; }
+@supports not selector(::-webkit-scrollbar) {
+  .thin-scroll, .chat-log, .panel-body, .editor, .preview { scrollbar-width: thin; scrollbar-color: #5a5a5a transparent; }
+}
+
+/* Small shared pieces. */
+.ico { width: 1em; height: 1em; flex: none; display: block; }
+button.icon-only { display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+button.icon-only .ico { width: 15px; height: 15px; }
+button.tiny {
+  width: auto; margin: 0; padding: 2px 8px; font-size: 12px; line-height: 1.4;
+  background: transparent; border-color: var(--pico-form-element-border-color);
+  color: var(--pico-muted-color);
+}
+button.tiny:hover, button.tiny:focus { color: #ececec; border-color: var(--accent); }
+.status { font-size: 12px; color: var(--pico-muted-color); }
+.status.bad { color: var(--error); }
+
+/* ------------------------------------------------- application switcher
+   The chip names the job you are working on; the dialog lists the rest. */
+/* The application being worked on, centred in the top bar between the nav and
+   the page's own buttons. Centred against the bar rather than the gap between
+   them, so it does not shift when a page has more buttons than another. */
+.app-name {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  max-width: min(420px, 34vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--control-font-size); font-weight: var(--control-font-weight);
+  color: var(--pico-muted-color); text-decoration: none; pointer-events: auto;
+}
+.app-name:hover, .app-name:focus-visible { color: var(--accent-ink); }
+@media (max-width: 1100px) { .app-name { display: none; } }
+.apps { margin-top: 44px; }
+/* The button answers the whole block, title and caption both. */
+.apps-head { display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; margin: 0 0 20px; }
+.apps-head > div { min-width: 0; }
+.apps-head > button { flex: none; }
+.apps h2 { font-size: 20px; font-weight: 600; margin: 0; color: #ececec; }
+.app-note { margin: 4px 0 0; font-size: 13px; color: var(--pico-muted-color); }
+.app-list { display: flex; flex-direction: column; gap: 6px; }
+.app-row {
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+  border-radius: 6px; background: var(--pico-card-background-color);
+}
+.app-row.current { box-shadow: 0 0 0 1px var(--accent) inset; }
+.app-row-name { flex: 1; min-width: 0; font-size: 15px; color: #ececec;
+  text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.app-row-name:hover, a.app-row-name:focus-visible { color: var(--accent-ink); }
+.app-row-link { flex: none; font-size: 12px; color: var(--pico-muted-color); }
+
+/* One menu per row: the row opens the application, this holds the rest. */
+/* Pico gives <details> and <summary> a bottom margin; inside a centred
+   row that pushes the dots above the middle. */
+.row-menu { position: relative; flex: none; margin: 0; }
+.row-menu summary {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; margin: 0; padding: 0; line-height: 1;
+  border-radius: 6px; cursor: pointer;
+  color: var(--pico-muted-color); list-style: none;
+}
+.row-menu summary::-webkit-details-marker { display: none; }
+.row-menu summary::after { display: none; }
+.row-menu summary:hover, .row-menu[open] summary { background: #222; color: #ececec; }
+.row-menu .ico { display: block; width: 18px; height: 18px; }
+.menu-sheet {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; min-width: 150px;
+  display: flex; flex-direction: column; padding: 4px;
+  border: 1px solid var(--pico-card-border-color); border-radius: 6px; background: #1b1b1b;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+}
+.menu-item {
+  width: 100%; margin: 0; padding: 6px 10px; text-align: left;
+  border: 0; border-radius: 4px; background: transparent; box-shadow: none;
+  font-size: 13px; font-weight: 400; color: var(--pico-color);
+}
+.menu-item:hover, .menu-item:focus-visible { background: var(--accent); color: var(--accent-ink); }
+.app-divider {
+  margin-top: 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--pico-muted-color);
+}
+/* A button that reads as a link, for a quiet action inside a sentence. */
+button.link {
+  width: auto; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none;
+  font-family: inherit; font-size: inherit; font-weight: inherit; color: var(--pico-muted-color);
+  text-decoration: underline; text-underline-offset: 3px;
+}
+button.link:hover, button.link:focus-visible { background: transparent; color: var(--accent-ink); }

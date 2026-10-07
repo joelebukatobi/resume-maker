@@ -6,48 +6,80 @@
 <title>Notes · resume-maker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans+Condensed:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
 <link rel="stylesheet" href="/static/base.css">
+<link rel="stylesheet" href="/static/chat.css">
 <link rel="stylesheet" href="/static/setup.css">
 </head>
-<body>
+<body data-page="">
+<!-- Icons: Iconoir (MIT, https://iconoir.com). -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <symbol id="i-code" viewBox="0 0 24 24" fill="none" stroke-width="1.5">
+    <path d="M13.5 6L10 18.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M6.5 8.5L3 12L6.5 15.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M17.5 8.5L21 12L17.5 15.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <symbol id="i-text" viewBox="0 0 24 24" fill="none" stroke-width="1.5">
+    <path d="M19 7V5L5 5V7" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M12 5L12 19M12 19H10M12 19H14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <symbol id="i-sidebar-collapse" viewBox="0 0 24 24" fill="none">
+    <path d="M19 21L5 21C3.89543 21 3 20.1046 3 19L3 5C3 3.89543 3.89543 3 5 3L19 3C20.1046 3 21 3.89543 21 5L21 19C21 20.1046 20.1046 21 19 21Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M7.25 10L5.5 12L7.25 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M9.5 21V3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <symbol id="i-sidebar-expand" viewBox="0 0 24 24" fill="none">
+    <path d="M19 21L5 21C3.89543 21 3 20.1046 3 19L3 5C3 3.89543 3.89543 3 5 3L19 3C20.1046 3 21 3.89543 21 5L21 19C21 20.1046 20.1046 21 19 21Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M9.5 21V3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M5.5 10L7.25 12L5.5 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <symbol id="i-microphone" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M12 15C10.3431 15 9 13.6569 9 12V6C9 4.34315 10.3431 3 12 3C13.6569 3 15 4.34315 15 6V12C15 13.6569 13.6569 15 12 15Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/> <path d="M19 12C19 15.866 15.866 19 12 19M12 19C8.13401 19 5 15.866 5 12M12 19V22M12 22H9M12 22H15" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-send-diagonal" viewBox="0 0 24 24" fill="none">
+    <path d="M22.1525 3.55321L11.1772 21.0044L9.50686 12.4078L2.00002 7.89795L22.1525 3.55321Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M9.45557 12.4436L22.1524 3.55321" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <symbol id="i-square" viewBox="0 0 24 24" fill="none">
+    <path d="M21 3.6V20.4C21 20.7314 20.7314 21 20.4 21H3.6C3.26863 21 3 20.7314 3 20.4V3.6C3 3.26863 3.26863 3 3.6 3H20.4C20.7314 3 21 3.26863 21 3.6Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <symbol id="i-xmark" viewBox="0 0 24 24" fill="none">
+    <path d="M6.75827 17.2426L12.0009 12M17.2435 6.75736L12.0009 12M12.0009 12L6.75827 6.75736M12.0009 12L17.2435 17.2426" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+</svg>
 <header class="topbar">
-  <nav class="modes"><span class="chip active">Notes</span></nav>
-  <nav class="hub-links" aria-label="Pages">
-    <a href="/">Hub</a>
-    <a href="/style">Style</a>
-    <a href="/resume">Documents</a>
-  </nav>
+  <!-- site-nav -->
   <span class="spacer"></span>
   <button type="button" class="btn secondary" id="save">Save</button>
+  <button type="button" id="chat-toggle" class="btn secondary chat-toggle" aria-pressed="true"
+          aria-label="Hide chat" title="Hide chat"><svg class="ico" aria-hidden="true"><use href="#i-sidebar-collapse"/></svg></button>
 </header>
 
+<div class="workspace">
 <main>
-  <h1>What you have actually done</h1>
-  <p class="lead">
-    Saved as <code>notes.md</code> and shared by the CV and the cover letter. Write
-    freely: projects, numbers, decisions, the messy parts. The model matches a job
-    description against this instead of inventing something that sounds right.
-  </p>
-
-  <div class="chips" id="stubs" aria-label="Add a section">
-    <button type="button" data-heading="Owned end-to-end"
-            data-hint="What was yours from start to finish? What shipped, and what changed because of it?">+ Owned end-to-end</button>
-    <button type="button" data-heading="Ops, QA and triage"
-            data-hint="The unglamorous work: incidents, escalations, quality gates, what you fixed for good.">+ Ops / QA / triage</button>
-    <button type="button" data-heading="People don't know this about my work"
-            data-hint="The part that never fits on a CV but explains how you operate.">+ People don't know</button>
-    <button type="button" data-heading="Numbers I can defend"
-            data-hint="Figures you could explain in an interview: where they came from, and over what period.">+ Numbers</button>
-    <label class="upload">
-      <input type="file" id="file" accept=".txt,.md,.docx,.pdf" hidden>
-      <span>+ From a file</span>
-    </label>
+  <div class="page-head">
+    <h1>What you have actually done</h1>
+    <p class="lead">
+      Saved as <code>notes.md</code> and shared by the CV and the cover letter. Write
+      freely: projects, numbers, decisions, the messy parts. The model matches a job
+      description against this instead of inventing something that sounds right.
+    </p>
   </div>
 
-  <textarea class="editor" id="editor" spellcheck="false"
-            placeholder="## Amazon — Customer eXperience Impressions&#10;Ran weekly triage across the impressions dataset…"></textarea>
+  <div class="content">
+    <div class="view-switch" aria-label="View">
+      <button type="button" class="view-btn active" id="view-edit"
+              aria-pressed="true" aria-label="Edit markdown" title="Edit">
+        <svg class="ico" aria-hidden="true"><use href="#i-code"/></svg>
+      </button>
+      <button type="button" class="view-btn" id="view-preview"
+              aria-pressed="false" aria-label="Preview markdown" title="Preview">
+        <svg class="ico" aria-hidden="true"><use href="#i-text"/></svg>
+      </button>
+    </div>
+    <textarea class="editor" id="editor" spellcheck="false"
+              placeholder="## Amazon — Customer eXperience Impressions&#10;Ran weekly triage across the impressions dataset…"></textarea>
+    <div class="preview" id="preview" hidden></div>
+  </div>
 
   <div class="actions">
     <span class="state" id="state"><span class="dot"></span><span class="label">…</span></span>
@@ -56,51 +88,17 @@
     <span class="note" id="note"></span>
   </div>
 </main>
+<!-- site-chat -->
+</div>
 
 <script src="/static/setup.js"></script>
 <script>
 "use strict";
-
-const page = setupPage({ kind: "notes", statusKey: "notes" });
-
-function append(text) {
-  const current = page.editor.value.replace(/\s+$/, "");
-  page.editor.value = current ? `${current}\n\n${text}\n` : `${text}\n`;
-  page.editor.focus();
-  page.editor.setSelectionRange(page.editor.value.length, page.editor.value.length);
-  page.editor.scrollTop = page.editor.scrollHeight;
-  page.count();
-}
-
-// Section stubs: a heading plus the question it answers, so the page is never
-// a blank box staring back at you.
-for (const button of document.querySelectorAll("#stubs button[data-heading]")) {
-  button.addEventListener("click", () => {
-    append(`## ${button.dataset.heading}\n<!-- ${button.dataset.hint} -->\n`);
-    page.say(`Added "${button.dataset.heading}" — fill it in, then save.`);
-  });
-}
-
-// Files are read server-side by the same extractor the CV import uses.
-$("file").addEventListener("change", async (event) => {
-  const file = event.target.files[0];
-  event.target.value = "";
-  if (!file) return;
-  page.say(`Reading ${file.name}…`);
-  try {
-    const base64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result).split(",", 2)[1] || "");
-      reader.onerror = () => reject(new Error("could not read the file"));
-      reader.readAsDataURL(file);
-    });
-    const { text } = await api("/api/setup/extract", { filename: file.name, file: base64 });
-    append(`## From ${file.name}\n${text}`);
-    page.say(`Added ${text.length.toLocaleString()} characters from ${file.name}. Not saved yet.`);
-  } catch (error) {
-    page.say(error.message, true);
-  }
-});
+setupPage({ kind: "notes", statusKey: "notes" });
 </script>
+<script src="/static/setup-chat.js"></script>
+<script src="/static/chat.js"></script>
+<script>bootSetupChat();</script>
+<script src="/static/apps.js"></script>
 </body>
 </html>

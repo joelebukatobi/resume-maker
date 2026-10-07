@@ -1,13 +1,50 @@
-/* Layout for the setup pages (Style, Notes). Tokens and control sizing
-   come from base.css, shared with the editor and the hub. */
-* { box-sizing: border-box; }
-body {
-  /* Fill the window, but grow past it rather than clip on short screens. */
-  min-height: 100vh; margin: 0; padding: var(--chrome-gutter);
-  background: var(--pico-background-color); font-family: var(--pico-font-family);
-  display: flex; flex-direction: column; gap: var(--topbar-gap);
+/* Style and Notes: the Markdown editor, its preview, and the readiness line.
+   The frame, top bar, scrollbars and chat panel come from base.css + chat.css. */
+
+/* Edit / Preview: pinned to the top-right corner of the text box.
+   Pico sets button { width: 100% }; without !important these grow to the
+   full content width and spill off the left under overflow:hidden. */
+.view-switch {
+  position: absolute; top: 10px; right: 10px; z-index: 2;
+  display: flex; gap: 0; align-items: stretch;
+  width: auto !important; max-width: none !important;
+  border: 0 !important; outline: none !important; box-shadow: none !important;
+  background: transparent; padding: 0; margin: 0;
+  /* One flowing control: the halves meet on a straight seam and the pill
+     clips their corners, so only the outer edges are rounded. */
+  border-radius: 5px; overflow: hidden;
 }
-.topbar { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; padding: 0; }
+.view-switch:focus, .view-switch:focus-within, .view-switch:focus-visible {
+  border: 0 !important; outline: none !important; box-shadow: none !important;
+}
+button.view-btn {
+  box-sizing: border-box; margin: 0 !important; flex: none !important;
+  width: 22px !important; min-width: 22px !important; max-width: 22px !important;
+  height: 22px !important; padding: 0 !important;
+  display: inline-flex !important; align-items: center; justify-content: center;
+  background: var(--pico-card-background-color) !important; border: 0 !important; box-shadow: none !important;
+  outline: none !important; color: #9a9a9a !important; border-radius: 0; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+button.view-btn:hover {
+  background: var(--pico-card-background-color) !important; border: 0 !important; box-shadow: none !important;
+  outline: none !important; color: #ececec !important;
+}
+button.view-btn:focus, button.view-btn:focus-visible, button.view-btn:active {
+  --pico-box-shadow: none !important;
+  background: var(--pico-card-background-color) !important; border: 0 !important; box-shadow: none !important;
+  outline: none !important; outline-offset: 0 !important;
+}
+button.view-btn .ico { width: 14px; height: 14px; display: block; flex: none; stroke-width: 1; }
+button.view-btn.active {
+  background: var(--accent) !important; border: 0 !important; outline: none !important;
+  box-shadow: none !important; color: var(--accent-ink) !important;
+}
+button.view-btn.active:hover, button.view-btn.active:focus, button.view-btn.active:focus-visible {
+  --pico-box-shadow: none !important;
+  background: var(--accent) !important; border: 0 !important; outline: none !important;
+  box-shadow: none !important; color: var(--accent-ink) !important;
+}
 .state {
   display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
   text-transform: uppercase; letter-spacing: .06em; color: var(--pico-muted-color);
@@ -15,13 +52,21 @@ body {
 .state .dot { width: 8px; height: 8px; border-radius: 50%; background: #5a5a5a; }
 .state[data-state="started"] .dot { background: #9a9a9a; }
 .state[data-state="ready"] .dot { background: #6f9e78; }
-main {
-  flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px;
-  background: #171717; border: 1px solid #2e2e2e; border-radius: 10px; padding: 18px;
+/* No outer card: the column is bare, like the editor's panel stack. The
+   workspace sizing comes from base.css. */
+.workspace > main { overflow: hidden; }
+/* Title and caption sit on their own card, matching the content box. */
+.page-head {
+  background: var(--pico-card-background-color); border-radius: 8px;
+  padding: 16px var(--panel-pad-x); display: flex; flex-direction: column; gap: 6px;
 }
-h1 { font-size: 22px; font-weight: 500; margin: 0; color: #ececec; }
-.lead { margin: 0; color: var(--pico-muted-color); max-width: 70ch; }
-.chips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+h1 { font-size: 20px; font-weight: 500; margin: 0; color: #ececec; }
+.lead { margin: 0; font-size: 16px; color: #fff; overflow-wrap: anywhere; }
+.content {
+  flex: 1; min-height: 0; min-width: 0; width: 100%; max-width: 100%;
+  display: flex; flex-direction: column; position: relative;
+}
+.chips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; max-width: 100%; }
 .chips .upload { margin: 0; }
 /* Role and section chips: button-sized, outlined like the inactive chip. */
 .chips button, .chips .upload span {
@@ -32,25 +77,44 @@ h1 { font-size: 22px; font-weight: 500; margin: 0; color: #ececec; }
   border-radius: var(--pico-border-radius); color: #cfcfcf; cursor: pointer;
 }
 .chips button:hover, .chips .upload span:hover { border-color: var(--accent); color: var(--accent-ink); }
-.editor {
-  flex: 1; min-height: 240px; width: 100%; margin: 0; resize: none;
-  font-family: var(--pico-font-family); font-size: var(--pico-font-size);
-  line-height: var(--pico-line-height); background: var(--pico-form-element-background-color);
-  color: var(--pico-form-element-color);
-  border: 1px solid #2e2e2e; border-radius: 8px; padding: 14px;
+.editor, .preview {
+  flex: 1; min-height: 240px; min-width: 0; width: 100%; max-width: 100%; margin: 0;
+  font-family: var(--pico-font-family); font-size: 16px;
+  line-height: var(--pico-line-height);
+  /* A sheet of paper: off-white, with the page grey as ink. */
+  background: var(--paper); color: var(--page-bg);
+  border: 0; border-radius: 8px; padding: 16px var(--panel-pad-x);
+  /* Room for the view icons in the top-right corner. */
+  padding-right: calc(var(--panel-pad-x) + 22px + 22px + 4px);
+  overflow-x: auto;
 }
-.editor:focus { border-color: var(--pico-form-element-active-border-color); box-shadow: none; }
-.actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.editor { resize: none; caret-color: var(--page-bg); }
+.editor::placeholder { color: #6a6a6a; opacity: 1; }
+.editor:focus { outline: none; box-shadow: none; }
+.preview { overflow: auto; overflow-wrap: anywhere; }
+.preview .md-empty { margin: 0; color: #6a6a6a; }
+.preview .md-heading { margin: 0 0 8px; font-weight: 600; color: var(--page-bg); }
+.preview h1.md-heading { font-size: 22px; }
+.preview h2.md-heading { font-size: 18px; }
+.preview h3.md-heading { font-size: 15px; }
+.preview .md-p { margin: 0 0 12px; color: #2a2a2a; }
+.preview .md-group { margin: 0 0 14px; }
+.preview .md-list { margin: 0 0 12px; padding-left: 1.25em; color: #2a2a2a; }
+.preview .md-list li { margin: 0 0 4px; }
+.preview code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em; padding: 0.1em 0.35em; border-radius: 4px;
+  background: rgba(0, 0, 0, .07); color: var(--page-bg);
+}
+.preview strong { color: var(--page-bg); font-weight: 600; }
+/* The status row shares the header card's treatment. */
+.actions {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; max-width: 100%;
+  background: var(--pico-card-background-color); border-radius: 8px;
+  padding: 16px var(--panel-pad-x);
+}
 .actions .spacer { flex: 1; }
 
 .note { font-size: 12px; color: var(--pico-muted-color); }
 .note.bad { color: #d98a8a; }
 .count { font-size: 12px; color: var(--pico-muted-color); font-variant-numeric: tabular-nums; }
-/* Scrollbars match the editor panels: thin, no arrows. */
-.editor::-webkit-scrollbar { width: 5px; background: transparent; }
-.editor::-webkit-scrollbar-button { display: none !important; width: 0 !important; height: 0 !important; }
-.editor::-webkit-scrollbar-track { background: transparent; }
-.editor::-webkit-scrollbar-thumb { background: #5a5a5a; border-radius: 8px; }
-@supports not selector(::-webkit-scrollbar) {
-  .editor { scrollbar-width: thin; scrollbar-color: #5a5a5a transparent; }
-}
