@@ -23,14 +23,26 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs
+from html import escape
+from urllib.parse import parse_qs, quote
 
-from resume_maker.build import FORMAT_ALIASES, Builder, safe_stem
+from resume_maker.applications import UNNAMED, ApplicationError, Workspace, as_json
+from resume_maker.build import FORMAT_ALIASES, Builder, export_name, safe_stem
 from resume_maker.export_pdf import BrowserNotFound, ExportError
 from resume_maker import assistant, llm, setup
 from resume_maker.fonts import catalogue, preview_face
 from resume_maker.model import CV, ContentError, CoverLetter
 from resume_maker.theme import Theme, ThemeError
+
+# route -> (file, page id). The page id selects the active nav chip.
+PAGES = {
+    "/": ("home.html", "hub"),
+    "/style": ("style.html", "style"),
+    "/notes": ("notes.html", "notes"),
+}
+# The documents hang off the application they belong to:
+# /meta-rotational-product-manager/resume. The slug on its own opens the CV.
+DOCUMENT_PAGES = {"": "resume", "resume": "resume", "cover-letter": "cover"}
 
 MAX_BODY = 1 << 20  # 1 MiB is far more than any CV needs.
 MAX_IMPORT_BODY = 8 << 20  # a 5 MB file, base64 encoded
@@ -57,25 +69,82 @@ class EditorHandler(BaseHTTPRequestHandler):
     def __init__(
         self,
         *args: Any,
-        cv_path: Path,
-        theme_path: Path,
-        cover_path: Path,
-        cover_theme_path: Path,
+        workspace: Workspace,
         out_dir: Path,
-        chat_dir: Path,
         assistant_path: Path,
         notes_path: Path,
         **kwargs: Any,
     ) -> None:
-        self._chat_dir = chat_dir
+        self._workspace = workspace
         self._assistant_path = assistant_path
         self._notes_path = notes_path
-        self._cv_path = cv_path
-        self._theme_path = theme_path
-        self._cover_path = cover_path
-        self._cover_theme_path = cover_theme_path
         self._out_dir = out_dir
         super().__init__(*args, **kwargs)
+
+    # -- the open application -------------------------------------------
+    #
+    # Every document path is read through here, so switching application is
+    # one write to one file: the next request already reads the new folder.
+
+    def _document_page(self, route: str) -> tuple[str, str] | None:
+        """``("meta-rotational-pm", "resume")`` for an application's page.
+
+        Returns None for anything that is not one — ``/api/...``, a static
+        file, or a slug with no application behind it — so the caller falls
+        through to its own 404.
+        """
+        parts = route.strip("/").split("/")
+        if not parts or len(parts) > 2 or parts[0] in ("api", "static"):
+            return None
+        tail = parts[1] if len(parts) == 2 else ""
+        page = DOCUMENT_PAGES.get(tail)
+        if page is None:
+            return None
+        try:
+            self._workspace.find(parts[0])
+        except ApplicationError:
+            return None
+        return parts[0], page
+
+    def _redirect(self, location: str) -> None:
+        self.send_response(HTTPStatus.FOUND)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _app(self) -> str:
+        """Which application this request is about.
+
+        The slug travels with the request — in the query for a GET, in the
+        body for a POST — so two tabs on two applications cannot write over
+        each other. Without one, the open application is used.
+        """
+        query = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+        slug = (query.get("app") or [""])[0]
+        return slug or self._workspace.current
+
+    def _paths(self, slug: str = "") -> dict[str, Path]:
+        return self._workspace.paths(slug or self._app())
+
+    @property
+    def _cv_path(self) -> Path:
+        return self._paths()["cv"]
+
+    @property
+    def _theme_path(self) -> Path:
+        return self._paths()["theme"]
+
+    @property
+    def _cover_path(self) -> Path:
+        return self._paths()["cover"]
+
+    @property
+    def _cover_theme_path(self) -> Path:
+        return self._paths()["cover_theme"]
+
+    @property
+    def _chat_path(self) -> Path:
+        return self._paths()["chat"]
 
     # -- plumbing -------------------------------------------------------
 
@@ -158,22 +227,35 @@ class EditorHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 - http.server API
         route = self.path.split("?", 1)[0]
-        if route == "/":
-            return self._static("home.html", "text/html; charset=utf-8")
-        if route in ("/style", "/notes"):
-            return self._static(f"{route.lstrip('/')}.html", "text/html; charset=utf-8")
+        if route in PAGES:
+            return self._page(*PAGES[route])
+        # /resume and /cover-letter from before applications existed, and any
+        # bookmark of them, land in whichever application is open.
+        if route in ("/resume", "/cover-letter", "/index.html"):
+            tail = "resume" if route != "/cover-letter" else "cover-letter"
+            try:
+                return self._redirect(f"/{self._workspace.current}/{tail}")
+            except ApplicationError as exc:
+                return self._error(HTTPStatus.NOT_FOUND, str(exc))
+        document_page = self._document_page(route)
+        if document_page is not None:
+            return self._page("index.html", document_page[1], app=document_page[0])
         if route == "/api/setup":
             return self._setup_get()
         if route == "/api/setup/templates":
             return self._json(HTTPStatus.OK, setup.templates())
-        if route in ("/index.html", "/resume", "/cover-letter"):
-            return self._static("index.html", "text/html; charset=utf-8")
         if route == "/static/chat.js":
             return self._static("chat.js", "text/javascript; charset=utf-8")
+        if route == "/static/apps.js":
+            return self._static("apps.js", "text/javascript; charset=utf-8")
         if route == "/static/setup.js":
             return self._static("setup.js", "text/javascript; charset=utf-8")
+        if route == "/static/setup-chat.js":
+            return self._static("setup-chat.js", "text/javascript; charset=utf-8")
         if route == "/static/base.css":
             return self._static("base.css", "text/css; charset=utf-8")
+        if route == "/static/chat.css":
+            return self._static("chat.css", "text/css; charset=utf-8")
         if route == "/static/setup.css":
             return self._static("setup.css", "text/css; charset=utf-8")
         if route == "/api/document":
@@ -192,6 +274,8 @@ class EditorHandler(BaseHTTPRequestHandler):
             return self._models()
         if route == "/api/chat/history":
             return self._history_get()
+        if route == "/api/apps":
+            return self._apps_get()
         self._error(HTTPStatus.NOT_FOUND, "not found")
 
     def _font_face(self) -> None:
@@ -232,6 +316,7 @@ class EditorHandler(BaseHTTPRequestHandler):
             "/api/setup/notes": self._setup_notes,
             "/api/setup/extract": self._setup_extract,
             "/api/llm/key": self._key,
+            "/api/apps": self._apps_post,
         }
         handler = handlers.get(route)
         if handler is None:
@@ -256,6 +341,38 @@ class EditorHandler(BaseHTTPRequestHandler):
             self._error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
         except llm.LLMError as exc:
             self._error(HTTPStatus.BAD_GATEWAY, str(exc))
+
+    def _page(self, name: str, page: str, app: str = "") -> None:
+        """An HTML page with the shared top-bar nav inserted and tagged.
+
+        Every page carries the same nav from ``_nav.html``; ``data-page``
+        on <body> tells the CSS which chip is active, so the first paint is
+        already right.
+        """
+        path = STATIC_ROOT / name
+        if not path.is_file():
+            return self._error(HTTPStatus.NOT_FOUND, "not found")
+        html = path.read_text(encoding="utf-8")
+        try:
+            slug = app or self._workspace.current
+            name = next(a.name for a in self._workspace.list() if a.slug == slug)
+        except (ApplicationError, StopIteration):
+            slug, name = "", "No application"
+        # The nav's document links point into this application, and its name
+        # sits between the nav and the page's own buttons.
+        nav = (STATIC_ROOT / "_nav.html").read_text(encoding="utf-8").strip()
+        nav = nav.replace("{app_name}", escape(name))
+        html = html.replace("<!-- site-nav -->", nav, 1).replace(
+            '<body data-page="">',
+            f'<body data-page="{page}" data-app="{escape(slug)}"'
+            f'{" data-unnamed=\"1\"" if name == UNNAMED else ""}>', 1
+        )
+        # Any link in any page can point into the open application.
+        html = html.replace("{app}", quote(slug))
+        if "<!-- site-chat -->" in html:
+            chat = (STATIC_ROOT / "_chat.html").read_text(encoding="utf-8").strip()
+            html = html.replace("<!-- site-chat -->", chat, 1)
+        self._send(HTTPStatus.OK, html.encode("utf-8"), "text/html; charset=utf-8")
 
     def _static(self, name: str, content_type: str) -> None:
         path = STATIC_ROOT / name
@@ -300,12 +417,25 @@ class EditorHandler(BaseHTTPRequestHandler):
             },
         )
 
+    @staticmethod
+    def _export_name(payload: dict[str, Any]) -> str:
+        """``Joel Onwuanaku - CV - Meta - Product Manager``.
+
+        The role and company live on the cover letter — that is where the
+        application being worked on is recorded — and name both documents.
+        """
+        kind = payload.get("document", "cv")
+        doc = payload.get(kind if kind == "cover" else "cv") or {}
+        cover = payload.get("cover") or {}
+        return export_name(kind, str(doc.get("name", "")),
+                           str(cover.get("company", "")), str(cover.get("role", "")))
+
     def _export(self, payload: dict[str, Any]) -> None:
         fmt = str(payload.get("format", "pdf"))
         if fmt not in _MEDIA_TYPES:
             return self._error(HTTPStatus.BAD_REQUEST, f"unknown format: {fmt}")
         builder = self._builder(payload)
-        stem = safe_stem(str(payload.get("stem", "cv")))
+        stem = self._export_name(payload)
         with tempfile.TemporaryDirectory(prefix="resume-maker-export-") as tmp:
             result = builder.build(tmp, stem=stem, formats=FORMAT_ALIASES[fmt])
             data = result.artifacts[fmt]
@@ -323,24 +453,28 @@ class EditorHandler(BaseHTTPRequestHandler):
 
     def _save(self, payload: dict[str, Any]) -> None:
         # Parse before writing: a malformed document never reaches disk.
+        paths = self._paths(str(payload.get("app") or ""))
         cv_theme = Theme.from_mapping(payload["theme"])
         cover_theme = Theme.from_mapping(payload["cover_theme"])
         cv = CV.from_mapping(payload["cv"], date_separator=cv_theme.date_separator)
         cover = CoverLetter.from_mapping(payload["cover"])
-        _atomic_write(self._cv_path, json.dumps(payload["cv"], indent=2, ensure_ascii=False))
-        _atomic_write(self._theme_path, json.dumps(payload["theme"], indent=2))
-        _atomic_write(self._cover_path, json.dumps(payload["cover"], indent=2, ensure_ascii=False))
-        _atomic_write(self._cover_theme_path, json.dumps(payload["cover_theme"], indent=2))
+        _atomic_write(paths["cv"], json.dumps(payload["cv"], indent=2, ensure_ascii=False))
+        _atomic_write(paths["theme"], json.dumps(payload["theme"], indent=2))
+        _atomic_write(paths["cover"], json.dumps(payload["cover"], indent=2, ensure_ascii=False))
+        _atomic_write(paths["cover_theme"], json.dumps(payload["cover_theme"], indent=2))
 
         kind = payload.get("document", "cv")
+        # out/ keeps the same names as an export, so each application's files
+        # stand on their own instead of overwriting the last one.
+        stem = self._export_name(payload)
         response: dict[str, Any] = {"saved": True, "written": [], "pages": None}
         try:
             if kind == "cover":
                 result = Builder(cv, cover_theme, letter=cover).build(
-                    self._out_dir, stem="cover", formats="both"
+                    self._out_dir, stem=stem, formats="both"
                 )
             else:
-                result = Builder(cv, cv_theme).build(self._out_dir, stem="cv", formats="both")
+                result = Builder(cv, cv_theme).build(self._out_dir, stem=stem, formats="both")
         except (BrowserNotFound, ExportError) as exc:
             # The JSON is already safely on disk; say what could not be rebuilt.
             response["build_error"] = str(exc)
@@ -465,10 +599,12 @@ class EditorHandler(BaseHTTPRequestHandler):
         if not isinstance(jd, str) or len(jd) > 40_000:
             raise ValueError("job description must be text under 40,000 characters")
         style, notes = self._style_and_notes()
-        system = assistant.system_prompt(kind, doc, jd, assistant_md=style, notes_md=notes)
+        stable, volatile = assistant.prompt_parts(
+            kind, doc, jd, assistant_md=style, notes_md=notes)
         chunks = llm.stream_chat(
             str(payload.get("provider", "")), llm.check_model(payload.get("model", "")),
-            system, self._checked_turns(payload.get("messages")),
+            f"{stable}\n\n{volatile}", self._checked_turns(payload.get("messages")),
+            cacheable=stable,
         )
         # Pull the first chunk before answering, so a bad key or model comes
         # back as a normal error response rather than a broken stream.
@@ -513,23 +649,90 @@ class EditorHandler(BaseHTTPRequestHandler):
         )
         self._json(HTTPStatus.OK, {"doc": assistant.parse_import(kind, reply)})
 
-    def _history_path(self, kind: str) -> Path:
-        return self._chat_dir / f"{self._document_kind(kind)}.json"
+    # -- applications ----------------------------------------------------
+
+    def _last_opened(self) -> str:
+        try:
+            return self._workspace.current
+        except ApplicationError:
+            return ""
+
+    def _apps_get(self) -> None:
+        apps = [as_json(a) for a in self._workspace.list()]
+        self._json(HTTPStatus.OK, {"applications": apps, "current": self._workspace.current})
+
+    def _apps_post(self, payload: dict[str, Any]) -> None:
+        """Create, open, rename or archive an application.
+
+        ApplicationError subclasses ValueError, so a bad slug or a name that
+        is only punctuation comes back as a plain bad request.
+        """
+        action = payload.get("action")
+        slug = str(payload.get("slug") or "")
+        if action == "create":
+            # A new application starts from the one you were last on, so the
+            # work already done carries over; the base files seed the first.
+            source = str(payload.get("source") or "") or self._last_opened()
+            app = self._workspace.create(
+                str(payload.get("name") or "").strip() or UNNAMED,
+                job_url=str(payload.get("job_url") or ""),
+                source=source or None,
+            )
+        elif action == "open":
+            app = self._workspace.set_current(slug)
+        elif action == "rename":
+            app = self._workspace.rename(slug, str(payload.get("name") or ""))
+        elif action == "identify":
+            return self._identify(payload)
+        elif action in ("archive", "restore"):
+            app = self._workspace.archive(slug, archived=action == "archive")
+        else:
+            raise ValueError(f"unknown action: {action!r}")
+        self._json(HTTPStatus.OK, {"application": as_json(app), "current": self._workspace.current})
+
+    def _identify(self, payload: dict[str, Any]) -> None:
+        """Name an unnamed application from the job description just pasted.
+
+        The posting names the company and the role; those are what the
+        application is called, what the cover letter is addressed to, and what
+        the exported files are named after. Asking the model once here saves
+        typing the same two things three times.
+        """
+        slug = str(payload.get("slug") or "") or self._workspace.current
+        text = str(payload.get("job_description") or "").strip()[: assistant.MAX_IMPORT_TEXT]
+        if not text:
+            raise ValueError("paste a job description first")
+        reply = llm.complete(
+            str(payload.get("provider", "")), llm.check_model(payload.get("model", "")),
+            assistant.job_prompt(), text,
+        )
+        found = assistant.parse_job(reply)
+        name = " — ".join(p for p in (found["company"], found["role"]) if p)
+        if not name:
+            raise ValueError("that posting does not name a company or a role")
+        app = self._workspace.rename(slug, name, reslug=True)
+
+        # The cover letter is addressed to the same pair, and the export
+        # filenames are built from it.
+        cover_path = self._paths(app.slug)["cover"]
+        cover = _read_json(cover_path)
+        if cover:
+            cover["company"] = found["company"] or cover.get("company", "")
+            cover["role"] = found["role"] or cover.get("role", "")
+            _atomic_write(cover_path, json.dumps(cover, indent=2, ensure_ascii=False))
+        self._json(HTTPStatus.OK, {"application": as_json(app), **found,
+                                   "current": self._workspace.current})
 
     def _history_get(self) -> None:
-        query = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+        """The application's one conversation, spanning both documents."""
         try:
-            path = self._history_path((query.get("document") or [""])[0])
-        except ValueError as exc:
-            return self._error(HTTPStatus.BAD_REQUEST, str(exc))
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(self._chat_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             data = {"messages": [], "job_description": ""}
         self._json(HTTPStatus.OK, data)
 
     def _history_put(self, payload: dict[str, Any]) -> None:
-        path = self._history_path(payload.get("document"))
+        path = self._paths(str(payload.get("app") or ""))["chat"]
         messages = payload.get("messages") or []
         jd = payload.get("job_description") or ""
         if not isinstance(messages, list) or len(messages) > MAX_TURNS or not isinstance(jd, str):
@@ -540,6 +743,11 @@ class EditorHandler(BaseHTTPRequestHandler):
                     or not isinstance(m.get("content"), str):
                 raise ValueError("invalid chat message")
             item = {"role": m["role"], "content": m["content"]}
+            # One chat covers the CV and the cover letter, so a message says
+            # which it was about: a proposal has to keep pointing at the
+            # document whose field it names, whichever one is open now.
+            if m.get("document") in DOCUMENTS:
+                item["document"] = m["document"]
             if isinstance(m.get("resolved"), dict):  # which proposals were accepted/dismissed
                 item["resolved"] = {str(k): str(v) for k, v in m["resolved"].items()
                                     if v in ("accepted", "dismissed")}
@@ -587,18 +795,27 @@ def main(argv: list[str] | None = None) -> int:
                         help="shared experience bank fed into every chat turn")
     parser.add_argument("--out", type=Path, default=Path("out"),
                         help="directory rebuilt on every save")
+    parser.add_argument("--applications", type=Path, default=Path("applications"),
+                        help="one folder per job application")
     parser.add_argument("--no-open", action="store_true", help="do not open a browser")
     args = parser.parse_args(argv)
 
+    root = args.cv.resolve().parent
+    # The root documents are the base every application is copied from; the
+    # copies, and the chat about each one, live under applications/.
+    workspace = Workspace(args.applications.resolve(), {
+        "cv": args.cv.resolve(),
+        "cover": args.cover.resolve(),
+        "theme": args.theme.resolve(),
+        "cover_theme": args.cover_theme.resolve(),
+    })
+    opened = workspace.ensure(chat_dir=root / ".chat")
+    print(f"application: {opened.name}")
+
     handler = partial(
         EditorHandler,
-        cv_path=args.cv.resolve(),
-        theme_path=args.theme.resolve(),
-        cover_path=args.cover.resolve(),
-        cover_theme_path=args.cover_theme.resolve(),
+        workspace=workspace,
         out_dir=args.out.resolve(),
-        # Chat history holds CV text: kept beside the data, git-ignored.
-        chat_dir=args.cv.resolve().parent / ".chat",
         assistant_path=args.assistant.resolve(),
         notes_path=args.notes.resolve(),
     )

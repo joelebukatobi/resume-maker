@@ -6,3 +6,6 @@ __pycache__/
 # Personal: your Style and experience notes. Role starters in templates/ stay tracked.
 assistant.md
 notes.md
+
+# Your applications: tailored documents and the chat about each job.
+applications/

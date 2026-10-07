@@ -17,7 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import server  # noqa: E402
-from resume_maker import setup  # noqa: E402
+from resume_maker import setup
+from resume_maker.applications import Workspace  # noqa: E402
 
 CV = json.loads((ROOT / "cv.json").read_text())
 COVER = json.loads((ROOT / "cover.json").read_text())
@@ -92,14 +93,17 @@ class SetupApiTests(unittest.TestCase):
         (root / "cover.json").write_text(json.dumps(COVER))
         cls.assistant_path = root / "assistant.md"
         cls.notes_path = root / "notes.md"
+        workspace = Workspace(root / "applications", {
+            "cv": root / "cv.json",
+            "cover": root / "cover.json",
+            "theme": ROOT / "theme.json",
+            "cover_theme": ROOT / "cover-theme.json",
+        })
+        workspace.ensure(chat_dir=root / ".chat")
         handler = partial(
             server.EditorHandler,
-            cv_path=root / "cv.json",
-            theme_path=ROOT / "theme.json",
-            cover_path=root / "cover.json",
-            cover_theme_path=ROOT / "cover-theme.json",
+            workspace=workspace,
             out_dir=root / "out",
-            chat_dir=root / ".chat",
             assistant_path=cls.assistant_path,
             notes_path=cls.notes_path,
         )
@@ -160,13 +164,19 @@ class SetupApiTests(unittest.TestCase):
                     self.assertEqual(response.status, 200)
                     self.assertIn("text/html", response.headers["Content-Type"])
 
-    def test_hub_offers_the_three_pillars_and_both_documents(self):
+    def test_hub_offers_style_notes_and_the_applications(self):
+        """The hub is the shared material plus the list of jobs — no documents.
+
+        A CV belongs to an application, so it is reached by opening one.
+        """
         with urllib.request.urlopen(f"{self.base}/", timeout=10) as response:
             page = response.read().decode()
-        for pillar in ("Style", "Notes", "Documents"):
+        for pillar in ("Voice", "Notes", "Applications"):
             self.assertIn(f">{pillar}</h2>", page)
-        for href in ('href="/style"', 'href="/notes"', 'href="/resume"', 'href="/cover-letter"'):
+        for href in ('href="/style"', 'href="/notes"'):
             self.assertIn(href, page)
+        self.assertNotIn('id="tile-docs"', page)
+        self.assertIn('id="app-list"', page)
         self.assertIn("/api/setup", page)          # paints readiness
         self.assertIn("/api/llm/providers", page)  # model strip
 
@@ -177,17 +187,34 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn('kind: "assistant"', page)      # saves to assistant.md
         self.assertIn("/static/setup.js", page)       # shared load/save
         self.assertIn("/static/setup.css", page)
+        self.assertIn('id="view-edit"', page)
+        self.assertIn('id="view-preview"', page)
+        self.assertIn('id="preview"', page)
         for asset, kind in (("/static/setup.js", "javascript"), ("/static/setup.css", "css")):
             with urllib.request.urlopen(f"{self.base}{asset}", timeout=10) as response:
                 self.assertEqual(response.status, 200)
                 self.assertIn(kind, response.headers["Content-Type"])
 
-    def test_notes_page_is_wired_to_save_and_file_extract(self):
+    def test_notes_page_is_wired_to_save(self):
         with urllib.request.urlopen(f"{self.base}/notes", timeout=10) as response:
             page = response.read().decode()
         self.assertIn('kind: "notes"', page)
-        self.assertIn("/api/setup/extract", page)
-        self.assertIn("data-heading", page)  # section stubs
+        self.assertIn("/static/setup.js", page)
+        self.assertIn('id="editor"', page)
+        self.assertIn('id="view-edit"', page)
+        self.assertIn('id="view-preview"', page)
+        self.assertIn('id="preview"', page)
+        self.assertNotIn("data-heading", page)  # no section stubs
+        self.assertNotIn("/api/setup/extract", page)  # no file upload UI
+
+    def test_setup_script_renders_markdown_for_preview(self):
+        with urllib.request.urlopen(f"{self.base}/static/setup.js", timeout=10) as response:
+            script = response.read().decode()
+        self.assertIn("function renderMarkdown(", script)
+        self.assertIn("function setView(", script)
+        self.assertIn("innerHTML", script)  # must mention the rule…
+        # …as a ban: build nodes, never assign HTML from file content.
+        self.assertRegex(script, r"never\s+innerHTML")
 
     def test_extract_reads_an_uploaded_file_without_a_model(self):
         import base64
@@ -199,6 +226,13 @@ class SetupApiTests(unittest.TestCase):
                       {"filename": "notes.exe", "file": base64.b64encode(b"MZ").decode()})
         self.assertEqual(caught.exception.code, 422)
 
+    def test_the_editor_nav_drops_style_and_notes(self):
+        """Inside an application, Style and Notes are not part of the job."""
+        with urllib.request.urlopen(f"{self.base}/static/base.css", timeout=10) as response:
+            css = response.read().decode()
+        self.assertIn('body[data-page="resume"] :is(#nav-style, #nav-notes)', css)
+        self.assertIn('body[data-page="cover"] :is(#nav-style, #nav-notes)', css)
+
     def test_editor_links_back_to_the_setup_pages(self):
         for path in ("/resume", "/cover-letter"):
             with self.subTest(path=path):
@@ -206,6 +240,46 @@ class SetupApiTests(unittest.TestCase):
                     page = response.read().decode()
                 for href in ('href="/"', 'href="/style"', 'href="/notes"'):
                     self.assertIn(href, page)
+
+    def test_every_page_serves_the_same_nav(self):
+        """One _nav.html fragment on every route; only data-page changes."""
+        slug = self.get("/api/apps")["current"]
+        expected = (
+            ('href="/"', 'id="nav-hub"'),
+            ('href="/style"', 'id="nav-style"'),
+            ('href="/notes"', 'id="nav-notes"'),
+            (f'href="/{slug}/resume"', 'id="mode-cv"'),
+            (f'href="/{slug}/cover-letter"', 'id="mode-cover"'),
+        )
+        # The hub is the entry point and carries no nav of its own. The
+        # documents hang off the application they belong to.
+        pages = {
+            "/style": "style",
+            "/notes": "notes",
+            f"/{slug}": "resume",
+            f"/{slug}/resume": "resume",
+            f"/{slug}/cover-letter": "cover",
+        }
+        for path, page_id in pages.items():
+            with self.subTest(path=path):
+                with urllib.request.urlopen(f"{self.base}{path}", timeout=10) as response:
+                    html = response.read().decode()
+                self.assertIn(f'data-page="{page_id}"', html)
+                self.assertIn('class="site-nav"', html)
+                for href, chip_id in expected:
+                    self.assertIn(href, html)
+                    self.assertIn(chip_id, html)
+                # Marker must be replaced, not left for the browser.
+                self.assertNotIn("<!-- site-nav -->", html)
+
+    def test_chat_toggle_swaps_sidebar_icons(self):
+        with urllib.request.urlopen(f"{self.base}/static/chat.js", timeout=10) as response:
+            script = response.read().decode()
+        self.assertIn("function setChatOpen(", script)
+        self.assertIn("#i-sidebar-collapse", script)
+        self.assertIn("#i-sidebar-expand", script)
+        self.assertIn("Hide chat", script)
+        self.assertIn("Show chat", script)
 
     def test_chat_empty_state_reads_setup_readiness(self):
         with urllib.request.urlopen(f"{self.base}/static/chat.js", timeout=10) as response:
@@ -246,3 +320,106 @@ class SetupApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ApplicationApiTests(unittest.TestCase):
+    """Switching application swaps the documents and the chat behind the API."""
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        root = Path(self.tmp.name)
+        (root / "cv.json").write_text(json.dumps(CV))
+        (root / "cover.json").write_text(json.dumps(COVER))
+        workspace = Workspace(root / "applications", {
+            "cv": root / "cv.json",
+            "cover": root / "cover.json",
+            "theme": ROOT / "theme.json",
+            "cover_theme": ROOT / "cover-theme.json",
+        })
+        workspace.ensure()
+        handler = partial(
+            server.EditorHandler,
+            workspace=workspace,
+            out_dir=root / "out",
+            assistant_path=root / "assistant.md",
+            notes_path=root / "notes.md",
+        )
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
+        self.addCleanup(self.tmp.cleanup)
+        self.addCleanup(self.server.shutdown)
+
+    get = SetupApiTests.get
+    post = SetupApiTests.post
+
+    def test_first_run_opens_the_migrated_application(self):
+        state = self.get("/api/apps")
+        self.assertEqual(len(state["applications"]), 1)
+        self.assertEqual(state["current"], state["applications"][0]["slug"])
+
+    def test_each_application_keeps_its_own_chat(self):
+        first = self.get("/api/apps")["current"]
+        self.post("/api/chat/history", {
+            "messages": [{"role": "user", "content": "tighten the summary", "document": "cv"}],
+            "job_description": "RPM at Meta",
+        })
+        second = self.post("/api/apps", {"action": "create", "name": "Osmo — TPM"})
+        self.assertEqual(self.get("/api/chat/history")["messages"], [])
+        self.post("/api/apps", {"action": "open", "slug": first})
+        kept = self.get("/api/chat/history")
+        self.assertEqual(kept["messages"][0]["document"], "cv")
+        self.assertEqual(kept["job_description"], "RPM at Meta")
+        self.assertEqual(second["application"]["name"], "Osmo — TPM")
+
+    def test_a_new_application_inherits_the_documents_then_diverges(self):
+        first = self.get("/api/apps")["current"]
+        document = self.get("/api/document")
+        self.post("/api/save", dict(document, cv=dict(document["cv"], name="Tailored Name"),
+                                    document="cv"))
+        second = self.post("/api/apps", {"action": "create", "name": "Osmo — TPM"})
+        # The new application starts from the one just worked on ...
+        self.assertEqual(self.get("/api/document")["cv"]["name"], "Tailored Name")
+        # ... and then goes its own way.
+        self.post("/api/save", dict(document, cv=dict(document["cv"], name="Osmo Name"),
+                                    document="cv", app=second["application"]["slug"]))
+        self.assertEqual(self.get(f"/api/document?app={first}")["cv"]["name"], "Tailored Name")
+
+    def test_the_slug_in_the_request_decides_which_application_is_written(self):
+        first = self.get("/api/apps")["current"]
+        second = self.post("/api/apps", {"action": "create", "name": "Osmo — TPM"})["application"]
+        document = self.get(f"/api/document?app={first}")
+        self.post("/api/save", dict(document, cv=dict(document["cv"], name="Only In First"),
+                                    document="cv", app=first))
+        # The open application is the second one; the write still landed in the first.
+        self.assertEqual(self.get("/api/apps")["current"], second["slug"])
+        self.assertEqual(self.get(f"/api/document?app={first}")["cv"]["name"], "Only In First")
+        self.assertNotEqual(self.get(f"/api/document?app={second['slug']}")["cv"]["name"],
+                            "Only In First")
+
+    def test_the_old_document_paths_redirect_into_the_open_application(self):
+        slug = self.get("/api/apps")["current"]
+        for path, tail in (("/resume", "resume"), ("/cover-letter", "cover-letter")):
+            with self.subTest(path=path):
+                with urllib.request.urlopen(f"{self.base}{path}", timeout=10) as response:
+                    self.assertEqual(response.url, f"{self.base}/{slug}/{tail}")
+
+    def test_an_unknown_slug_is_not_a_page(self):
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(f"{self.base}/no-such-application", timeout=10)
+        self.assertEqual(caught.exception.code, 404)
+
+    def test_archive_keeps_the_documents_and_hides_the_application(self):
+        first = self.get("/api/apps")["current"]
+        self.post("/api/apps", {"action": "create", "name": "Osmo — TPM"})
+        self.post("/api/apps", {"action": "archive", "slug": first})
+        listed = {a["slug"]: a["archived"] for a in self.get("/api/apps")["applications"]}
+        self.assertTrue(listed[first])
+        self.post("/api/apps", {"action": "restore", "slug": first})
+        self.post("/api/apps", {"action": "open", "slug": first})
+        self.assertEqual(self.get("/api/apps")["current"], first)
+
+    def test_a_bad_slug_is_refused(self):
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/apps", {"action": "open", "slug": "../../etc"})
+        self.assertEqual(caught.exception.code, 400)
