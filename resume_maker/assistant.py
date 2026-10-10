@@ -23,9 +23,10 @@ import tempfile
 import zipfile
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any, Iterator, Mapping, Sequence
 from xml.etree import ElementTree
 
+from .applications import TRACKS
 from .model import CV, ContentError, CoverLetter
 
 MAX_IMPORT_BYTES = 5 << 20
@@ -33,9 +34,17 @@ MAX_IMPORT_TEXT = 60_000
 # The experience bank goes into the prompt whole (no retrieval in v1), so it
 # needs a ceiling; past this the tail is dropped and the prompt says so.
 MAX_NOTES_CHARS = 60_000
+# Only the last this many turns of the conversation are sent; the file keeps
+# the rest, so the transcript stops growing on the wire without losing history.
+CONTEXT_TURNS = 40
 _TRUNCATED = "\n\n[Notes truncated here: the file is longer than this prompt allows.]"
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _FENCE = re.compile(r"```(?:json)?\s*(\{.*\})\s*```", re.S)
+# A card block in a reply, in the order the editor renders and numbers them.
+_CARD = re.compile(r"```(proposal|answer|notes|voice)\s*([\s\S]*?)```")
+# What a resolved proposal collapses to on the wire. The edit is already in the
+# live fields, and the marker keeps the fact that it happened without the JSON.
+_ELIDED = {"accepted": "(proposal already applied)", "dismissed": "(proposal declined)"}
 
 
 class ImportFailed(ValueError):
@@ -88,6 +97,14 @@ _CHAT_RULES = """\
 You are a careful resume and cover-letter editor working inside a resume tool.
 The user's {kind} is below as numbered fields, each with a path.
 
+Non-negotiable, whatever else the style file says:
+- No dashes as punctuation, no colons, no semicolons. Quotation marks are fine.
+- In a cover letter, open by greeting the reader and introducing the user by
+  name before any fact about their work.
+- In a cover letter, write "[Company]" and "[Role]" rather than the real
+  company name or job title. They are filled in on export.
+- Never name an internal team, org or project. Describe it by what it did.
+
 How to answer:
 - Talk normally. Short, direct, no filler.
 - When you write text meant for a specific field, output it as a proposal block
@@ -99,6 +116,13 @@ How to answer:
   no markdown, no bullet characters, no surrounding quotes.
 - To add a bullet to an experience entry, use the next unused index, e.g. if
   bullets 0 and 1 exist, propose "...bullets.2".
+- To delete something, propose it without text:
+```proposal
+{{"path": "<field path>", "remove": true}}
+```
+  The editor takes the bullet out of the list rather than leaving it blank.
+  Propose one removal at a time and wait: removing a bullet renumbers the ones
+  after it, so a second path from the old numbering would hit the wrong line.
 - Some questions are not about the {kind} at all: the user is answering an
   application form, a screening question or an interview prompt, and will paste
   your text into that form. Never propose those; put them in an answer block,
@@ -106,11 +130,38 @@ How to answer:
 ```answer
 <the answer, plain text, no markdown>
 ```
+- When the user tells you something about their own history that is not in
+  their notes yet, or asks you to remember or save something, offer it as a
+  notes block. Write it in their voice, as a fact about them, not as chat:
+```notes
+<what they said about their work, in plain sentences>
+```
+  The editor shows it with an "Add to Notes" button; it is only written when
+  the user accepts. Offer one when it is worth keeping, not for every message.
+- When the user states a rule about how to write — a tone, a banned word, a
+  habit you should drop — offer it as a voice block. It is a rule for the
+  editor, not a fact about their work, so write it as an instruction:
+```voice
+<the rule, one or two plain sentences>
+```
+  The editor shows it with an "Add to Voice" button; it is only written when
+  the user accepts. Use notes for what they have done, voice for how they want
+  to sound.
 - Only use paths from the list. Never invent a path.
+- The field list at the end of this prompt is the live document, including
+  edits the user has not saved yet. It is sent again with every message, so it
+  is never out of date. Never say you cannot see the document and never ask the
+  user to paste it back to you.
 - Never invent facts, employers, dates, numbers or credentials. Rephrase and
   prioritise what is there; if something is missing, ask the user.
 - Keep it ATS friendly: plain wording, standard terms, keywords from the job
   description where they are true of the candidate.
+- In a cover letter, write "[Company]" and "[Role]" wherever the company name
+  or the job title belongs. They are placeholders, filled from the Company and
+  Role fields when the letter is exported, so the same letter can be reused for
+  the next application. Never write the company name or the job title out in
+  full in the body, the greeting or the closing, and never leave a placeholder
+  in a field that is not one of those.
 """
 
 
@@ -130,6 +181,57 @@ def clip_notes(text: str) -> str:
     return notes[:MAX_NOTES_CHARS].rstrip() + _TRUNCATED
 
 
+def condense(turns: Sequence[Mapping[str, Any]], *,
+             window: int = CONTEXT_TURNS) -> list[dict[str, str]]:
+    """The turns actually sent to the model.
+
+    Two mechanical savings that cost nothing to the model's view of the live
+    document: only the last ``window`` turns travel (the file keeps the whole
+    conversation), and a proposal the user has already accepted or dismissed is
+    replaced by a one-line marker, since its effect is in the live fields and
+    resending its JSON every turn buys nothing. A still-open proposal stays
+    whole so the model can revise it.
+    """
+    kept = list(turns[-window:])
+    if len(kept) > 1 and kept[0].get("role") == "assistant":
+        kept = kept[1:]
+    sent: list[dict[str, str]] = []
+    for turn in kept:
+        content = str(turn.get("content", ""))
+        if turn.get("role") == "assistant":
+            content = _strip_resolved(content, turn.get("resolved") or {})
+        sent.append({"role": turn["role"], "content": content})
+    return sent
+
+
+def _strip_resolved(content: str, resolved: Mapping[str, Any]) -> str:
+    """``content`` with resolved proposal cards replaced by a short marker.
+
+    The key is the card's ordinal in the message, counted as the editor numbers
+    them: answer blocks are not cards, so they do not consume a number.
+    """
+    if not resolved:
+        return content
+    pieces, last, n = [], 0, 0
+    for card in _CARD.finditer(content):
+        kind = card.group(1)
+        if kind == "answer":
+            continue
+        key = str(n)
+        n += 1
+        if kind != "proposal":
+            continue
+        verdict = resolved.get(key)
+        if verdict in _ELIDED:
+            pieces.append(content[last:card.start()])
+            pieces.append(_ELIDED[verdict])
+            last = card.end()
+    if not pieces:
+        return content
+    pieces.append(content[last:])
+    return "".join(pieces)
+
+
 def system_prompt(
     document: str,
     data: Mapping[str, Any],
@@ -144,6 +246,43 @@ def system_prompt(
     return f"{stable}\n\n{volatile}"
 
 
+def fit_note(pages: float = 0, overflowing: Sequence[str] = ()) -> str:
+    """What the preview measured, in a line the model can act on.
+
+    The editor already knows the page count and which lines run past the right
+    margin. Without this the model finds out when the user types "we are over
+    a page", which costs a turn and leaves it guessing how much to cut.
+    """
+    lines = []
+    if pages and pages > 1:
+        over = "just over one page" if pages <= 1.25 else f"about {pages:g} pages"
+        lines.append(f"This CV currently runs to {over}. It must fit on one page,"
+                     " so look for bullets to merge or trim before anything else.")
+    elif pages:
+        lines.append("This CV fits on one page. Keep it that way.")
+    if overflowing:
+        lines.append("These lines are too long for their row, so the left and right"
+                     " text collide: " + ", ".join(overflowing[:8]) + ".")
+    return "\n".join(lines)
+
+
+def coverage_note(missing: Sequence[str]) -> str:
+    """The posting's words that appear nowhere in the document.
+
+    Counted, not guessed. A recruiter's search over the applicant database is
+    a literal string match, so a term that is true of the user but absent from
+    the page costs them the search. The instruction is deliberately narrow:
+    use the ones that are honestly true, never the rest.
+    """
+    if not missing:
+        return ""
+    return ("Words this posting leans on that appear nowhere in the document: "
+            + ", ".join(missing[:10]) + ". A recruiter searching the applicant"
+            " database matches these literally, so work in the ones that are"
+            " honestly true of the user's experience, in their own sentences."
+            " Leave the rest out, and never add a word to score a match.")
+
+
 def prompt_parts(
     document: str,
     data: Mapping[str, Any],
@@ -151,6 +290,7 @@ def prompt_parts(
     *,
     assistant_md: str = "",
     notes_md: str = "",
+    fit: str = "",
 ) -> tuple[str, str]:
     """The prompt split into its cacheable prefix and the part that changes.
 
@@ -172,7 +312,14 @@ def prompt_parts(
     if job_description.strip():
         stable += ["## Target job description", job_description.strip(), ""]
 
-    volatile = [f"## Current {kind} fields"]
+    volatile = [
+        f"## The {kind} as it stands right now",
+        "This is the live document, including unsaved edits, resent every"
+        " message. Work from it; do not ask for it.",
+        "",
+    ]
+    if fit.strip():
+        volatile += [fit.strip(), ""]
     for path, label, text in field_paths(document, data):
         volatile.append(f"- `{path}` ({label}): {text}")
     return "\n".join(stable).rstrip(), "\n".join(volatile)
@@ -278,22 +425,24 @@ Example of the shape (content is someone else's; do not copy it):
 _JOB_RULES = """\
 Read the job posting below and name it.
 Reply with JSON only, nothing else:
-{"company": "<the hiring company>", "role": "<the job title>"}
-Copy both exactly as the posting writes them — no abbreviations, no additions.
+{{"company": "<the hiring company>", "role": "<the job title>", "track": "<one of: {tracks}>"}}
+Copy the company and role exactly as the posting writes them — no additions.
 If the posting does not state one, use an empty string for it.
+"track" is the kind of role it is, chosen from the list above. Use "Other" only
+when none of the named tracks fits.
 """
 
 
 def job_prompt() -> str:
-    return _JOB_RULES
+    return _JOB_RULES.format(tracks=", ".join(TRACKS))
 
 
 def parse_job(reply: str) -> dict[str, str]:
-    """``{"company", "role"}`` from the model's answer.
+    """``{"company", "role", "track"}`` from the model's answer.
 
     A job description is pasted text that reached the model, so the reply is
-    treated as untrusted: only two strings are taken from it, trimmed to a
-    length that fits a document field.
+    treated as untrusted: only strings are taken from it, trimmed to a length
+    that fits a document field, and the track is forced onto the known set.
     """
     match = _FENCE.search(reply)
     raw = match.group(1) if match else reply[reply.find("{") : reply.rfind("}") + 1]
@@ -303,7 +452,60 @@ def parse_job(reply: str) -> dict[str, str]:
         raise ImportFailed("could not read the company and role from that posting") from exc
     if not isinstance(data, dict):
         raise ImportFailed("could not read the company and role from that posting")
-    return {key: " ".join(str(data.get(key) or "").split())[:120] for key in ("company", "role")}
+    found = {key: " ".join(str(data.get(key) or "").split())[:120] for key in ("company", "role")}
+    wanted = " ".join(str(data.get("track") or "").split()).lower()
+    found["track"] = next((t for t in TRACKS if t.lower() == wanted), "Other")
+    return found
+
+
+_FIT_RULES = """\
+You are screening one candidate against one job posting, the way a hiring
+manager reads a CV in twenty seconds.
+Reply with JSON only, nothing else:
+{"score": <0-100>, "strengths": ["<short phrase>", ...], "gaps": ["<short phrase>", ...]}
+- score is how strong this candidate looks for this specific role. 50 is a
+  plausible applicant, 70 is a likely interview, 85 is a strong yes.
+- Three strengths at most, three gaps at most, a few words each.
+- Judge the experience, not the wording. Do not reward keyword stuffing.
+- Judge only what the CV says. Never assume experience that is not written.
+"""
+
+
+def fit_prompt() -> str:
+    return _FIT_RULES
+
+
+def fit_request(document: str, data: Mapping[str, Any], job_description: str) -> str:
+    """The posting and the document, as one block for a single-shot call."""
+    lines = ["## Job posting", job_description.strip(), "", f"## The candidate's {document}"]
+    lines += [f"- {label}: {text}" for _, label, text in field_paths(document, data) if text]
+    return "\n".join(lines)
+
+
+def parse_fit(reply: str) -> dict[str, Any]:
+    """Validate the screening reply. Untrusted: three fields, nothing else."""
+    found = _FENCE.search(reply)
+    raw = found.group(1) if found else reply[reply.find("{") : reply.rfind("}") + 1]
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        raise ImportFailed("the model did not return a score; try again") from exc
+    if not isinstance(data, dict):
+        raise ImportFailed("the model did not return a score")
+    try:
+        score = int(float(data.get("score", -1)))
+    except (TypeError, ValueError) as exc:
+        raise ImportFailed("the model did not return a score") from exc
+    if not 0 <= score <= 100:
+        raise ImportFailed("the model's score was out of range")
+
+    def phrases(key: str) -> list[str]:
+        value = data.get(key)
+        if not isinstance(value, list):
+            return []
+        return [" ".join(str(x).split())[:120] for x in value[:3] if str(x).strip()]
+
+    return {"score": score, "strengths": phrases("strengths"), "gaps": phrases("gaps")}
 
 
 def import_prompt(document: str, example: Mapping[str, Any]) -> str:

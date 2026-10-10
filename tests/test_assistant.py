@@ -162,6 +162,16 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(blocks[1]["text"], "VOLATILE FIELDS")
         self.assertNotIn("cache_control", blocks[1])
 
+    def test_the_live_document_gets_its_own_breakpoint(self):
+        SEEN.clear()
+        system = "STABLE PREFIX\n\nVOLATILE FIELDS"
+        list(llm.stream_chat("anthropic", "chat-model", system,
+                             [{"role": "user", "content": "hi"}],
+                             cacheable="STABLE PREFIX", tail="VOLATILE FIELDS"))
+        blocks = SEEN[0]["body"]["system"]
+        self.assertEqual([b["text"] for b in blocks], ["STABLE PREFIX", "VOLATILE FIELDS"])
+        self.assertTrue(all(b.get("cache_control") for b in blocks))
+
     def test_without_a_prefix_the_system_is_sent_as_plain_text(self):
         SEEN.clear()
         list(llm.stream_chat("anthropic", "chat-model", "SYS", [{"role": "user", "content": "hi"}]))
@@ -196,10 +206,125 @@ class AssistantTests(unittest.TestCase):
         self.assertIn("Senior PM at Acme", prompt)
         self.assertIn("Never invent facts", prompt)
 
+    def test_missing_terms_reach_the_model_with_a_guard(self):
+        note = assistant.coverage_note(["product management", "roadmap"])
+        self.assertIn("product management", note)
+        self.assertIn("honestly true", note)          # not a licence to stuff
+        self.assertIn("never add a word to score a match", note.lower())
+        self.assertEqual(assistant.coverage_note([]), "")
+
+    def test_fit_reply_is_validated_before_it_is_trusted(self):
+        """A screening reply is three fields, and nothing else gets through."""
+        good = assistant.parse_fit('{"score": 72, "strengths": ["data products", "x", "y", "z"],'
+                                   ' "gaps": ["no B2B"], "note": "ignored"}')
+        self.assertEqual(good["score"], 72)
+        self.assertEqual(len(good["strengths"]), 3)       # capped
+        self.assertNotIn("note", good)                    # nothing else survives
+        for bad in ('{"score": 140}', '{"score": "high"}', "not json", '[1, 2]'):
+            with self.assertRaises(assistant.ImportFailed):
+                assistant.parse_fit(bad)
+
+    def test_fit_request_carries_the_posting_and_the_document(self):
+        body = assistant.fit_request("cv", self.cv, "Senior PM at Acme")
+        self.assertIn("Senior PM at Acme", body)
+        self.assertIn(self.cv["name"], body)
+
+    def test_the_non_negotiables_come_before_everything_else(self):
+        """Rules the user has had to repeat belong above the style file."""
+        prompt = assistant.system_prompt("cover", {"name": "Joel", "paragraphs": []},
+                                         assistant_md="Write however you like.")
+        head = prompt[:prompt.index("How to answer")]
+        self.assertIn("No dashes as punctuation", head)
+        self.assertIn("introducing the user by\n  name", head)
+        self.assertIn("[Company]", head)
+        self.assertIn("Never name an internal team", head)
+
+    def test_the_prompt_says_the_document_is_live(self):
+        """A model that thinks its copy is stale asks the user to paste it back."""
+        prompt = assistant.system_prompt("cv", self.cv)
+        self.assertIn("as it stands right now", prompt)
+        self.assertIn("Never say you cannot see the document", prompt)
+
+    def test_a_cover_letter_prompt_explains_the_placeholders(self):
+        prompt = assistant.system_prompt("cover", {"name": "Joel", "paragraphs": []})
+        self.assertIn("[Company]", prompt)
+        self.assertIn("[Role]", prompt)
+        self.assertIn("reused", prompt)   # why they exist at all
+
+    def test_system_prompt_explains_how_to_remove_a_bullet(self):
+        prompt = assistant.system_prompt("cv", self.cv)
+        self.assertIn('"remove": true', prompt)
+        self.assertIn("renumbers", prompt)   # one removal at a time
+
     def test_system_prompt_offers_an_answer_block_for_form_questions(self):
         prompt = assistant.system_prompt("cv", self.cv)
         self.assertIn("```answer", prompt)
         self.assertIn("application form", prompt)
+
+    def test_system_prompt_offers_a_voice_block_apart_from_notes(self):
+        prompt = assistant.system_prompt("cv", self.cv)
+        self.assertIn("```voice", prompt)
+        self.assertIn("how to write", prompt)
+        self.assertIn("voice for how they want", prompt)
+
+    def test_resolved_proposals_collapse_to_a_marker(self):
+        turns = [{"role": "assistant", "resolved": {"0": "accepted"},
+                  "content": 'Done.\n```proposal\n{"path": "name", "text": "X"}\n```\nSame.'}]
+        sent = assistant.condense(turns)
+        self.assertNotIn('"path"', sent[0]["content"])
+        self.assertIn("(proposal already applied)", sent[0]["content"])
+        self.assertIn("Done.", sent[0]["content"])
+
+    def test_open_proposals_are_kept_whole(self):
+        turns = [{"role": "assistant",
+                  "content": '```proposal\n{"path": "name", "text": "X"}\n```'}]
+        self.assertIn('"path"', assistant.condense(turns)[0]["content"])
+
+    def test_card_keys_match_the_editor_numbering(self):
+        """An answer block is not a card, so it does not consume a key."""
+        content = ('```answer\nhello\n```\n'
+                   '```proposal\n{"path": "name", "text": "X"}\n```')
+        turns = [{"role": "assistant", "content": content, "resolved": {"0": "dismissed"}}]
+        sent = assistant.condense(turns)[0]["content"]
+        self.assertIn("(proposal declined)", sent)
+        self.assertNotIn('"path"', sent)
+
+    def test_notes_cards_are_never_stripped(self):
+        turns = [{"role": "assistant", "resolved": {"0": "accepted"},
+                  "content": "```notes\nA real thing I did.\n```"}]
+        self.assertIn("A real thing I did.", assistant.condense(turns)[0]["content"])
+
+    def test_window_keeps_the_last_turns_and_opens_on_the_user(self):
+        turns = []
+        for i in range(60):
+            turns += [{"role": "user", "content": f"q{i}"},
+                      {"role": "assistant", "content": f"a{i}"}]
+        sent = assistant.condense(turns, window=40)
+        self.assertEqual(len(sent), 40)
+        self.assertEqual(sent[0]["role"], "user")
+        self.assertEqual(sent[-1]["content"], "a59")
+
+    def test_window_drops_a_leading_assistant_turn(self):
+        turns = [{"role": "user", "content": "u1"}, {"role": "assistant", "content": "a1"},
+                 {"role": "user", "content": "u2"}, {"role": "assistant", "content": "a2"}]
+        sent = assistant.condense(turns, window=3)
+        self.assertEqual([t["role"] for t in sent], ["user", "assistant"])
+        self.assertEqual(sent[0]["content"], "u2")
+
+    def test_a_posting_is_named_and_put_onto_a_known_track(self):
+        seen = assistant.parse_job(
+            '{"company": "Acme", "role": "Backend Engineer", "track": "engineering"}')
+        self.assertEqual(seen["company"], "Acme")
+        self.assertEqual(seen["role"], "Backend Engineer")
+        self.assertEqual(seen["track"], "Engineering")          # normalised to the set
+        self.assertEqual(assistant.parse_job(
+            '{"company": "A", "role": "B", "track": "Wizard"}')["track"], "Other")
+        self.assertEqual(assistant.parse_job(
+            '{"company": "A", "role": "B"}')["track"], "Other")
+
+    def test_the_job_prompt_lists_the_tracks(self):
+        prompt = assistant.job_prompt()
+        self.assertIn("Product, Engineering, Data, Design, Other", prompt)
 
     def test_import_accepts_valid_json_in_a_fence(self):
         reply = "Sure:\n```json\n" + json.dumps(self.cv) + "\n```"
