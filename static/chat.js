@@ -12,7 +12,7 @@
  * schedule(), documentMode.
  */
 
-const BLOCK = /```(proposal|answer)\s*([\s\S]*?)```/g;
+const BLOCK = /```(proposal|answer|notes|voice)\s*([\s\S]*?)```/g;
 // One conversation per application, covering both documents.
 let chat = null;
 let chatController = null;
@@ -42,6 +42,25 @@ function canSet(doc, path) {
     return last === parent.length && parts[parts.length - 1] === "bullets";
   }
   return typeof last === "string" && (typeof parent[last] === "string" || parent[last] === undefined);
+}
+
+// Removing is a different write from setting: a bullet has to leave the list,
+// not become an empty line in it.
+function canRemove(doc, path) {
+  const parts = pathParts(path);
+  const last = parts.pop();
+  const parent = parts.reduce((node, key) => (node == null ? undefined : node[key]), doc);
+  if (parent == null) return false;
+  if (Array.isArray(parent)) return typeof last === "number" && last < parent.length;
+  return typeof last === "string" && parent[last] !== undefined;
+}
+
+function removePath(doc, path) {
+  const parts = pathParts(path);
+  const last = parts.pop();
+  const parent = parts.reduce((node, key) => node[key], doc);
+  if (Array.isArray(parent)) parent.splice(last, 1);
+  else delete parent[last];
 }
 
 function setPath(doc, path, text) {
@@ -107,10 +126,15 @@ function docFor(kind) {
   return kind === "cover" ? cover : cv;
 }
 
-function applyText(path, text, kind = documentMode) {
+function applyText(path, text, kind = documentMode, { remove = false } = {}) {
   const doc = docFor(kind);
-  if (!canSet(doc, path)) throw new Error(`"${path}" is not a field in that document`);
-  setPath(doc, path, text);
+  if (remove) {
+    if (!canRemove(doc, path)) throw new Error(`"${path}" is not there to remove`);
+    removePath(doc, path);
+  } else {
+    if (!canSet(doc, path)) throw new Error(`"${path}" is not a field in that document`);
+    setPath(doc, path, text);
+  }
   fieldCache = null;
   if (kind !== documentMode) {
     setStatus(`Applied to your ${kind === "cover" ? "cover letter" : "CV"}`);
@@ -121,23 +145,24 @@ function applyText(path, text, kind = documentMode) {
   refreshLabels();
 }
 
-function proposalCard(path, text, { state, onResolve, kind = documentMode }) {
+function proposalCard(path, text, { state, onResolve, kind = documentMode, remove = false }) {
   const doc = docFor(kind);
   const before = getPath(doc, path);
-  const valid = canSet(doc, path);
+  const valid = remove ? canRemove(doc, path) : canSet(doc, path);
   const card = el("div", { class: `chat-card ${state || ""}` });
   const where = kind === documentMode ? "" : ` · ${kind === "cover" ? "cover letter" : "CV"}`;
+  const head = remove ? `Remove ${fieldLabel(path, kind)}` : fieldLabel(path, kind) + where;
   card.append(el("div", { class: "chat-card-head",
-    text: valid ? fieldLabel(path, kind) + where : `Unknown field: ${path}` }));
-  card.append(diffView(typeof before === "string" ? before : "", text));
+    text: valid ? head : `Unknown field: ${path}` }));
+  card.append(diffView(typeof before === "string" ? before : "", remove ? "" : text));
   if (state) {
     card.append(el("div", { class: "chat-card-state", text: state === "accepted" ? "Applied" : "Dismissed" }));
     return card;
   }
   const actions = el("div", { class: "chat-card-actions" });
   if (valid) {
-    actions.append(el("button", { class: "tiny", text: "Accept", onclick: () => {
-      try { applyText(path, text, kind); onResolve("accepted"); }
+    actions.append(el("button", { class: "tiny", text: remove ? "Remove" : "Accept", onclick: () => {
+      try { applyText(path, text, kind, { remove }); onResolve("accepted"); }
       catch (error) { setStatus(error.message, true); }
     } }));
   }
@@ -145,6 +170,74 @@ function proposalCard(path, text, { state, onResolve, kind = documentMode }) {
     onclick: (e) => copyText(text, e.target) }));
   actions.append(el("button", { class: "tiny secondary", text: "Dismiss", onclick: () => onResolve("dismissed") }));
   card.append(actions);
+  return card;
+}
+
+// Something about the candidate's own history, offered for their experience
+// bank. Notes feed every future application, so this is the one thing the chat
+// writes outside the open document, and only once the user has accepted it.
+function notesCard(text, { state, onResolve }) {
+  const card = el("div", { class: `chat-card ${state || ""}` });
+  card.append(el("div", { class: "chat-card-head", text: "For your notes" }));
+  for (const para of text.split(/\n{2,}/)) {
+    if (para.trim()) card.append(el("p", { class: "chat-answer-text", text: para.trim() }));
+  }
+  if (state) {
+    card.append(el("div", { class: "chat-card-state",
+      text: state === "accepted" ? "Added to Notes" : "Dismissed" }));
+    return card;
+  }
+  card.append(el("div", { class: "chat-card-actions" }, [
+    el("button", { class: "tiny", text: "Add to Notes", onclick: async (e) => {
+      e.target.disabled = true;
+      try {
+        await api("/api/setup/notes", { append: text });
+        setStatus("Added to your notes");
+        onResolve("accepted");
+      } catch (error) {
+        e.target.disabled = false;
+        setStatus(`Could not add to notes: ${error.message}`, true);
+      }
+    } }),
+    el("button", { class: "tiny secondary", text: "Copy",
+      onclick: (e) => copyText(text, e.target) }),
+    el("button", { class: "tiny secondary", text: "Dismiss",
+      onclick: () => onResolve("dismissed") }),
+  ]));
+  return card;
+}
+
+// A rule the model noticed about how the user wants to write, offered for the
+// Voice file (assistant.md). It is not a fact about their work — that is Notes —
+// so it is written as an instruction, and only once accepted.
+function voiceCard(text, { state, onResolve }) {
+  const card = el("div", { class: `chat-card ${state || ""}` });
+  card.append(el("div", { class: "chat-card-head", text: "For your voice" }));
+  for (const para of text.split(/\n{2,}/)) {
+    if (para.trim()) card.append(el("p", { class: "chat-answer-text", text: para.trim() }));
+  }
+  if (state) {
+    card.append(el("div", { class: "chat-card-state",
+      text: state === "accepted" ? "Added to Voice" : "Dismissed" }));
+    return card;
+  }
+  card.append(el("div", { class: "chat-card-actions" }, [
+    el("button", { class: "tiny", text: "Add to Voice", onclick: async (e) => {
+      e.target.disabled = true;
+      try {
+        await api("/api/setup/assistant", { append: text });
+        setStatus("Added to your voice");
+        onResolve("accepted");
+      } catch (error) {
+        e.target.disabled = false;
+        setStatus(`Could not add to voice: ${error.message}`, true);
+      }
+    } }),
+    el("button", { class: "tiny secondary", text: "Copy",
+      onclick: (e) => copyText(text, e.target) }),
+    el("button", { class: "tiny secondary", text: "Dismiss",
+      onclick: () => onResolve("dismissed") }),
+  ]));
   return card;
 }
 
@@ -180,6 +273,40 @@ async function copyText(text, button) {
 }
 
 // "Replace…" on any paragraph: pick a field, see the diff, accept.
+// Replacing a field with something the model wrote freehand is rare, so it
+// gets a rare affordance: select the words you want and the button appears.
+// Works on a phrase, not just a whole paragraph.
+const selectionTool = (() => {
+  const button = el("button", { class: "tiny", text: "Replace…" });
+  const tool = el("div", { class: "chat-selection", hidden: "" }, [button]);
+  let host = null, text = "";
+  button.addEventListener("mousedown", (event) => event.preventDefault());  // keep the selection
+  button.addEventListener("click", () => {
+    tool.hidden = true;
+    if (host) replacePicker(text, host);
+  });
+  const hide = () => { tool.hidden = true; };
+  const show = () => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) return hide();
+    const picked = selection.toString().trim();
+    const node = selection.anchorNode;
+    const para = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(".chat-para");
+    if (!picked || !para || !$("chat-log").contains(para)) return hide();
+    host = para;
+    text = plainText(picked);
+    const rect = selection.getRangeAt(0).getBoundingClientRect();
+    tool.style.top = `${Math.max(8, rect.top - 34)}px`;
+    tool.style.left = `${rect.left}px`;
+    tool.hidden = false;
+  };
+  document.addEventListener("DOMContentLoaded", () => document.body.append(tool));
+  if (document.body) document.body.append(tool);
+  document.addEventListener("mouseup", () => setTimeout(show, 0));
+  document.addEventListener("scroll", hide, true);
+  return { hide };
+})();
+
 function replacePicker(text, host) {
   host.querySelector(".chat-replace")?.remove();
   const wrap = el("div", { class: "chat-replace" });
@@ -273,15 +400,7 @@ function renderAssistant(message, index, streaming) {
   const addText = (text) => {
     for (const para of text.split(/\n{2,}/)) {
       if (!para.trim()) continue;
-      const p = el("div", { class: "chat-para" }, [markdownBlock(para.trim())]);
-      if (!streaming) {
-        const plain = plainText(para.trim());
-        p.append(el("div", { class: "chat-card-actions" }, [
-          el("button", { class: "tiny secondary", text: "Copy", onclick: (e) => copyText(plain, e.target) }),
-          el("button", { class: "tiny secondary", text: "Replace…", onclick: () => replacePicker(plain, p) }),
-        ]));
-      }
-      box.append(p);
+      box.append(el("div", { class: "chat-para" }, [markdownBlock(para.trim())]));
     }
   };
   for (const match of content.matchAll(BLOCK)) {
@@ -291,14 +410,30 @@ function renderAssistant(message, index, streaming) {
       box.append(answerCard(match[2].trim()));
       continue;
     }
+    if (match[1] === "notes" || match[1] === "voice") {
+      const key = String(n++);
+      const card = match[1] === "notes" ? notesCard : voiceCard;
+      box.append(card(match[2].trim(), {
+        state: message.resolved && message.resolved[key],
+        onResolve: (result) => {
+          message.resolved = { ...(message.resolved || {}), [key]: result };
+          saveHistory();
+          renderChat();
+        },
+      }));
+      continue;
+    }
     const key = String(n++);
     let parsed = null;
     try { parsed = JSON.parse(match[2]); } catch { /* shown as text below */ }
-    if (parsed && typeof parsed.path === "string" && typeof parsed.text === "string") {
+    const wantsRemoval = Boolean(parsed && parsed.remove) && typeof parsed.path === "string";
+    if (parsed && typeof parsed.path === "string"
+        && (wantsRemoval || typeof parsed.text === "string")) {
       const state = message.resolved && message.resolved[key];
-      box.append(proposalCard(parsed.path, parsed.text, {
+      box.append(proposalCard(parsed.path, parsed.text || "", {
         state,
         kind,
+        remove: wantsRemoval,
         onResolve: (result) => {
           message.resolved = { ...(message.resolved || {}), [key]: result };
           saveHistory();
@@ -310,11 +445,32 @@ function renderAssistant(message, index, streaming) {
     }
   }
   const tail = content.slice(last);
-  const open = tail.search(/```(proposal|answer)/);
+  const open = tail.search(/```(proposal|answer|notes|voice)/);
   addText(open === -1 ? tail : tail.slice(0, open));
   if (open !== -1) box.append(el("div", { class: "chat-pending", text: "Writing a proposal…" }));
   if (streaming && !content) box.append(el("div", { class: "chat-pending", text: "Thinking…" }));
+  // One action for the message, not one per paragraph: a paragraph is usually
+  // the model thinking out loud, and there is nowhere to put it. Text that
+  // does have a home arrives as a proposal or an answer, with its own card.
+  if (!streaming && content.trim()) {
+    box.append(el("div", { class: "chat-msg-actions" }, [
+      el("button", { class: "tiny secondary", text: "Copy",
+        onclick: (e) => copyText(messageText(content), e.target) }),
+    ]));
+  }
   return box;
+}
+
+// What the message reads as: the prose and any answer, without the proposal
+// blocks, which are machinery rather than something to paste anywhere.
+function messageText(content) {
+  return content
+    .replace(/```(?:proposal|notes|voice)\s*[\s\S]*?```/g, "")
+    .replace(/```answer\s*([\s\S]*?)```/g, "$1")
+    .split(/\n{2,}/)
+    .map((para) => plainText(para.trim()))
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 // Style and Notes readiness, read once so the empty state can point at them.
@@ -582,7 +738,12 @@ async function sendMessage() {
         model: agent.model,
         doc: header(),
         job_description: state.job_description,
-        messages: state.messages.slice(0, -1).map(({ role, content }) => ({ role, content })),
+        // What the preview measured, so the model knows the shape of the page.
+        pages: typeof previewPages === "number" ? previewPages : 0,
+        overflowing: typeof overflowing !== "undefined" ? overflowing : [],
+        // resolved rides along so the server can drop already-applied proposals
+        // from the transcript it sends on; undefined is omitted by stringify.
+        messages: state.messages.slice(0, -1).map(({ role, content, resolved }) => ({ role, content, resolved })),
       }),
     });
     if (!response.ok) {
@@ -642,6 +803,7 @@ function setJobDescription(text) {
   drawJobTile();
   saveHistorySoon();
   nameFromJob(text);
+  if (typeof scoreSoon === "function") scoreSoon();
 }
 
 // A new application has no name until a job description arrives: the posting
@@ -658,6 +820,9 @@ async function nameFromJob(text) {
       action: "identify", slug: APP, job_description: text,
       provider: agent.provider, model: agent.model,
     }).then((r) => r.json());
+    // The server may have swapped in a same-track CV/letter; drop this
+    // application's unsaved draft so it cannot restore over the fresh copy.
+    if (found.reseeded && typeof dropDraft === "function") dropDraft();
     await saveHistory();  // the chat follows the folder to its new name
     window.location.replace(`/${encodeURIComponent(found.application.slug)}${documentPath()}`);
   } catch (error) {
