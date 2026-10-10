@@ -122,12 +122,51 @@ def check_dates_normalised(cv: CV) -> Iterable[Issue]:
                     )
 
 
+# Punctuation the user has banned in their own writing. Proof-reading for a
+# character is work a regex does instantly and a person does badly, and the
+# model forgets the rule often enough to be worth catching here as well.
+BANNED_PUNCTUATION = {
+    "—": "em dash",
+    "–": "en dash",
+    ";": "semicolon",
+}
+# A colon is fine where a labelled line prints one, so it is checked only in
+# prose: a summary, a bullet, a cover letter paragraph.
+_PROSE_COLON = re.compile(r"\S\s*:\s")
+
+
+def _prose_of(cv: CV) -> Iterable[tuple[str, str]]:
+    """Every stretch of the CV that is written as sentences, with its label."""
+    for section in cv.sections:
+        if isinstance(section, ParagraphSection):
+            yield section.heading, section.text
+        elif isinstance(section, EntrySection):
+            for entry in section.entries:
+                for n, bullet in enumerate(entry.bullets):
+                    yield f"{entry.left} bullet {n + 1}", bullet
+                if entry.note:
+                    yield f"{entry.left} note", entry.note
+        elif isinstance(section, LabeledSection):
+            for item in section.items:
+                yield f"{section.heading} / {item.label}", item.text
+
+
+def check_punctuation(cv: CV) -> Iterable[Issue]:
+    for where, text in _prose_of(cv):
+        for mark, name in BANNED_PUNCTUATION.items():
+            if mark in text:
+                yield Issue(Level.WARNING, where, f"contains a {name}")
+        if _PROSE_COLON.search(text):
+            yield Issue(Level.WARNING, where, "contains a colon")
+
+
 CHECKS: tuple[Check, ...] = (
     check_phone,
     check_link_text,
     check_headings,
     check_not_empty,
     check_dates_normalised,
+    check_punctuation,
 )
 
 
