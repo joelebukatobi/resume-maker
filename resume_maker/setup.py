@@ -88,6 +88,28 @@ def templates() -> list[dict[str, str]]:
     return found
 
 
+APPENDED_HEADING = "## From the chat"
+
+
+def append_text(current: str, addition: Any, *, today: str, kind: str = "notes") -> str:
+    """``current`` with ``addition`` filed under a dated note at the end.
+
+    Everything the chat contributes lands in one place rather than being
+    guessed into the middle of a story the candidate wrote themselves. Moving
+    it to the right section afterwards is a two-second edit; a wrong guess in
+    the middle of someone's own words is not. ``kind`` picks which size limit
+    the result is checked against — Notes or the Voice file.
+    """
+    if not isinstance(addition, str) or not addition.strip():
+        raise ValueError("nothing to add")
+    body = addition.strip()
+    parts = [current.rstrip()] if current.strip() else []
+    if APPENDED_HEADING not in current:
+        parts.append(APPENDED_HEADING)
+    parts.append(f"### {today}\n\n{body}")
+    return check_text(kind, "\n\n".join(parts))
+
+
 def check_text(kind: str, text: Any) -> str:
     """Validate a save; returns the text to write or raises ``ValueError``."""
     limit = _LIMITS.get(kind)
