@@ -298,13 +298,17 @@ def stream_chat(
     system: str,
     messages: Sequence[Mapping[str, str]],
     cacheable: str = "",
+    tail: str = "",
 ) -> Iterator[str]:
     """Stream the reply as text chunks. Close the iterator to stop early.
 
     ``cacheable`` is the part of the system prompt that repeats turn after
     turn. Providers bill a repeated prefix at a fraction of the usual rate:
     Anthropic needs it marked, the OpenAI-style APIs detect it themselves, so
-    either way it must come first and stay byte-identical.
+    either way it must come first and stay byte-identical. ``tail`` is the rest
+    of the system prompt — the live document — marked with its own breakpoint so
+    a turn that edits nothing reuses it too, and a turn that edits the document
+    only re-bills from there.
     """
     p = provider(provider_id)
     check_model(model)
@@ -312,9 +316,13 @@ def stream_chat(
     if p.kind == "anthropic":
         path = "/messages"
         if cacheable:
-            blocks = [{"type": "text", "text": cacheable,
-                       "cache_control": {"type": "ephemeral"}},
-                      {"type": "text", "text": system[len(cacheable):].lstrip("\n")}]
+            mark = {"type": "ephemeral"}
+            if tail:
+                blocks = [{"type": "text", "text": cacheable, "cache_control": mark},
+                          {"type": "text", "text": tail, "cache_control": mark}]
+            else:
+                blocks = [{"type": "text", "text": cacheable, "cache_control": mark},
+                          {"type": "text", "text": system[len(cacheable):].lstrip("\n")}]
         else:
             blocks = system
         body = {"model": model, "max_tokens": MAX_TOKENS, "system": blocks,
