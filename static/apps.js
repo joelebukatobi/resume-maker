@@ -76,9 +76,28 @@
           if (name) call({ action: "create", name, source: app.slug })
             .then((r) => go(r.application.slug));
         }),
+        item(`Track: ${app.track || "untagged"}`, () => {
+          const chosen = window.prompt(
+            "Track: Product, Engineering, Data, Design or Other", app.track || "");
+          if (chosen === null) return;
+          call({ action: "track", slug: app.slug, track: chosen.trim() })
+            .then(load)
+            .catch((error) => window.alert(error.message));
+        }),
         item(live ? "Archive" : "Restore", () => {
           call({ action: live ? "archive" : "restore", slug: app.slug })
             .then(app.slug === open && live ? reload : load);
+        }),
+        item("Delete", () => {
+          // Irreversible: archive is the reversible choice, so say exactly
+          // what goes, and send the hub home if it was the open one.
+          if (!window.confirm(`Delete "${app.name}" for good? Its CV, cover letter and chat are removed and cannot be recovered.`)) {
+            return;
+          }
+          call({ action: "delete", slug: app.slug }).then(() => {
+            if (app.slug === open) window.location.href = "/";
+            else load();
+          });
         }),
       ]),
     ]);
@@ -89,6 +108,7 @@
       : node("span", { class: "app-row-name", text: app.name });
     return node("div", { class: `app-row${app.slug === open ? " current" : ""}` }, [
       label,
+      app.track ? node("span", { class: "app-row-track", text: app.track }) : null,
       app.job_url
         ? node("a", { class: "app-row-link", href: app.job_url, target: "_blank",
             rel: "noopener noreferrer", text: "Job post" })

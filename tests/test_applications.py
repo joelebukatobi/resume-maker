@@ -65,6 +65,60 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(json.loads(copied["cv"].read_text())["name"], "Tailored for Meta")
         self.assertFalse(copied["chat"].exists())
 
+    def test_track_is_recorded_and_validated(self):
+        app = self.space.create("Meta — RPM")
+        self.assertEqual(app.track, "")                    # untagged until set
+        self.assertEqual(self.space.list()[0].track, "")
+        tagged = self.space.set_track(app.slug, "Product")
+        self.assertEqual(tagged.track, "Product")
+        self.assertEqual(self.space.list()[0].track, "Product")
+        with self.assertRaises(ApplicationError):
+            self.space.set_track(app.slug, "Wizard")
+
+    def test_a_copy_inherits_the_source_track(self):
+        first = self.space.create("Meta — RPM")
+        self.space.set_track(first.slug, "Product")
+        copy = self.space.create("Meta — PMT", source=first.slug)
+        self.assertEqual(copy.track, "Product")
+
+    def test_reseed_pulls_the_newest_same_track_cv(self):
+        product = self.space.create("Meta — RPM")
+        self.space.set_track(product.slug, "Product")
+        self.space.paths(product.slug)["cv"].write_text(json.dumps({"name": "Product CV"}))
+        fresh = self.space.create("Osmo — TPM")            # from the base, untouched
+        self.space.set_track(fresh.slug, "Product")
+        self.assertTrue(self.space.reseed(fresh.slug, "Product"))
+        self.assertEqual(json.loads(self.space.paths(fresh.slug)["cv"].read_text())["name"],
+                         "Product CV")
+
+    def test_reseed_keeps_an_edited_document_but_pulls_the_other(self):
+        product = self.space.create("Meta — RPM")
+        self.space.set_track(product.slug, "Product")
+        self.space.paths(product.slug)["cv"].write_text(json.dumps({"name": "Product CV"}))
+        self.space.paths(product.slug)["cover"].write_text(json.dumps({"company": "ProductCo"}))
+        fresh = self.space.create("Osmo — TPM")
+        self.space.set_track(fresh.slug, "Product")
+        self.space.paths(fresh.slug)["cv"].write_text(json.dumps({"name": "My own edit"}))
+        self.space.reseed(fresh.slug, "Product")
+        # The edited CV is left alone; the untouched letter is pulled.
+        self.assertEqual(json.loads(self.space.paths(fresh.slug)["cv"].read_text())["name"],
+                         "My own edit")
+        self.assertEqual(json.loads(self.space.paths(fresh.slug)["cover"].read_text())["company"],
+                         "ProductCo")
+
+    def test_reseed_does_nothing_without_a_same_track_source(self):
+        solo = self.space.create("Meta — RPM")
+        self.assertFalse(self.space.reseed(solo.slug, "Engineering"))
+
+    def test_an_archived_application_is_never_a_source(self):
+        product = self.space.create("Meta — RPM")
+        self.space.set_track(product.slug, "Product")
+        self.space.paths(product.slug)["cv"].write_text(json.dumps({"name": "Product CV"}))
+        self.space.create("Osmo — TPM")                    # one live app remains
+        self.space.archive(product.slug)
+        fresh = self.space.create("Acme — TPM")
+        self.assertFalse(self.space.reseed(fresh.slug, "Product"))
+
     def test_names_may_repeat_without_colliding_on_disk(self):
         first = self.space.create("Meta")
         second = self.space.create("Meta")

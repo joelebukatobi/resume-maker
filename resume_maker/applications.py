@@ -12,11 +12,13 @@ on the same pair.
 
 Finished applications are archived rather than deleted: the same company often
 comes back with a different role, and the cover letter you wrote is the best
-possible starting point for it.
+possible starting point for it. Delete exists too, but it is the deliberate
+hard option for an application that should never be opened again.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -29,6 +31,10 @@ ARCHIVE = "_archive"
 CURRENT = "current"
 META = "app.json"
 MAX_NAME = 120
+# What kind of role an application is for. A new application forks its documents
+# from the newest live application of the same track, so a Product CV and an
+# Engineering CV stay separate lineages.
+TRACKS = ("Product", "Engineering", "Data", "Design", "Other")
 # What a new application is called until the job description names it.
 UNNAMED = "Untitled application"
 # The files an application owns. The key is how the rest of the program asks
@@ -67,6 +73,7 @@ class Application:
     created: str
     job_url: str = ""
     archived: bool = False
+    track: str = ""
 
 
 class Workspace:
@@ -125,6 +132,7 @@ class Workspace:
             created=str(data.get("created") or ""),
             job_url=str(data.get("job_url") or ""),
             archived=archived,
+            track=str(data.get("track") or ""),
         )
 
     def list(self) -> list[Application]:
@@ -171,7 +179,8 @@ class Workspace:
 
     # -- changing ------------------------------------------------------
 
-    def create(self, name: str, *, job_url: str = "", source: str | None = None) -> Application:
+    def create(self, name: str, *, job_url: str = "", source: str | None = None,
+               track: str | None = None) -> Application:
         """A new application, with documents copied from ``source``.
 
         ``source`` is normally the application you were last working on: the
@@ -179,6 +188,11 @@ class Workspace:
         point than the untouched base, and the same company's next role starts
         from the letter you wrote for the first one. The chat does not come
         along — the new job gets a clean conversation.
+
+        ``track`` is usually left to be detected from the job description; when
+        it is given (Duplicate inherits it), the new application starts tagged.
+        The hashes of the copied documents are recorded so identify can tell an
+        untouched copy from one the user has since edited.
         """
         name = " ".join(str(name).split())[:MAX_NAME]
         if not name:
@@ -191,7 +205,12 @@ class Workspace:
             start = origin.get(key)
             if start and Path(start).is_file():
                 shutil.copyfile(start, folder / FILES[key])
-        meta = {"name": name, "created": date.today().isoformat(), "job_url": str(job_url)[:2000]}
+        if track is None and source:
+            track = self._track_of(source)
+        seed = {key: _sha(folder / FILES[key])
+                for key in ("cv", "cover") if (folder / FILES[key]).is_file()}
+        meta = {"name": name, "created": date.today().isoformat(),
+                "job_url": str(job_url)[:2000], "track": _clean_track(track), "seed": seed}
         (folder / META).write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
         return self.set_current(slug)
 
@@ -250,6 +269,80 @@ class Workspace:
         assert app is not None
         return app
 
+    def delete(self, slug: str) -> None:
+        """Remove an application and everything it owns, for good.
+
+        Archive is the reversible option; this is the hard one, for an
+        application that should never come back. If it was the open one, the
+        pointer is cleared so the bare paths fall through to another.
+        """
+        folder, _ = self.find(slug)
+        shutil.rmtree(folder)
+        if self._stored_current() == slug:
+            (self.root / CURRENT).unlink(missing_ok=True)
+
+    def set_track(self, slug: str, track: str) -> Application:
+        """Label an application's role type, by hand or from the posting."""
+        if track not in TRACKS:
+            raise ApplicationError(f"unknown track: {track!r}")
+        folder, archived = self.find(slug)
+        meta = json.loads((folder / META).read_text(encoding="utf-8"))
+        meta["track"] = track
+        (folder / META).write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+        app = self._read(folder, archived)
+        assert app is not None
+        return app
+
+    def reseed(self, slug: str, track: str) -> bool:
+        """Fill the documents from the newest live application of ``track``.
+
+        Only a document whose bytes still match what :meth:`create` wrote is
+        replaced, so an application the user has already saved or edited is
+        never overwritten. Returns whether anything moved.
+        """
+        folder, _ = self.find(slug)
+        source = self._latest_of_track(track, exclude=slug)
+        if source is None:
+            return False
+        meta = json.loads((folder / META).read_text(encoding="utf-8"))
+        seed = meta.get("seed") if isinstance(meta.get("seed"), dict) else {}
+        moved = False
+        for key in ("cv", "cover"):
+            target, incoming = folder / FILES[key], source / FILES[key]
+            if not incoming.is_file() or not target.is_file() or _sha(target) != seed.get(key):
+                continue
+            shutil.copyfile(incoming, target)
+            seed[key] = _sha(target)
+            moved = True
+        if moved:
+            meta["seed"] = seed
+            (folder / META).write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+        return moved
+
+    def _latest_of_track(self, track: str, *, exclude: str = "") -> Path | None:
+        """The live application of ``track`` whose documents changed last."""
+        if not track:
+            return None
+        best: Path | None = None
+        newest = -1.0
+        for app in self.list():
+            if app.archived or app.slug == exclude or app.track != track:
+                continue
+            folder = self.folder(app.slug)
+            stamps = [(folder / FILES[k]).stat().st_mtime
+                      for k in ("cv", "cover") if (folder / FILES[k]).is_file()]
+            if stamps and max(stamps) > newest:
+                best, newest = folder, max(stamps)
+        return best
+
+    def _track_of(self, slug: str) -> str:
+        try:
+            folder, archived = self.find(slug)
+        except ApplicationError:
+            return ""
+        app = self._read(folder, archived)
+        return app.track if app else ""
+
     def _stored_current(self) -> str:
         try:
             return (self.root / CURRENT).read_text(encoding="utf-8").strip()
@@ -305,6 +398,16 @@ class Workspace:
                        ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
+
+
+def _clean_track(track: str | None) -> str:
+    """A known track, or "" for one that was never set."""
+    track = str(track or "")
+    return track if track in TRACKS else ""
+
+
+def _sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _load(path: Path | None) -> dict[str, Any]:
