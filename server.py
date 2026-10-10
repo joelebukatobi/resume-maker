@@ -18,6 +18,7 @@ import os
 import tempfile
 import webbrowser
 from dataclasses import asdict
+from datetime import date
 from functools import partial
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -29,7 +30,7 @@ from urllib.parse import parse_qs, quote
 from resume_maker.applications import UNNAMED, ApplicationError, Workspace, as_json
 from resume_maker.build import FORMAT_ALIASES, Builder, export_name, safe_stem
 from resume_maker.export_pdf import BrowserNotFound, ExportError
-from resume_maker import assistant, llm, setup
+from resume_maker import assistant, llm, match, setup
 from resume_maker.fonts import catalogue, preview_face
 from resume_maker.model import CV, ContentError, CoverLetter
 from resume_maker.theme import Theme, ThemeError
@@ -48,6 +49,7 @@ MAX_BODY = 1 << 20  # 1 MiB is far more than any CV needs.
 MAX_IMPORT_BODY = 8 << 20  # a 5 MB file, base64 encoded
 MAX_HISTORY = 2 << 20
 MAX_TURNS = 200
+MAX_CHAT_CHARS = 400_000  # ceiling on the condensed transcript sent to a model
 DOCUMENTS = ("cv", "cover")
 HOST = "127.0.0.1"
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
@@ -316,6 +318,8 @@ class EditorHandler(BaseHTTPRequestHandler):
             "/api/setup/notes": self._setup_notes,
             "/api/setup/extract": self._setup_extract,
             "/api/llm/key": self._key,
+            "/api/match": self._match,
+            "/api/fit": self._fit,
             "/api/apps": self._apps_post,
         }
         handler = handlers.get(route)
@@ -508,17 +512,23 @@ class EditorHandler(BaseHTTPRequestHandler):
     def _checked_turns(messages: Any) -> list[dict[str, str]]:
         if not isinstance(messages, list) or not messages or len(messages) > MAX_TURNS:
             raise ValueError("messages must be a non-empty list")
-        turns, total = [], 0
+        turns = []
         for m in messages:
             if not isinstance(m, dict) or m.get("role") not in ("user", "assistant"):
                 raise ValueError("each message needs role user or assistant")
             content = m.get("content")
             if not isinstance(content, str) or not content.strip():
                 raise ValueError("each message needs text content")
-            total += len(content)
-            turns.append({"role": m["role"], "content": content})
-        if total > 400_000:
-            raise ValueError("conversation is too long; clear the chat")
+            turn = {"role": m["role"], "content": content}
+            # Which proposals the user already accepted or dismissed, so the
+            # condensed transcript can drop their JSON on the way to the model.
+            resolved = m.get("resolved")
+            if isinstance(resolved, dict):
+                keep = {str(k): str(v) for k, v in resolved.items()
+                        if v in ("accepted", "dismissed")}
+                if keep:
+                    turn["resolved"] = keep
+            turns.append(turn)
         if turns[-1]["role"] != "user":
             raise ValueError("the last message must be from the user")
         return turns
@@ -569,9 +579,29 @@ class EditorHandler(BaseHTTPRequestHandler):
         self._json(HTTPStatus.OK, {"text": text})
 
     def _setup_assistant(self, payload: dict[str, Any]) -> None:
+        """Save the Style page, or add a rule the chat offered to the end of it.
+
+        Like Notes, an "append" is the chat's only way into this file, and only
+        because the user accepted the card, so the rule arrives reviewed.
+        """
+        if "append" in payload:
+            current = assistant.load_text(self._assistant_path)
+            text = setup.append_text(current, payload.get("append"),
+                                     today=date.today().isoformat(), kind="assistant")
+            payload = {"text": text}
         self._save_setup_file("assistant", self._assistant_path, payload)
 
     def _setup_notes(self, payload: dict[str, Any]) -> None:
+        """Save the Notes page, or add what the chat offered to the end of it.
+
+        An "append" is the chat's only way into this file, and it only happens
+        because the user accepted the card, so the text arrives reviewed.
+        """
+        if "append" in payload:
+            current = assistant.load_text(self._notes_path)
+            text = setup.append_text(current, payload.get("append"),
+                                     today=date.today().isoformat())
+            payload = {"text": text}
         self._save_setup_file("notes", self._notes_path, payload)
 
     def _fields(self, payload: dict[str, Any]) -> None:
@@ -590,6 +620,37 @@ class EditorHandler(BaseHTTPRequestHandler):
             return self._error(HTTPStatus.BAD_GATEWAY, str(exc))
         self._json(HTTPStatus.OK, models)  # [{"id", "label"}]
 
+    def _match(self, payload: dict[str, Any]) -> None:
+        """How much of the job description this document already answers.
+
+        Counted here rather than asked of a model: it costs nothing, it gives
+        the same answer twice, and the missing terms can be pointed at.
+        """
+        kind = self._document_kind(payload.get("document"))
+        doc = self._checked_document(kind, payload.get("doc"))
+        jd = str(payload.get("job_description") or "")[:40_000]
+        parts = [text for _, _, text in assistant.field_paths(kind, doc)]
+        self._json(HTTPStatus.OK,
+                   match.score(parts, jd, str(payload.get("company") or "")).as_json())
+
+    def _fit(self, payload: dict[str, Any]) -> None:
+        """One screening pass: how strong does this candidate look for this role.
+
+        Deliberately a separate, explicit request rather than part of the
+        preview. It costs a model call, so it runs when the user asks for it,
+        not on every keystroke the way the coverage count does.
+        """
+        kind = self._document_kind(payload.get("document"))
+        doc = self._checked_document(kind, payload.get("doc"))
+        jd = str(payload.get("job_description") or "").strip()[:40_000]
+        if not jd:
+            raise ValueError("paste a job description first")
+        reply = llm.complete(
+            str(payload.get("provider", "")), llm.check_model(payload.get("model", "")),
+            assistant.fit_prompt(), assistant.fit_request(kind, doc, jd),
+        )
+        self._json(HTTPStatus.OK, assistant.parse_fit(reply))
+
     def _chat(self, payload: dict[str, Any]) -> None:
         """Stream a reply as plain text. A mid-stream failure is sent as a
         line starting with NUL so the editor can tell it from reply text."""
@@ -599,12 +660,32 @@ class EditorHandler(BaseHTTPRequestHandler):
         if not isinstance(jd, str) or len(jd) > 40_000:
             raise ValueError("job description must be text under 40,000 characters")
         style, notes = self._style_and_notes()
+        # The editor measured the rendered page; pass that on rather than
+        # letting the model guess whether the CV still fits.
+        overflowing = payload.get("overflowing")
+        fit = assistant.fit_note(
+            _as_pages(payload.get("pages")),
+            [str(x)[:120] for x in overflowing][:8] if isinstance(overflowing, list) else (),
+        )
+        # The same count the ring shows, so the model knows which of the
+        # posting's words are missing instead of guessing at them.
+        if jd.strip():
+            parts = [text for _, _, text in assistant.field_paths(kind, doc)]
+            company = str(_read_json(self._cover_path).get("company") or "")
+            covered = match.score(parts, jd, company)
+            note = assistant.coverage_note(covered.missing)
+            fit = f"{fit}\n{note}".strip() if note else fit
         stable, volatile = assistant.prompt_parts(
-            kind, doc, jd, assistant_md=style, notes_md=notes)
+            kind, doc, jd, assistant_md=style, notes_md=notes, fit=fit)
+        turns = assistant.condense(self._checked_turns(payload.get("messages")))
+        # Guard what is actually sent, not the stored conversation: the window
+        # above has already dropped everything but the last few turns.
+        if sum(len(t["content"]) for t in turns) > MAX_CHAT_CHARS:
+            raise ValueError("conversation is too long; clear the chat")
         chunks = llm.stream_chat(
             str(payload.get("provider", "")), llm.check_model(payload.get("model", "")),
-            f"{stable}\n\n{volatile}", self._checked_turns(payload.get("messages")),
-            cacheable=stable,
+            f"{stable}\n\n{volatile}", turns,
+            cacheable=stable, tail=volatile,
         )
         # Pull the first chunk before answering, so a bad key or model comes
         # back as a normal error response rather than a broken stream.
@@ -659,10 +740,12 @@ class EditorHandler(BaseHTTPRequestHandler):
 
     def _apps_get(self) -> None:
         apps = [as_json(a) for a in self._workspace.list()]
-        self._json(HTTPStatus.OK, {"applications": apps, "current": self._workspace.current})
+        # "" rather than a raise when every application is gone: the hub still
+        # has to render so a new one can be created from it.
+        self._json(HTTPStatus.OK, {"applications": apps, "current": self._last_opened()})
 
     def _apps_post(self, payload: dict[str, Any]) -> None:
-        """Create, open, rename or archive an application.
+        """Create, open, rename, archive or delete an application.
 
         ApplicationError subclasses ValueError, so a bad slug or a name that
         is only punctuation comes back as a plain bad request.
@@ -686,6 +769,12 @@ class EditorHandler(BaseHTTPRequestHandler):
             return self._identify(payload)
         elif action in ("archive", "restore"):
             app = self._workspace.archive(slug, archived=action == "archive")
+        elif action == "track":
+            app = self._workspace.set_track(slug, str(payload.get("track") or ""))
+        elif action == "delete":
+            self._workspace.delete(slug)
+            self._json(HTTPStatus.OK, {"deleted": slug, "current": self._last_opened()})
+            return
         else:
             raise ValueError(f"unknown action: {action!r}")
         self._json(HTTPStatus.OK, {"application": as_json(app), "current": self._workspace.current})
@@ -696,7 +785,9 @@ class EditorHandler(BaseHTTPRequestHandler):
         The posting names the company and the role; those are what the
         application is called, what the cover letter is addressed to, and what
         the exported files are named after. Asking the model once here saves
-        typing the same two things three times.
+        typing the same two things three times. It also reads the kind of role
+        (the track), which decides whether the untouched documents are re-seeded
+        from the newest application of that same kind.
         """
         slug = str(payload.get("slug") or "") or self._workspace.current
         text = str(payload.get("job_description") or "").strip()[: assistant.MAX_IMPORT_TEXT]
@@ -712,8 +803,15 @@ class EditorHandler(BaseHTTPRequestHandler):
             raise ValueError("that posting does not name a company or a role")
         app = self._workspace.rename(slug, name, reslug=True)
 
+        # The track goes on the application, then the untouched documents are
+        # re-seeded from the newest application of that same track — the latest
+        # version of this kind of CV, not whatever happened to be open last.
+        app = self._workspace.set_track(app.slug, found["track"])
+        reseeded = self._workspace.reseed(app.slug, found["track"])
+
         # The cover letter is addressed to the same pair, and the export
-        # filenames are built from it.
+        # filenames are built from it. Runs after the reseed so the freshly
+        # copied letter is the one addressed.
         cover_path = self._paths(app.slug)["cover"]
         cover = _read_json(cover_path)
         if cover:
@@ -721,6 +819,7 @@ class EditorHandler(BaseHTTPRequestHandler):
             cover["role"] = found["role"] or cover.get("role", "")
             _atomic_write(cover_path, json.dumps(cover, indent=2, ensure_ascii=False))
         self._json(HTTPStatus.OK, {"application": as_json(app), **found,
+                                   "reseeded": reseeded,
                                    "current": self._workspace.current})
 
     def _history_get(self) -> None:
@@ -758,6 +857,15 @@ class EditorHandler(BaseHTTPRequestHandler):
         path.parent.mkdir(mode=0o700, exist_ok=True)
         _atomic_write(path, text)
         self._json(HTTPStatus.OK, {"saved": True})
+
+def _as_pages(value: Any) -> float:
+    """A page count from the browser, ignored unless it is a sane number."""
+    try:
+        pages = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return pages if 0 < pages < 50 else 0.0
+
 
 def _read_json(path: Path) -> dict[str, Any]:
     """A JSON document from disk, or {} when it is missing or unreadable."""

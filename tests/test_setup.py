@@ -145,6 +145,35 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn("triage", state["notes"])
         self.assertEqual(state["status"]["style"], "started")
 
+    def test_the_chat_can_add_to_notes_without_replacing_them(self):
+        """The one thing the chat writes outside the open document."""
+        self.post("/api/setup/notes", {"text": "# How I got here\n\nI fixed PCs at 11."})
+        self.post("/api/setup/notes", {"append": "Cedric is a writing tool."})
+        text = self.get("/api/setup")["notes"]
+        self.assertIn("I fixed PCs at 11.", text)          # the story survives
+        self.assertIn("## From the chat", text)            # filed, not scattered
+        self.assertIn("Cedric is a writing tool.", text)
+        self.post("/api/setup/notes", {"append": "MKEL was a telecom startup."})
+        text = self.get("/api/setup")["notes"]
+        self.assertEqual(text.count("## From the chat"), 1)  # one heading, not one each
+        self.assertIn("MKEL was a telecom startup.", text)
+
+    def test_the_chat_can_add_to_voice_without_replacing_it(self):
+        """Same offer as Notes, but a writing rule lands in the Voice file."""
+        self.post("/api/setup/assistant", {"text": "## Never\n- No 'spearheaded'."})
+        self.post("/api/setup/assistant", {"append": "Lead every bullet with the outcome."})
+        text = self.get("/api/setup")["assistant"]
+        self.assertIn("No 'spearheaded'.", text)          # the voice survives
+        self.assertIn("## From the chat", text)
+        self.assertIn("Lead every bullet with the outcome.", text)
+
+    def test_an_empty_addition_is_refused(self):
+        self.post("/api/setup/notes", {"text": "# Notes"})
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/setup/notes", {"append": "   "})
+        self.assertEqual(caught.exception.code, 400)
+        self.assertEqual(self.get("/api/setup")["notes"], "# Notes")
+
     def test_oversized_save_is_refused_and_leaves_the_file_alone(self):
         self.post("/api/setup/notes", {"text": "Keep me."})
         with self.assertRaises(urllib.error.HTTPError) as caught:
@@ -328,6 +357,7 @@ class ApplicationApiTests(unittest.TestCase):
     def setUp(self):
         self.tmp = TemporaryDirectory()
         root = Path(self.tmp.name)
+        self.root = root
         (root / "cv.json").write_text(json.dumps(CV))
         (root / "cover.json").write_text(json.dumps(COVER))
         workspace = Workspace(root / "applications", {
@@ -422,4 +452,42 @@ class ApplicationApiTests(unittest.TestCase):
     def test_a_bad_slug_is_refused(self):
         with self.assertRaises(urllib.error.HTTPError) as caught:
             self.post("/api/apps", {"action": "open", "slug": "../../etc"})
+        self.assertEqual(caught.exception.code, 400)
+
+    def test_delete_removes_the_application_for_good(self):
+        first = self.get("/api/apps")["current"]
+        folder = self.root / "applications" / first
+        self.assertTrue(folder.is_dir())
+        self.post("/api/apps", {"action": "delete", "slug": first})
+        slugs = {a["slug"] for a in self.get("/api/apps")["applications"]}
+        self.assertNotIn(first, slugs)
+        self.assertFalse(folder.exists())  # gone, not just hidden
+
+    def test_deleting_the_open_application_falls_back_to_another(self):
+        first = self.get("/api/apps")["current"]
+        second = self.post("/api/apps", {"action": "create", "name": "Osmo — TPM"})["application"]["slug"]
+        self.post("/api/apps", {"action": "open", "slug": first})
+        self.post("/api/apps", {"action": "delete", "slug": first})
+        self.assertEqual(self.get("/api/apps")["current"], second)
+
+    def test_an_archived_application_can_be_deleted(self):
+        first = self.get("/api/apps")["current"]
+        self.post("/api/apps", {"action": "create", "name": "Osmo — TPM"})
+        self.post("/api/apps", {"action": "archive", "slug": first})
+        self.post("/api/apps", {"action": "delete", "slug": first})
+        slugs = {a["slug"] for a in self.get("/api/apps")["applications"]}
+        self.assertNotIn(first, slugs)
+
+    def test_the_track_can_be_set_by_hand_and_is_validated(self):
+        slug = self.get("/api/apps")["current"]
+        self.post("/api/apps", {"action": "track", "slug": slug, "track": "Engineering"})
+        apps = {a["slug"]: a for a in self.get("/api/apps")["applications"]}
+        self.assertEqual(apps[slug]["track"], "Engineering")
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/apps", {"action": "track", "slug": slug, "track": "Wizard"})
+        self.assertEqual(caught.exception.code, 400)
+
+    def test_deleting_an_unknown_application_is_refused(self):
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/apps", {"action": "delete", "slug": "no-such-app"})
         self.assertEqual(caught.exception.code, 400)
