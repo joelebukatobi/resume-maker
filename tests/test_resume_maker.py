@@ -17,6 +17,7 @@ from resume_maker.model import CV, ContentError, CoverLetter, normalise_dates  #
 from resume_maker.render_docx import DocxRenderer  # noqa: E402
 from resume_maker.render_html import HtmlRenderer  # noqa: E402
 from resume_maker.theme import Theme, ThemeError  # noqa: E402
+from resume_maker import match
 from resume_maker.validate import Level, validate  # noqa: E402
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -238,6 +239,36 @@ class ContentRuleTests(unittest.TestCase):
         )
         self.assertTrue(any("hides the address" in i.message for i in validate(cv)))
 
+    def test_banned_punctuation_in_prose_is_flagged(self):
+        """Proof-reading for a character is a job for a regex, not for eyes."""
+        cv = CV.from_mapping({
+            "name": "x", "contact": [],
+            "sections": [{
+                "heading": "EXPERIENCE", "type": "entries",
+                "entries": [{"left": "MKEL", "bullets": [
+                    "Took on whatever was needed: account management and rates.",
+                    "Ran discovery — then built the thing.",
+                    "Shipped it; nobody complained.",
+                    "Built an end-to-end pipeline for 600 teams.",
+                ]}],
+            }],
+        })
+        found = {i.message for i in validate(cv) if i.where.startswith("MKEL")}
+        self.assertIn("contains a colon", found)
+        self.assertIn("contains a em dash", found)
+        self.assertIn("contains a semicolon", found)
+        # A hyphen inside a compound word is not punctuation.
+        self.assertEqual(len([i for i in validate(cv) if i.where.startswith("MKEL")]), 3)
+
+    def test_a_labelled_line_may_keep_its_colon(self):
+        """Skills print as "Label: text"; only prose is policed."""
+        cv = CV.from_mapping({
+            "name": "x", "contact": [],
+            "sections": [{"heading": "SKILLS", "type": "labeled",
+                          "items": [{"label": "Product", "text": "discovery, roadmaps"}]}],
+        })
+        self.assertFalse([i for i in validate(cv) if "colon" in i.message])
+
     def test_shipped_cv_has_no_errors(self):
         cv, _ = load()
         errors = [i for i in validate(cv) if i.level is Level.ERROR]
@@ -412,3 +443,54 @@ class PaginationTests(unittest.TestCase):
         cv, theme = load()
         self.assertIn("column-fill:auto", HtmlRenderer(theme).render(cv, preview=True))
         self.assertNotIn("column-fill", HtmlRenderer(theme).render(cv))
+
+
+class MatchTests(unittest.TestCase):
+    """Coverage of a posting's vocabulary, counted rather than judged."""
+
+    JD = (
+        "We are looking for a product manager to own the data pipeline roadmap. "
+        "You will run discovery with engineering, define the data pipeline, and "
+        "measure adoption. Strong product manager candidates have shipped a data "
+        "pipeline before and can run discovery independently."
+    )
+
+    def test_a_document_that_uses_the_posting_language_scores_higher(self):
+        weak = match.score(["I wrote software and fixed bugs."], self.JD)
+        strong = match.score(
+            ["Owned the data pipeline roadmap and ran discovery with engineering.",
+             "Measured adoption of the pipeline across teams."], self.JD)
+        self.assertGreater(strong.score, weak.score)
+        self.assertIn("data pipeline", strong.matched)
+
+    def test_what_is_missing_is_named(self):
+        result = match.score(["Ran discovery with engineering."], self.JD)
+        self.assertIn("data pipeline", result.missing)
+        self.assertNotIn("discovery", result.missing)
+
+    def test_the_company_name_is_not_a_requirement(self):
+        result = match.score(["A product manager."], "Acme is hiring. Acme builds "
+                             "pipelines. Acme is a great place to work at Acme.",
+                             company="Acme")
+        self.assertNotIn("acme", " ".join(result.missing))
+
+    def test_a_different_ending_is_not_a_miss(self):
+        """A posting asking to "track" is answered by a CV that says "tracked".
+
+        Suffixes only: an irregular verb ("grow" against "grew") is still a
+        miss, which is the price of not shipping a dictionary.
+        """
+        jd = "You will track adoption and own the roadmap. Track adoption daily."
+        result = match.score(["Tracked adoption daily and owned the roadmap."], jd)
+        self.assertNotIn("track", result.missing)
+        self.assertNotIn("roadmap", result.missing)
+        self.assertEqual(result.score, 100)
+
+    def test_no_posting_scores_zero_rather_than_everything(self):
+        self.assertEqual(match.score(["anything at all"], "").score, 0)
+
+    def test_boilerplate_is_not_counted_as_a_requirement(self):
+        result = match.score(["x"], "You will be responsible for the role. "
+                                    "Requirements: experience. We offer benefits.")
+        self.assertNotIn("responsibilities", result.missing)
+        self.assertNotIn("benefits", result.missing)
