@@ -43,7 +43,11 @@
 }
 
 /* Frame and top bar: base.css. The hub only sets its own column width. */
-main { width: min(880px, 100%); margin: 0 auto; padding: var(--chrome-gutter) var(--chrome-gutter) var(--chrome-bottom); overflow-y: auto; }
+/* The page scrolls, not the column, so the scrollbar sits at the window edge
+   where it belongs rather than floating beside the content. */
+main { width: 100%; overflow-y: auto; }
+.hub { width: min(880px, 100%); margin: 0 auto;
+  padding: var(--chrome-gutter) var(--chrome-gutter) var(--chrome-bottom); }
 .tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 @media (max-width: 760px) { .tiles { grid-template-columns: 1fr; } }
 .tile {
@@ -81,7 +85,8 @@ a.tile:hover, a.tile:focus-visible {
 </style>
 </head>
 <body data-page="">
-<main>
+<main class="thin-scroll">
+<div class="hub">
   <header class="hero">
     <div class="hero-grid" aria-hidden="true"></div>
     <div class="hero-glow" aria-hidden="true"></div>
@@ -121,6 +126,7 @@ a.tile:hover, a.tile:focus-visible {
     </div>
     <div id="app-list" class="app-list"></div>
   </section>
+</div>
 </main>
 
 

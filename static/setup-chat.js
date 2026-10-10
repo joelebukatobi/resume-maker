@@ -13,13 +13,7 @@ function header() {
 function draw() { /* no form fields on setup pages */ }
 function schedule() { /* no live preview on setup pages */ }
 
-function setStatus(text, bad = false) {
-  const note = document.getElementById("note");
-  if (note) {
-    note.textContent = text || "";
-    note.classList.toggle("bad", Boolean(bad && text));
-  }
-}
+/* setStatus and the toast come from setup.js, which loads first. */
 
 async function bootSetupChat() {
   try {

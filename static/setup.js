@@ -25,6 +25,26 @@ function el(tag, attrs = {}, kids = []) {
   return node;
 }
 
+// The same toast the editor uses, so "Saved." is noticed rather than
+// whispered into the status line at the bottom of the page.
+let toastTimer;
+
+function showProgress(text, state) {
+  const toast = document.getElementById("toast");
+  if (!toast) return;
+  clearTimeout(toastTimer);
+  if (!state) { toast.classList.remove("show"); delete toast.dataset.state; return; }
+  toast.dataset.state = state;
+  toast.querySelector(".toast-text").textContent = text;
+  toast.classList.add("show");
+  if (state === "done") toastTimer = setTimeout(() => showProgress(null), 1800);
+}
+
+function setStatus(text, bad = false) {
+  if (!text) return showProgress(null);
+  showProgress(text, bad ? "error" : text.endsWith("…") ? "busy" : "done");
+}
+
 async function api(path, body) {
   const options = body === undefined
     ? {}
@@ -124,9 +144,10 @@ function setupPage({ kind, statusKey }) {
     pill.querySelector(".label").textContent = LABELS[status[statusKey]];
   }
 
-  function say(text, bad = false) {
+  function say(text, bad = false, { toast = true } = {}) {
     note.textContent = text;
     note.classList.toggle("bad", bad);
+    if (toast && text) setStatus(text, bad);
   }
 
   function count() {
@@ -164,7 +185,7 @@ function setupPage({ kind, statusKey }) {
       saved = data[kind] || "";
       editor.value = saved;
       paintState(data.status);
-      say(saved ? "" : "Nothing saved yet.");
+      say(saved ? "" : "Nothing saved yet.", false, { toast: false });
     } catch (error) {
       say(`Could not load: ${error.message}`, true);
     }
@@ -178,7 +199,7 @@ function setupPage({ kind, statusKey }) {
       const data = await apiJson(`/api/setup/${kind}`, { text: editor.value });
       saved = editor.value;
       paintState(data.status);
-      say("Saved.");
+      say(kind === "notes" ? "Notes saved." : "Voice saved.");
     } catch (error) {
       say(error.message, true);
     }
