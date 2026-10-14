@@ -156,12 +156,6 @@ How to answer:
   prioritise what is there; if something is missing, ask the user.
 - Keep it ATS friendly: plain wording, standard terms, keywords from the job
   description where they are true of the candidate.
-- In a cover letter, write "[Company]" and "[Role]" wherever the company name
-  or the job title belongs. They are placeholders, filled from the Company and
-  Role fields when the letter is exported, so the same letter can be reused for
-  the next application. Never write the company name or the job title out in
-  full in the body, the greeting or the closing, and never leave a placeholder
-  in a field that is not one of those.
 """
 
 
@@ -171,6 +165,39 @@ def load_text(path: str | Path) -> str:
         return Path(path).read_text(encoding="utf-8").strip()
     except (OSError, UnicodeDecodeError):
         return ""
+
+
+def order_notes(text: str, job_description: str) -> str:
+    """The notes whole, with the parts this posting cares about first.
+
+    Nothing is dropped. The size of this file was once a cost problem, and
+    caching made that mostly go away; what is left is an attention problem,
+    where the part that matters is buried behind the part that does not. A
+    posting about data products should meet the Amazon work before the story
+    about fixing PCs at eleven, and the reverse when it is not.
+
+    Sections are the file's own ``##`` headings, ranked by how much of the
+    posting's vocabulary each one uses. Ranked here rather than by a model:
+    it is the same count the score ring uses, so it costs nothing and gives
+    the same answer twice.
+    """
+    from .match import score  # local: match imports nothing from here
+
+    body = text.strip()
+    if not body or not job_description.strip():
+        return body
+    parts = re.split(r"\n(?=## )", body)
+    if len(parts) < 3:                       # nothing worth reordering
+        return body
+    head = parts[0] if not parts[0].startswith("## ") else ""
+    sections = parts[1:] if head else parts
+    ranked = sorted(sections, key=lambda s: -score([s], job_description).score)
+    best = score([ranked[0]], job_description).score
+    if not best:                             # no section beats any other
+        return body
+    lead = ["### Most relevant to this posting", *ranked[: max(1, len(ranked) // 2)]]
+    rest = ["### The rest, for background", *ranked[max(1, len(ranked) // 2):]]
+    return "\n\n".join(x for x in ([head] if head else []) + lead + rest if x.strip())
 
 
 def clip_notes(text: str) -> str:
@@ -304,7 +331,7 @@ def prompt_parts(
     stable = [_CHAT_RULES.format(kind=kind)]
     if assistant_md.strip():
         stable += ["## Editor style", assistant_md.strip(), ""]
-    notes = clip_notes(notes_md)
+    notes = clip_notes(order_notes(notes_md, job_description))
     if notes:
         stable += ["## Experience notes",
                    "The candidate's own record of their work. Draw on it; never invent beyond it.",
@@ -322,7 +349,33 @@ def prompt_parts(
         volatile += [fit.strip(), ""]
     for path, label, text in field_paths(document, data):
         volatile.append(f"- `{path}` ({label}): {text}")
+    volatile += ["", _tail(kind)]
     return "\n".join(stable).rstrip(), "\n".join(volatile)
+
+
+_TAIL = """\
+Before you answer, check your own text against these. They are the rules the
+user has had to repeat, and whatever sits nearest here has the most pull.
+- No dashes as punctuation, no colons, no semicolons.
+- Nothing invented. Every fact comes from the notes or from the user.
+- No internal team, org or project names. Countries and regions stay.
+"""
+_LETTER_TAIL = """\
+- Greet the reader and introduce the user by name before any fact about work.
+- "[Company]" and "[Role]", never the real company name or job title.
+"""
+
+
+def _tail(kind: str) -> str:
+    """A short restatement after the document, where the model is about to write.
+
+    The same rules are already at the top of the prompt. They are here again
+    because position beats repetition: a model that can recite a rule from the
+    opening will still break it several hundred lines later, and the text
+    nearest the generation point is the text that governs.
+    """
+    tail = _TAIL if kind == "CV" else _TAIL + _LETTER_TAIL
+    return tail.rstrip()
 
 
 # ------------------------------------------------------------------ import

@@ -206,6 +206,38 @@ class AssistantTests(unittest.TestCase):
         self.assertIn("Senior PM at Acme", prompt)
         self.assertIn("Never invent facts", prompt)
 
+    NOTES = (
+        "# How I got here\n\nIntro line.\n\n"
+        "## Before there was a career\n\nI fixed broken PCs and ran Linux at fifteen.\n\n"
+        "## The data work\n\nI owned a dataset pipeline and ran discovery with engineering.\n\n"
+        "## Bootcamps\n\nI learned Figma and shipped a school management app.\n"
+    )
+
+    def test_notes_lead_with_what_the_posting_cares_about(self):
+        """Nothing is dropped. The relevant part simply goes first."""
+        ordered = assistant.order_notes(
+            self.NOTES, "You will own the dataset pipeline and run discovery with engineering.")
+        for heading in ("## Before there was a career", "## The data work", "## Bootcamps"):
+            self.assertIn(heading, ordered)          # nothing lost
+        self.assertIn("Intro line.", ordered)        # the preamble stays on top
+        self.assertLess(ordered.index("## The data work"),
+                        ordered.index("## Before there was a career"))
+        self.assertIn("Most relevant to this posting", ordered)
+
+    def test_notes_are_left_alone_when_there_is_nothing_to_rank_against(self):
+        self.assertEqual(assistant.order_notes(self.NOTES, ""), self.NOTES.strip())
+        short = "# Title\n\n## Only section\n\nText about pipelines."
+        self.assertEqual(assistant.order_notes(short, "pipelines"), short.strip())
+
+    def test_the_hard_rules_are_restated_where_the_model_writes(self):
+        """Position beats repetition: the text nearest the output governs."""
+        _, volatile = assistant.prompt_parts("cv", self.cv)
+        self.assertIn("No dashes as punctuation", volatile.split("Before you answer")[1])
+        self.assertNotIn("Greet the reader", volatile)      # a CV has no greeting
+        _, letter = assistant.prompt_parts("cover", {"name": "Joel", "paragraphs": []})
+        self.assertIn("Greet the reader", letter)
+        self.assertIn("[Company]", letter.split("Before you answer")[1])
+
     def test_missing_terms_reach_the_model_with_a_guard(self):
         note = assistant.coverage_note(["product management", "roadmap"])
         self.assertIn("product management", note)
@@ -245,11 +277,17 @@ class AssistantTests(unittest.TestCase):
         self.assertIn("as it stands right now", prompt)
         self.assertIn("Never say you cannot see the document", prompt)
 
-    def test_a_cover_letter_prompt_explains_the_placeholders(self):
+    def test_the_placeholder_rule_is_stated_once(self):
+        """One instruction in one place.
+
+        A model that meets the same rule twice, in two wordings, satisfies
+        whichever it read last. The protocol carries the instruction; the
+        reasoning for it lives in the user's Voice file.
+        """
         prompt = assistant.system_prompt("cover", {"name": "Joel", "paragraphs": []})
-        self.assertIn("[Company]", prompt)
-        self.assertIn("[Role]", prompt)
-        self.assertIn("reused", prompt)   # why they exist at all
+        rules = prompt.split("## The cover letter")[0]
+        self.assertEqual(rules.count("[Company]"), 1)
+        self.assertIn("[Role]", rules)
 
     def test_system_prompt_explains_how_to_remove_a_bullet(self):
         prompt = assistant.system_prompt("cv", self.cv)
