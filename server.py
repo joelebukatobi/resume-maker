@@ -30,7 +30,7 @@ from urllib.parse import parse_qs, quote
 from resume_maker.applications import UNNAMED, ApplicationError, Workspace, as_json
 from resume_maker.build import FORMAT_ALIASES, Builder, export_name, safe_stem
 from resume_maker.export_pdf import BrowserNotFound, ExportError
-from resume_maker import assistant, llm, match, setup
+from resume_maker import assistant, llm, match, setup, transcribe
 from resume_maker.fonts import catalogue, preview_face
 from resume_maker.model import CV, ContentError, CoverLetter
 from resume_maker.theme import Theme, ThemeError
@@ -246,6 +246,9 @@ class EditorHandler(BaseHTTPRequestHandler):
             return self._setup_get()
         if route == "/api/setup/templates":
             return self._json(HTTPStatus.OK, setup.templates())
+        if route == "/api/transcribe":
+            # Lets the editor choose local dictation when an engine is present.
+            return self._json(HTTPStatus.OK, {"available": transcribe.available()})
         if route == "/static/chat.js":
             return self._static("chat.js", "text/javascript; charset=utf-8")
         if route == "/static/apps.js":
@@ -320,12 +323,14 @@ class EditorHandler(BaseHTTPRequestHandler):
             "/api/llm/key": self._key,
             "/api/match": self._match,
             "/api/fit": self._fit,
+            "/api/transcribe": self._transcribe,
             "/api/apps": self._apps_post,
         }
         handler = handlers.get(route)
         if handler is None:
             return self._error(HTTPStatus.NOT_FOUND, "not found")
-        big_body = route in ("/api/import", "/api/setup/extract", "/api/setup/notes")
+        big_body = route in ("/api/import", "/api/setup/extract", "/api/setup/notes",
+                             "/api/transcribe")
         payload = self._read_json(MAX_IMPORT_BODY if big_body else MAX_BODY)
         if payload is None:
             return
@@ -337,6 +342,10 @@ class EditorHandler(BaseHTTPRequestHandler):
         # bad upload reports as a plain bad request.
         except assistant.ImportFailed as exc:
             self._error(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc))
+        # TranscriptionFailed is a ValueError too: no local engine is a 501, not
+        # a bad request, and it must be caught before the plain ValueError.
+        except transcribe.TranscriptionFailed as exc:
+            self._error(HTTPStatus.SERVICE_UNAVAILABLE, str(exc))
         except (ThemeError, ContentError, ValueError) as exc:
             self._error(HTTPStatus.BAD_REQUEST, str(exc))
         except BrowserNotFound as exc:
@@ -577,6 +586,17 @@ class EditorHandler(BaseHTTPRequestHandler):
             str(payload.get("filename", "")), assistant.decode_upload(str(payload.get("file", "")))
         )
         self._json(HTTPStatus.OK, {"text": text})
+
+    def _transcribe(self, payload: dict[str, Any]) -> None:
+        """A 16 kHz WAV recorded in the browser, transcribed on this machine.
+
+        The audio never leaves the loopback server: a local whisper.cpp binary
+        does the work, so dictation is not tied to a cloud speech service.
+        """
+        audio = payload.get("audio")
+        if not isinstance(audio, str) or not audio.strip():
+            raise ValueError("no audio sent")
+        self._json(HTTPStatus.OK, {"text": transcribe.transcribe(assistant.decode_upload(audio))})
 
     def _setup_assistant(self, payload: dict[str, Any]) -> None:
         """Save the Style page, or add a rule the chat offered to the end of it.
