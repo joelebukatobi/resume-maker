@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, Iterable
 
-from .model import PHONE_SHAPE, CV, EntrySection, LabeledSection, ParagraphSection
+from .model import PHONE_SHAPE, CV, CoverLetter, EntrySection, LabeledSection, ParagraphSection
 
 # Headings most applicant tracking systems map to a known section. Anything
 # else still exports; it simply lands in the parser's unclassified bucket.
@@ -158,6 +158,48 @@ def check_punctuation(cv: CV) -> Iterable[Issue]:
                 yield Issue(Level.WARNING, where, f"contains a {name}")
         if _PROSE_COLON.search(text):
             yield Issue(Level.WARNING, where, "contains a colon")
+
+
+# A letter's failure modes are not a CV's. It is prose, so nobody searches it
+# for keywords, and the things that go wrong are the rules the user has had to
+# repeat: a missing greeting, the company's real name where a placeholder
+# belongs, punctuation they have banned.
+_GREETS = ("dear", "hello", "hi ")
+
+
+def letter_issues(letter: CoverLetter) -> tuple[Issue, ...]:
+    """Checks for a cover letter, which ``validate`` does not cover."""
+    found: list[Issue] = []
+    greeting = (letter.greeting or "").strip()
+    if not greeting:
+        found.append(Issue(Level.WARNING, "greeting", "the letter opens with no greeting"))
+    elif not greeting.lower().startswith(_GREETS):
+        found.append(Issue(Level.WARNING, "greeting",
+                           "does not read as a greeting; a reader meets this first"))
+
+    opening = (letter.paragraphs[0] if letter.paragraphs else "")
+    if opening and "my name is" not in opening.lower():
+        found.append(Issue(Level.WARNING, "paragraphs[0]",
+                           "does not introduce you by name before the first fact"))
+
+    # The placeholders are what let a letter be reused for the next
+    # application. A real name written in is a letter that only works once.
+    written = " ".join([greeting, *letter.paragraphs, letter.closing or ""]).lower()
+    for value, label in ((letter.company, "company"), (letter.role, "role")):
+        name = (value or "").strip()
+        if len(name) > 2 and name.lower() in written:
+            found.append(Issue(Level.WARNING, label,
+                               f"{name!r} is written out; use [{label.capitalize()}]"
+                               " so the letter can be reused"))
+
+    for index, paragraph in enumerate(letter.paragraphs):
+        for mark, name in BANNED_PUNCTUATION.items():
+            if mark in paragraph:
+                found.append(Issue(Level.WARNING, f"paragraphs[{index}]",
+                                   f"contains a {name}"))
+        if _PROSE_COLON.search(paragraph):
+            found.append(Issue(Level.WARNING, f"paragraphs[{index}]", "contains a colon"))
+    return tuple(found)
 
 
 CHECKS: tuple[Check, ...] = (

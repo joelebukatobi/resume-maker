@@ -15,7 +15,7 @@ from .model import CV, title_case, CoverLetter
 from .render_docx import DocxRenderer
 from .render_html import HtmlRenderer
 from .theme import Theme
-from .validate import Issue, validate
+from .validate import Issue, letter_issues, validate
 
 FORMAT_ALIASES: Mapping[str, tuple[str, ...]] = {
     "docx": ("docx",),
@@ -124,6 +124,8 @@ class Builder:
             raise ValueError(f"unknown format(s): {', '.join(sorted(unknown))}")
 
         issues = validate(self._cv)
+        if self._letter is not None:
+            issues += letter_issues(self._letter)
         print_html = self.print_html()
 
         overflowing: tuple[str, ...] = ()

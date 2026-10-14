@@ -18,7 +18,7 @@ from resume_maker.render_docx import DocxRenderer  # noqa: E402
 from resume_maker.render_html import HtmlRenderer  # noqa: E402
 from resume_maker.theme import Theme, ThemeError  # noqa: E402
 from resume_maker import match
-from resume_maker.validate import Level, validate  # noqa: E402
+from resume_maker.validate import letter_issues, Level, validate  # noqa: E402
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
@@ -494,3 +494,40 @@ class MatchTests(unittest.TestCase):
                                     "Requirements: experience. We offer benefits.")
         self.assertNotIn("responsibilities", result.missing)
         self.assertNotIn("benefits", result.missing)
+
+
+class LetterCheckTests(unittest.TestCase):
+    """A letter's failure modes are its own, and a CV check does not see them."""
+
+    BASE = {
+        "name": "Joel Onwuanaku", "contact": [], "company": "IBM",
+        "role": "Product Manager", "greeting": "Dear [Company] Hiring Team",
+        "paragraphs": ["I hope this finds you well. My name is Joel, and I am applying "
+                       "for the [Role] at [Company]."],
+        "closing": "Thank you for your consideration.", "signoff": "Sincerely,",
+    }
+
+    def issues(self, **changes):
+        letter = CoverLetter.from_mapping({**self.BASE, **changes})
+        return {i.where: i.message for i in letter_issues(letter)}
+
+    def test_a_clean_letter_raises_nothing(self):
+        self.assertEqual(self.issues(), {})
+
+    def test_a_missing_greeting_is_caught(self):
+        self.assertIn("no greeting", self.issues(greeting="")["greeting"])
+
+    def test_something_that_is_not_a_greeting_is_caught(self):
+        self.assertIn("greeting", self.issues(greeting="Regarding your posting")["greeting"])
+
+    def test_an_opening_with_no_introduction_is_caught(self):
+        found = self.issues(paragraphs=["I spent last summer at Amazon expanding a dataset."])
+        self.assertIn("introduce you by name", found["paragraphs[0]"])
+
+    def test_a_real_name_written_out_costs_the_letter_its_reuse(self):
+        found = self.issues(paragraphs=["My name is Joel and I am applying to IBM today."])
+        self.assertIn("[Company]", found["company"])
+
+    def test_banned_punctuation_in_a_paragraph_is_caught(self):
+        found = self.issues(paragraphs=["My name is Joel; I want this role — truly: yes."])
+        self.assertIn("paragraphs[0]", found)

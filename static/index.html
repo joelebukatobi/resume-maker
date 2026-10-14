@@ -913,10 +913,18 @@ function saveFit(value) {
   try { localStorage.setItem(FIT_STORE, JSON.stringify(value)); } catch { /* optional */ }
 }
 
+// Coverage answers one question: would a recruiter's keyword search over the
+// applicant database surface this. That search runs on the CV. A letter is
+// prose nobody searches, it scores lower for being shorter, and chasing the
+// number there turns a letter into a keyword list. So the CV gets both arcs
+// and the letter gets the model's read on fit.
+const coverageApplies = () => documentMode !== "cover";
+
 async function updateScore() {
   const jd = (typeof chat !== "undefined" && chat && chat.job_description) || "";
   const ring = $("score");
   if (!jd.trim()) { ring.hidden = true; $("score-detail").hidden = true; return; }
+  if (!coverageApplies()) { lastScore = { score: 0, missing: [], skipped: true }; paintRing(); ring.hidden = false; return; }
   try {
     const data = await api("/api/match", {
       document: documentMode, doc: header(), job_description: jd,
@@ -933,14 +941,21 @@ const band = (n) => (n >= 65 ? "#4f7d58" : n >= 40 ? "#b08b2e" : "#a34141");
 function paintRing() {
   const ring = $("score");
   const fresh = lastFit && lastFit.key === fitKey() ? lastFit : null;
-  const coverage = lastScore ? lastScore.score : 0;
+  const skipped = Boolean(lastScore && lastScore.skipped);
+  const coverage = lastScore && !skipped ? lastScore.score : 0;
   $("score-bar").style.strokeDashoffset = String(2 * Math.PI * 14 * (1 - coverage / 100));
-  ring.style.setProperty("--score-colour", band(coverage));
+  ring.style.setProperty("--score-colour", skipped ? "transparent" : band(coverage));
   $("fit-bar").style.strokeDashoffset =
     String(2 * Math.PI * 19 * (1 - (fresh ? fresh.score : 0) / 100));
   ring.style.setProperty("--fit-colour", fresh ? band(fresh.score) : "transparent");
   $("score-value").textContent = String(fresh ? fresh.score : coverage);
   const kind = documentMode === "cover" ? "letter" : "CV";
+  if (skipped) {
+    ring.title = fresh
+      ? `Fit ${fresh.score} for this ${kind}. Coverage is a CV measure and is not counted here.`
+      : `Click to rate how this ${kind} reads against the posting.`;
+    return;
+  }
   ring.title = fresh
     ? `Fit ${fresh.score}, coverage ${coverage}. Outer ring is the model's read on this ${kind}; inner is how much of the posting's language it uses.`
     : `${coverage}% of the words this posting leans on appear in your ${kind}. Click to rate the fit.`;
@@ -989,6 +1004,16 @@ function toggleScoreDetail() {
       text: `The last fit reading (${lastFit.score}) was for an older draft.` }));
   }
 
+  if (lastScore.skipped) {
+    panel.append(el("div", { class: "miss",
+      text: "Coverage is not counted for a letter. A recruiter's keyword search "
+        + "runs on your CV, nobody searches a letter, and writing one to raise "
+        + "the number would only make it read worse." }));
+    panel.append(el("button", { class: "tiny", text: fresh ? "Rate again" : "Rate the fit",
+      onclick: (e) => { e.stopPropagation(); rateFit(e.target); } }));
+    panel.hidden = false;
+    return;
+  }
   panel.append(el("strong", { text: `${lastScore.score}% of the posting's language` }));
   panel.append(el("div", { class: "miss",
     text: lastScore.missing.length
