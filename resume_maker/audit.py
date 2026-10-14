@@ -35,6 +35,7 @@ SKIP_HEADINGS = ("still to confirm",)
 MIN_CLAIM_CHARS = 40
 PASSAGES_PER_CLAIM = 3
 MAX_PASSAGE_CHARS = 700
+PASSAGE_OVERLAP = 200
 CODE_TRANSCRIPTS = Path.home() / ".claude" / "projects"
 
 
@@ -121,14 +122,43 @@ def _code_messages(project: Path) -> Iterator[str]:
                                    if isinstance(part, dict) and part.get("type") == "text")
 
 
+def _windows(block: str) -> Iterator[str]:
+    """A long block as overlapping windows rather than its first few lines.
+
+    A pasted transcript arrives as one message with few blank lines in it.
+    Truncating that to a paragraph threw away most of what the user ever said:
+    on this project's own history, 71% of the career transcript. The overlap
+    keeps a sentence that straddles a boundary findable from either side.
+    """
+    if len(block) <= MAX_PASSAGE_CHARS:
+        yield block
+        return
+    step = MAX_PASSAGE_CHARS - PASSAGE_OVERLAP
+    for start in range(0, len(block), step):
+        window = block[start : start + MAX_PASSAGE_CHARS]
+        if len(window) >= MIN_CLAIM_CHARS:
+            yield window
+
+
+# Pasted reference material is not testimony. A user message in a coding
+# session is as often an API table or a stack trace as it is a sentence about
+# their life, and those match a claim's words by accident.
+_NOT_PROSE = re.compile(r"[`{}|<>=]|\b(?:def|class|import|const|function|https?://)\b")
+
+
+def _is_prose(block: str) -> bool:
+    marks = len(_NOT_PROSE.findall(block))
+    return marks * 120 < len(block)
+
+
 def passages(project: Path) -> list[str]:
-    """What the user wrote, split into paragraph-sized pieces."""
+    """What the user wrote, in pieces small enough to pair with one claim."""
     out: list[str] = []
     for message in list(_app_messages(project)) + list(_code_messages(project)):
         for block in re.split(r"\n\s*\n", message):
             block = " ".join(block.split())
-            if len(block) >= MIN_CLAIM_CHARS:
-                out.append(block[:MAX_PASSAGE_CHARS])
+            if len(block) >= MIN_CLAIM_CHARS and _is_prose(block):
+                out.extend(_windows(block))
     return out
 
 

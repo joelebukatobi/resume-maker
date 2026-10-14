@@ -99,6 +99,28 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(audit.nearest(bare, index), ())
 
 
+class PassageShapeTests(unittest.TestCase):
+    def test_a_long_message_is_windowed_not_truncated(self):
+        """A pasted transcript is one message with few blank lines in it.
+
+        Truncating it to a paragraph threw away most of what the user had
+        ever said, and the audit then reported their own history as
+        unsupported.
+        """
+        story = ("I fixed the computers. " * 60) + "I ran Sabayon on an Atom netbook."
+        windows = list(audit._windows(story))
+        self.assertGreater(len(windows), 1)
+        self.assertTrue(any("Sabayon" in w for w in windows),
+                        "the end of a long message must stay reachable")
+
+    def test_pasted_reference_material_is_not_testimony(self):
+        docs = ("| Language | Client | |---|---| | Python | `from anthropic import "
+                "Anthropic` | const x = 1; https://docs.example.com/api")
+        self.assertFalse(audit._is_prose(docs))
+        self.assertTrue(audit._is_prose(
+            "I ran discovery across teams in the UK, Mexico and India for that dataset."))
+
+
 class VerdictTests(unittest.TestCase):
     FINDINGS = (
         audit.Finding(audit.Claim("Amazon", "The brief was one line."), ("It was a plan.",)),
