@@ -1,7 +1,7 @@
 "use strict";
-/* Shared behaviour for the setup pages (Style, Notes).
+/* Shared behaviour for the setup pages (Voice, Notes).
  *
- * Each page supplies which file it edits ("assistant" or "notes") and the
+ * Each page supplies which file it edits ("voice" or "notes") and the
  * elements to bind; this handles loading, saving, the unsaved marker, the
  * readiness pill, the character count, and Edit / Preview for markdown. */
 

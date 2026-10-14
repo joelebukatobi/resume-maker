@@ -3,8 +3,8 @@ __pycache__/
 *.pyc
 .chat/
 .serena/
-# Personal: your Style and experience notes. Role starters in templates/ stay tracked.
-assistant.md
+# Personal: your Voice and experience notes. Role starters in templates/ stay tracked.
+voice.md
 notes.md
 
 # Your applications: tailored documents and the chat about each job.

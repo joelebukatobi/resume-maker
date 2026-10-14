@@ -229,7 +229,7 @@ function voiceCard(text, { state, onResolve }) {
     el("button", { class: "tiny", text: "Add to Voice", onclick: async (e) => {
       e.target.disabled = true;
       try {
-        await api("/api/setup/assistant", { append: text });
+        await api("/api/setup/voice", { append: text });
         setStatus("Added to your voice");
         onResolve("accepted");
       } catch (error) {
@@ -487,7 +487,7 @@ function messageText(content) {
     .join("\n\n");
 }
 
-// Style and Notes readiness, read once so the empty state can point at them.
+// Voice and Notes readiness, read once so the empty state can point at them.
 let setupStatus = null;
 fetch("/api/setup").then((r) => r.json()).then((d) => { setupStatus = d.status; renderChat(); })
   .catch(() => { /* the plain empty state still works */ });
@@ -495,17 +495,17 @@ fetch("/api/setup").then((r) => r.json()).then((d) => { setupStatus = d.status; 
 function emptyState() {
   const doc = documentMode === "cover" ? "cover letter" : "CV";
   const box = el("div", { class: "chat-empty" });
-  const style = setupStatus && setupStatus.style !== "empty";
+  const voice = setupStatus && setupStatus.voice !== "empty";
   const notes = setupStatus && setupStatus.notes !== "empty";
-  if (style && notes) {
-    box.append(el("p", { text: `Your Style and Notes are loaded into every answer. ` +
+  if (voice && notes) {
+    box.append(el("p", { text: `Your Voice and Notes are loaded into every answer. ` +
       `Paste a job description below and ask me to tailor your ${doc}.` }));
     return box;
   }
   box.append(el("p", { text: `Ask about your ${doc}, paste a job description below, ` +
     "or upload an existing document." }));
   if (setupStatus) {
-    const missing = [!style && ["Style", "/style"], !notes && ["Notes", "/notes"]].filter(Boolean);
+    const missing = [!voice && ["Voice", "/voice"], !notes && ["Notes", "/notes"]].filter(Boolean);
     const tip = el("p", { class: "chat-tip" }, [document.createTextNode("Add your ")]);
     missing.forEach(([label, href], i) => {
       if (i) tip.append(document.createTextNode(" and "));

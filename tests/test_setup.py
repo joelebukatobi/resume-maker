@@ -34,10 +34,10 @@ class ReadinessTests(unittest.TestCase):
         self.assertEqual(setup.text_state("x" * setup.READY_CHARS), "ready")
 
     def test_a_filled_cv_and_cover_letter_are_ready(self):
-        state = setup.readiness(assistant="", notes="", cv=CV, cover=COVER)
+        state = setup.readiness(voice="", notes="", cv=CV, cover=COVER)
         self.assertEqual(state["cv"], "ready")
         self.assertEqual(state["cover"], "ready")
-        self.assertEqual(state["style"], "empty")
+        self.assertEqual(state["voice"], "empty")
         self.assertEqual(state["notes"], "empty")
 
     def test_an_untouched_document_is_empty_and_a_bare_one_is_started(self):
@@ -52,7 +52,7 @@ class ReadinessTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             setup.check_text("notes", "x" * (setup.MAX_NOTES_SAVE + 1))
         with self.assertRaises(ValueError):
-            setup.check_text("assistant", "x" * (setup.MAX_ASSISTANT_SAVE + 1))
+            setup.check_text("voice", "x" * (setup.MAX_VOICE_SAVE + 1))
         with self.assertRaises(ValueError):
             setup.check_text("notes", 42)
 
@@ -79,7 +79,7 @@ class TemplateTests(unittest.TestCase):
     def test_templates_are_saveable_as_style(self):
         for role in setup.templates():
             with self.subTest(role=role["id"]):
-                self.assertEqual(setup.check_text("assistant", role["text"]), role["text"].strip())
+                self.assertEqual(setup.check_text("voice", role["text"]), role["text"].strip())
 
 
 class SetupApiTests(unittest.TestCase):
@@ -91,7 +91,7 @@ class SetupApiTests(unittest.TestCase):
         root = Path(cls.tmp.name)
         (root / "cv.json").write_text(json.dumps(CV))
         (root / "cover.json").write_text(json.dumps(COVER))
-        cls.assistant_path = root / "assistant.md"
+        cls.voice_path = root / "voice.md"
         cls.notes_path = root / "notes.md"
         workspace = Workspace(root / "applications", {
             "cv": root / "cv.json",
@@ -104,7 +104,7 @@ class SetupApiTests(unittest.TestCase):
             server.EditorHandler,
             workspace=workspace,
             out_dir=root / "out",
-            assistant_path=cls.assistant_path,
+            voice_path=cls.voice_path,
             notes_path=cls.notes_path,
         )
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -130,20 +130,20 @@ class SetupApiTests(unittest.TestCase):
 
     def test_setup_reports_text_and_status(self):
         state = self.get("/api/setup")
-        self.assertIn("assistant", state)
+        self.assertIn("voice", state)
         self.assertIn("notes", state)
         self.assertEqual(state["status"]["cv"], "ready")
-        self.assertIn(state["status"]["style"], ("empty", "started", "ready"))
+        self.assertIn(state["status"]["voice"], ("empty", "started", "ready"))
 
-    def test_saving_style_and_notes_writes_files_and_updates_status(self):
-        self.post("/api/setup/assistant", {"text": "Ban 'spearheaded'. Use XYZ bullets."})
+    def test_saving_voice_and_notes_writes_files_and_updates_status(self):
+        self.post("/api/setup/voice", {"text": "Ban 'spearheaded'. Use XYZ bullets."})
         self.post("/api/setup/notes", {"text": "## Amazon\nRan weekly triage for the CXI dataset."})
-        self.assertIn("spearheaded", self.assistant_path.read_text())
+        self.assertIn("spearheaded", self.voice_path.read_text())
         self.assertIn("triage", self.notes_path.read_text())
         state = self.get("/api/setup")
-        self.assertIn("spearheaded", state["assistant"])
+        self.assertIn("spearheaded", state["voice"])
         self.assertIn("triage", state["notes"])
-        self.assertEqual(state["status"]["style"], "started")
+        self.assertEqual(state["status"]["voice"], "started")
 
     def test_the_chat_can_add_to_notes_without_replacing_them(self):
         """The one thing the chat writes outside the open document."""
@@ -160,9 +160,9 @@ class SetupApiTests(unittest.TestCase):
 
     def test_the_chat_can_add_to_voice_without_replacing_it(self):
         """Same offer as Notes, but a writing rule lands in the Voice file."""
-        self.post("/api/setup/assistant", {"text": "## Never\n- No 'spearheaded'."})
-        self.post("/api/setup/assistant", {"append": "Lead every bullet with the outcome."})
-        text = self.get("/api/setup")["assistant"]
+        self.post("/api/setup/voice", {"text": "## Never\n- No 'spearheaded'."})
+        self.post("/api/setup/voice", {"append": "Lead every bullet with the outcome."})
+        text = self.get("/api/setup")["voice"]
         self.assertIn("No 'spearheaded'.", text)          # the voice survives
         self.assertIn("## From the chat", text)
         self.assertIn("Lead every bullet with the outcome.", text)
@@ -202,7 +202,7 @@ class SetupApiTests(unittest.TestCase):
             page = response.read().decode()
         for pillar in ("Voice", "Notes", "Applications"):
             self.assertIn(f">{pillar}</h2>", page)
-        for href in ('href="/style"', 'href="/notes"'):
+        for href in ('href="/voice"', 'href="/notes"'):
             self.assertIn(href, page)
         self.assertNotIn('id="tile-docs"', page)
         self.assertIn('id="app-list"', page)
@@ -213,7 +213,7 @@ class SetupApiTests(unittest.TestCase):
         with urllib.request.urlopen(f"{self.base}/style", timeout=10) as response:
             page = response.read().decode()
         self.assertIn("/api/setup/templates", page)   # role chips
-        self.assertIn('kind: "assistant"', page)      # saves to assistant.md
+        self.assertIn('kind: "voice"', page)          # saves to voice.md
         self.assertIn("/static/setup.js", page)       # shared load/save
         self.assertIn("/static/setup.css", page)
         self.assertIn('id="view-edit"', page)
@@ -259,15 +259,15 @@ class SetupApiTests(unittest.TestCase):
         """Inside an application, Style and Notes are not part of the job."""
         with urllib.request.urlopen(f"{self.base}/static/base.css", timeout=10) as response:
             css = response.read().decode()
-        self.assertIn('body[data-page="resume"] :is(#nav-style, #nav-notes)', css)
-        self.assertIn('body[data-page="cover"] :is(#nav-style, #nav-notes)', css)
+        self.assertIn('body[data-page="resume"] :is(#nav-voice, #nav-notes)', css)
+        self.assertIn('body[data-page="cover"] :is(#nav-voice, #nav-notes)', css)
 
     def test_editor_links_back_to_the_setup_pages(self):
         for path in ("/resume", "/cover-letter"):
             with self.subTest(path=path):
                 with urllib.request.urlopen(f"{self.base}{path}", timeout=10) as response:
                     page = response.read().decode()
-                for href in ('href="/"', 'href="/style"', 'href="/notes"'):
+                for href in ('href="/"', 'href="/voice"', 'href="/notes"'):
                     self.assertIn(href, page)
 
     def test_every_page_serves_the_same_nav(self):
@@ -275,7 +275,7 @@ class SetupApiTests(unittest.TestCase):
         slug = self.get("/api/apps")["current"]
         expected = (
             ('href="/"', 'id="nav-hub"'),
-            ('href="/style"', 'id="nav-style"'),
+            ('href="/voice"', 'id="nav-voice"'),
             ('href="/notes"', 'id="nav-notes"'),
             (f'href="/{slug}/resume"', 'id="mode-cv"'),
             (f'href="/{slug}/cover-letter"', 'id="mode-cover"'),
@@ -283,7 +283,7 @@ class SetupApiTests(unittest.TestCase):
         # The hub is the entry point and carries no nav of its own. The
         # documents hang off the application they belong to.
         pages = {
-            "/style": "style",
+            "/voice": "voice",
             "/notes": "notes",
             f"/{slug}": "resume",
             f"/{slug}/resume": "resume",
@@ -318,7 +318,7 @@ class SetupApiTests(unittest.TestCase):
 
     def test_every_page_shares_one_set_of_design_tokens(self):
         """One base.css for all pages, so sizes and colours cannot drift."""
-        for path in ("/", "/resume", "/cover-letter", "/style", "/notes"):
+        for path in ("/", "/resume", "/cover-letter", "/voice", "/notes"):
             with self.subTest(path=path):
                 with urllib.request.urlopen(f"{self.base}{path}", timeout=10) as response:
                     page = response.read().decode()
@@ -332,9 +332,9 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn("--pico-font-size: 15px", css)
         self.assertIn("--control-height", css)
 
-    def test_style_and_notes_paths_serve_their_own_page(self):
+    def test_voice_and_notes_paths_serve_their_own_page(self):
         """Routed now; each answers 200 as soon as its page lands (Tasks 5-6)."""
-        for path, page in (("/style", "style.html"), ("/notes", "notes.html")):
+        for path, page in (("/voice", "voice.html"), ("/notes", "notes.html")):
             with self.subTest(path=path):
                 exists = (ROOT / "static" / page).is_file()
                 try:
@@ -371,7 +371,7 @@ class ApplicationApiTests(unittest.TestCase):
             server.EditorHandler,
             workspace=workspace,
             out_dir=root / "out",
-            assistant_path=root / "assistant.md",
+            voice_path=root / "voice.md",
             notes_path=root / "notes.md",
         )
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)

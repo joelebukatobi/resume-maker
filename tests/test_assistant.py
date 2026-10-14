@@ -264,7 +264,7 @@ class AssistantTests(unittest.TestCase):
     def test_the_non_negotiables_come_before_everything_else(self):
         """Rules the user has had to repeat belong above the style file."""
         prompt = assistant.system_prompt("cover", {"name": "Joel", "paragraphs": []},
-                                         assistant_md="Write however you like.")
+                                         voice_md="Write however you like.")
         head = prompt[:prompt.index("How to answer")]
         self.assertIn("No dashes as punctuation", head)
         self.assertIn("introducing the user by\n  name", head)
@@ -395,7 +395,7 @@ class AssistantTests(unittest.TestCase):
 
 
 class StyleAndNotesPromptTests(unittest.TestCase):
-    """Style (assistant.md) and the shared experience bank (notes.md)."""
+    """Voice (voice.md) and the shared experience bank (notes.md)."""
 
     def setUp(self):
         self.cv = json.loads((ROOT / "cv.json").read_text())
@@ -404,22 +404,22 @@ class StyleAndNotesPromptTests(unittest.TestCase):
         return assistant.system_prompt("cv", self.cv, **kwargs)
 
     def test_style_and_notes_are_appended_under_their_own_headings(self):
-        prompt = self.prompt(assistant_md="Ban the word 'spearheaded'.",
+        prompt = self.prompt(voice_md="Ban the word 'spearheaded'.",
                              notes_md="Ran weekly triage for the Amazon CXI dataset.")
-        self.assertIn("## Editor style", prompt)
+        self.assertIn("## The user's voice", prompt)
         self.assertIn("Ban the word 'spearheaded'.", prompt)
         self.assertIn("## Experience notes", prompt)
         self.assertIn("Ran weekly triage for the Amazon CXI dataset.", prompt)
 
     def test_protocol_rules_stay_first(self):
-        prompt = self.prompt(assistant_md="Style rules here.", notes_md="Notes here.")
+        prompt = self.prompt(voice_md="Style rules here.", notes_md="Notes here.")
         self.assertTrue(prompt.startswith("You are a careful resume"))
-        self.assertLess(prompt.index("proposal"), prompt.index("## Editor style"))
+        self.assertLess(prompt.index("proposal"), prompt.index("## The user's voice"))
 
     def test_missing_style_and_notes_add_no_headings(self):
         plain = assistant.system_prompt("cv", self.cv)
-        self.assertEqual(plain, self.prompt(assistant_md="", notes_md="   "))
-        self.assertNotIn("## Editor style", plain)
+        self.assertEqual(plain, self.prompt(voice_md="", notes_md="   "))
+        self.assertNotIn("## The user's voice", plain)
         self.assertNotIn("## Experience notes", plain)
 
     def test_job_description_still_works_alongside_them(self):
@@ -444,7 +444,7 @@ class StyleAndNotesPromptTests(unittest.TestCase):
 
     def test_load_text_reads_a_file_and_tolerates_a_missing_one(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "assistant.md"
+            path = Path(tmp) / "voice.md"
             self.assertEqual(assistant.load_text(path), "")
             path.write_text("Write like a person.\n", encoding="utf-8")
             self.assertEqual(assistant.load_text(path), "Write like a person.")
@@ -462,7 +462,7 @@ class PromptCacheTests(unittest.TestCase):
 
     def test_volatile_fields_come_after_the_stable_prefix(self):
         stable, volatile = assistant.prompt_parts(
-            "cv", self.cv, "JOB TEXT", assistant_md="MY STYLE", notes_md="MY NOTES")
+            "cv", self.cv, "JOB TEXT", voice_md="MY STYLE", notes_md="MY NOTES")
         for piece in ("MY STYLE", "MY NOTES", "JOB TEXT", "Never invent facts"):
             self.assertIn(piece, stable)
         self.assertNotIn("sections.0", stable)      # fields never in the prefix
@@ -476,6 +476,6 @@ class PromptCacheTests(unittest.TestCase):
         self.assertEqual(first, second)
 
     def test_system_prompt_still_returns_the_whole_thing(self):
-        whole = assistant.system_prompt("cv", self.cv, "JD", assistant_md="S", notes_md="N")
-        stable, volatile = assistant.prompt_parts("cv", self.cv, "JD", assistant_md="S", notes_md="N")
+        whole = assistant.system_prompt("cv", self.cv, "JD", voice_md="S", notes_md="N")
+        stable, volatile = assistant.prompt_parts("cv", self.cv, "JD", voice_md="S", notes_md="N")
         self.assertEqual(whole, f"{stable}\n\n{volatile}")

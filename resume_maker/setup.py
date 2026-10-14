@@ -1,6 +1,6 @@
 """Readiness of the setup pillars, and validation of what the user saves.
 
-The hub shows three tiles — Style (``assistant.md``), Notes (``notes.md``) and
+The hub shows three tiles — Voice (``voice.md``), Notes (``notes.md``) and
 Documents (``cv.json`` / ``cover.json``) — each reporting ``empty``,
 ``started`` or ``ready``. That judgement lives here rather than in the request
 handler so it can be tested directly and reused by any page.
@@ -14,10 +14,10 @@ from typing import Any, Mapping
 # A file past this is substantial enough to call "ready"; below it the user
 # has begun but the model still has little to work with.
 READY_CHARS = 400
-MAX_ASSISTANT_SAVE = 40_000
+MAX_VOICE_SAVE = 40_000
 MAX_NOTES_SAVE = 400_000
 
-_LIMITS = {"assistant": MAX_ASSISTANT_SAVE, "notes": MAX_NOTES_SAVE}
+_LIMITS = {"voice": MAX_VOICE_SAVE, "notes": MAX_NOTES_SAVE}
 
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates"
 # Offered in this order on the Style page; "other" last as the fallback.
@@ -61,14 +61,14 @@ def cover_state(cover: Mapping[str, Any] | None) -> State:
 
 
 def readiness(
-    assistant: str,
+    voice: str,
     notes: str,
     cv: Mapping[str, Any] | None,
     cover: Mapping[str, Any] | None,
 ) -> dict[str, State]:
     """One state per hub tile."""
     return {
-        "style": text_state(assistant),
+        "voice": text_state(voice),
         "notes": text_state(notes),
         "cv": cv_state(cv),
         "cover": cover_state(cover),
@@ -76,10 +76,10 @@ def readiness(
 
 
 def templates() -> list[dict[str, str]]:
-    """Role starter text for the Style page, skipping any missing file."""
+    """Role starter text for the Voice page, skipping any missing file."""
     found = []
     for role_id, label in ROLES:
-        path = TEMPLATE_DIR / f"assistant-{role_id}.md"
+        path = TEMPLATE_DIR / f"voice-{role_id}.md"
         try:
             text = path.read_text(encoding="utf-8").strip()
         except OSError:

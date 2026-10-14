@@ -38,7 +38,7 @@ from resume_maker.theme import Theme, ThemeError
 # route -> (file, page id). The page id selects the active nav chip.
 PAGES = {
     "/": ("home.html", "hub"),
-    "/style": ("style.html", "style"),
+    "/voice": ("voice.html", "voice"),
     "/notes": ("notes.html", "notes"),
 }
 # The documents hang off the application they belong to:
@@ -73,12 +73,12 @@ class EditorHandler(BaseHTTPRequestHandler):
         *args: Any,
         workspace: Workspace,
         out_dir: Path,
-        assistant_path: Path,
+        voice_path: Path,
         notes_path: Path,
         **kwargs: Any,
     ) -> None:
         self._workspace = workspace
-        self._assistant_path = assistant_path
+        self._voice_path = voice_path
         self._notes_path = notes_path
         self._out_dir = out_dir
         super().__init__(*args, **kwargs)
@@ -233,6 +233,9 @@ class EditorHandler(BaseHTTPRequestHandler):
             return self._page(*PAGES[route])
         # /resume and /cover-letter from before applications existed, and any
         # bookmark of them, land in whichever application is open.
+        # The Voice page was called Style until the file was renamed.
+        if route == "/style":
+            return self._redirect("/voice")
         if route in ("/resume", "/cover-letter", "/index.html"):
             tail = "resume" if route != "/cover-letter" else "cover-letter"
             try:
@@ -317,7 +320,7 @@ class EditorHandler(BaseHTTPRequestHandler):
             "/api/import": self._import,
             "/api/chat/history": self._history_put,
             "/api/chat/fields": self._fields,
-            "/api/setup/assistant": self._setup_assistant,
+            "/api/setup/voice": self._setup_voice,
             "/api/setup/notes": self._setup_notes,
             "/api/setup/extract": self._setup_extract,
             "/api/llm/key": self._key,
@@ -498,7 +501,7 @@ class EditorHandler(BaseHTTPRequestHandler):
         self._json(HTTPStatus.OK, response)
 
 
-    # -- assistant -------------------------------------------------------
+    # -- chat --------------------------------------------------------
 
     @staticmethod
     def _document_kind(value: Any) -> str:
@@ -556,25 +559,25 @@ class EditorHandler(BaseHTTPRequestHandler):
 
     # -- setup pillars ---------------------------------------------------
 
-    def _style_and_notes(self) -> tuple[str, str]:
-        """The user's Style and Notes files, empty when not written yet."""
-        return assistant.load_text(self._assistant_path), assistant.load_text(self._notes_path)
+    def _voice_and_notes(self) -> tuple[str, str]:
+        """The user's Voice and Notes files, empty when not written yet."""
+        return assistant.load_text(self._voice_path), assistant.load_text(self._notes_path)
 
     def _setup_get(self) -> None:
-        style, notes = self._style_and_notes()
+        voice, notes = self._voice_and_notes()
         self._json(HTTPStatus.OK, {
-            "assistant": style,
+            "voice": voice,
             "notes": notes,
-            "status": setup.readiness(style, notes, _read_json(self._cv_path), _read_json(self._cover_path)),
+            "status": setup.readiness(voice, notes, _read_json(self._cv_path), _read_json(self._cover_path)),
         })
 
     def _save_setup_file(self, kind: str, path: Path, payload: dict[str, Any]) -> None:
         text = setup.check_text(kind, payload.get("text", ""))
         _atomic_write(path, text)
-        style, notes = self._style_and_notes()
+        voice, notes = self._voice_and_notes()
         self._json(HTTPStatus.OK, {
             "saved": True,
-            "status": setup.readiness(style, notes, _read_json(self._cv_path), _read_json(self._cover_path)),
+            "status": setup.readiness(voice, notes, _read_json(self._cv_path), _read_json(self._cover_path)),
         })
 
     def _setup_extract(self, payload: dict[str, Any]) -> None:
@@ -598,18 +601,18 @@ class EditorHandler(BaseHTTPRequestHandler):
             raise ValueError("no audio sent")
         self._json(HTTPStatus.OK, {"text": transcribe.transcribe(assistant.decode_upload(audio))})
 
-    def _setup_assistant(self, payload: dict[str, Any]) -> None:
+    def _setup_voice(self, payload: dict[str, Any]) -> None:
         """Save the Style page, or add a rule the chat offered to the end of it.
 
         Like Notes, an "append" is the chat's only way into this file, and only
         because the user accepted the card, so the rule arrives reviewed.
         """
         if "append" in payload:
-            current = assistant.load_text(self._assistant_path)
+            current = assistant.load_text(self._voice_path)
             text = setup.append_text(current, payload.get("append"),
-                                     today=date.today().isoformat(), kind="assistant")
+                                     today=date.today().isoformat(), kind="voice")
             payload = {"text": text}
-        self._save_setup_file("assistant", self._assistant_path, payload)
+        self._save_setup_file("voice", self._voice_path, payload)
 
     def _setup_notes(self, payload: dict[str, Any]) -> None:
         """Save the Notes page, or add what the chat offered to the end of it.
@@ -679,7 +682,7 @@ class EditorHandler(BaseHTTPRequestHandler):
         jd = payload.get("job_description") or ""
         if not isinstance(jd, str) or len(jd) > 40_000:
             raise ValueError("job description must be text under 40,000 characters")
-        style, notes = self._style_and_notes()
+        voice, notes = self._voice_and_notes()
         # The editor measured the rendered page; pass that on rather than
         # letting the model guess whether the CV still fits.
         overflowing = payload.get("overflowing")
@@ -696,7 +699,7 @@ class EditorHandler(BaseHTTPRequestHandler):
             note = assistant.coverage_note(covered.missing)
             fit = f"{fit}\n{note}".strip() if note else fit
         stable, volatile = assistant.prompt_parts(
-            kind, doc, jd, assistant_md=style, notes_md=notes, fit=fit)
+            kind, doc, jd, voice_md=voice, notes_md=notes, fit=fit)
         turns = assistant.condense(self._checked_turns(payload.get("messages")))
         # Guard what is actually sent, not the stored conversation: the window
         # above has already dropped everything but the last few turns.
@@ -917,8 +920,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--theme", type=Path, default=Path("theme.json"))
     parser.add_argument("--cover", type=Path, default=Path("cover.json"))
     parser.add_argument("--cover-theme", type=Path, default=Path("cover-theme.json"))
-    parser.add_argument("--assistant", type=Path, default=Path("assistant.md"),
-                        help="Style file fed into every chat turn")
+    parser.add_argument("--voice", type=Path, default=Path("voice.md"),
+                        help="Voice file fed into every chat turn")
     parser.add_argument("--notes", type=Path, default=Path("notes.md"),
                         help="shared experience bank fed into every chat turn")
     parser.add_argument("--out", type=Path, default=Path("out"),
@@ -944,7 +947,7 @@ def main(argv: list[str] | None = None) -> int:
         EditorHandler,
         workspace=workspace,
         out_dir=args.out.resolve(),
-        assistant_path=args.assistant.resolve(),
+        voice_path=args.voice.resolve(),
         notes_path=args.notes.resolve(),
     )
     with ThreadingHTTPServer((HOST, args.port), handler) as httpd:

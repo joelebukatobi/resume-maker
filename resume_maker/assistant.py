@@ -264,12 +264,12 @@ def system_prompt(
     data: Mapping[str, Any],
     job_description: str = "",
     *,
-    assistant_md: str = "",
+    voice_md: str = "",
     notes_md: str = "",
 ) -> str:
     """The whole prompt as one string (the stable part followed by the fields)."""
     stable, volatile = prompt_parts(document, data, job_description,
-                                    assistant_md=assistant_md, notes_md=notes_md)
+                                    voice_md=voice_md, notes_md=notes_md)
     return f"{stable}\n\n{volatile}"
 
 
@@ -315,7 +315,7 @@ def prompt_parts(
     data: Mapping[str, Any],
     job_description: str = "",
     *,
-    assistant_md: str = "",
+    voice_md: str = "",
     notes_md: str = "",
     fit: str = "",
 ) -> tuple[str, str]:
@@ -329,8 +329,8 @@ def prompt_parts(
     """
     kind = "cover letter" if document == "cover" else "CV"
     stable = [_CHAT_RULES.format(kind=kind)]
-    if assistant_md.strip():
-        stable += ["## Editor style", assistant_md.strip(), ""]
+    if voice_md.strip():
+        stable += ["## The user's voice", voice_md.strip(), ""]
     notes = clip_notes(order_notes(notes_md, job_description))
     if notes:
         stable += ["## Experience notes",

@@ -6,7 +6,7 @@ are copies, made from the files in the project root when the application is
 created, so tailoring one never touches another and the root files stay the
 clean base everything forks from.
 
-Style (``assistant.md``) and the experience notes (``notes.md``) are *not*
+Voice (``voice.md``) and the experience notes (``notes.md``) are *not*
 copied. They describe the candidate, not the job, and every application draws
 on the same pair.
 

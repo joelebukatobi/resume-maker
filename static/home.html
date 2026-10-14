@@ -94,10 +94,10 @@ a.tile:hover, a.tile:focus-visible {
   </header>
 
   <nav class="tiles" aria-label="Setup">
-    <a class="tile" id="tile-style" href="/style">
+    <a class="tile" id="tile-voice" href="/voice">
       <h2>Voice</h2>
       <p>How you sound on paper. Set it once and every draft comes back in it.</p>
-      <span class="foot"><span class="state" id="state-style"><span class="dot"></span><span class="label">…</span></span></span>
+      <span class="foot"><span class="state" id="state-voice"><span class="dot"></span><span class="label">…</span></span></span>
     </a>
 
     <a class="tile" id="tile-notes" href="/notes">
@@ -145,7 +145,7 @@ function paint(id, state, prefix) {
 
 // Point the newcomer at the first thing that is still empty.
 function nudge(status) {
-  const order = [["style", "Voice"], ["notes", "Notes"]];
+  const order = [["voice", "Voice"], ["notes", "Notes"]];
   const next = order.find(([key]) => status[key] === "empty");
   const hint = document.getElementById("hint");
   // Only say something when there is something to do.
@@ -158,7 +158,7 @@ function nudge(status) {
 async function loadSetup() {
   try {
     const { status } = await fetch("/api/setup").then((r) => r.json());
-    paint("style", status.style);
+    paint("voice", status.voice);
     paint("notes", status.notes);
     nudge(status);
   } catch (error) {

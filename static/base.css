@@ -100,7 +100,7 @@ a.btn[role="button"] {
    worked on is not here: it is the hub's title. */
 .site-nav { display: flex; gap: 8px; align-items: center; flex: none; flex-wrap: wrap; min-width: 0; }
 body[data-page="hub"] #nav-hub,
-body[data-page="style"] #nav-style,
+body[data-page="voice"] #nav-voice,
 body[data-page="notes"] #nav-notes,
 body[data-page="resume"] #mode-cv,
 body[data-page="cover"] #mode-cover {
@@ -109,11 +109,11 @@ body[data-page="cover"] #mode-cover {
 .topbar .spacer { flex: 1 1 12px; min-width: 0; }
 /* Style and Notes describe you, not a job: they are reached from the hub,
    not from inside an application's documents. */
-body[data-page="resume"] :is(#nav-style, #nav-notes),
-body[data-page="cover"] :is(#nav-style, #nav-notes) { display: none; }
+body[data-page="resume"] :is(#nav-voice, #nav-notes),
+body[data-page="cover"] :is(#nav-voice, #nav-notes) { display: none; }
 /* Voice and Notes are about the candidate, not about one job, so the documents
    are not part of them either. */
-body:is([data-page="notes"], [data-page="style"]) :is(#mode-cv, #mode-cover) { display: none; }
+body:is([data-page="notes"], [data-page="voice"]) :is(#mode-cv, #mode-cover) { display: none; }
 /* Inside an application the way out is a house, not a word. */
 #nav-hub .ico { display: none; width: 18px; height: 18px; }
 body:is([data-page="resume"], [data-page="cover"]) #nav-hub {

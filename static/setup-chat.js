@@ -1,5 +1,5 @@
 "use strict";
-/* Bridge so the editor's chat.js can run on Style / Notes.
+/* Bridge so the editor's chat.js can run on Voice / Notes.
  * Proposals update the in-memory CV/cover; open Resume and Save to keep them. */
 
 let documentMode = "cv";
