@@ -165,7 +165,7 @@ iframe {
 .score-track.inner { stroke-width: 3; }
 .score-value {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  font-size: 13px; font-weight: 600; color: #1a1a1a;
+  font-size: 13px; font-weight: 600; color: #1a1a1a; line-height: 1;
 }
 .score-detail {
   position: absolute; z-index: 4; width: 240px; padding: 10px 12px;
@@ -948,7 +948,10 @@ function paintRing() {
   $("fit-bar").style.strokeDashoffset =
     String(2 * Math.PI * 19 * (1 - (fresh ? fresh.score : 0) / 100));
   ring.style.setProperty("--fit-colour", fresh ? band(fresh.score) : "transparent");
-  $("score-value").textContent = String(fresh ? fresh.score : coverage);
+  // A letter has no coverage to show, so an unrated one shows that rather
+  // than a zero, which reads as a terrible score instead of no score.
+  $("score-value").textContent =
+    fresh ? String(fresh.score) : skipped ? "–" : String(coverage);
   const kind = documentMode === "cover" ? "letter" : "CV";
   if (skipped) {
     ring.title = fresh
