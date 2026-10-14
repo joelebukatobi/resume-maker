@@ -15,6 +15,7 @@ Chat**. The chat talks to Claude, OpenAI, DeepSeek or Kimi through stdlib
 ```bash
 python3 server.py --no-open          # http://127.0.0.1:8000/
 python3 -m unittest discover -s tests
+python3 -m resume_maker.audit     # notes.md against the user's own words
 ```
 
 ## Hard constraints

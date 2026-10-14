@@ -54,6 +54,17 @@ Run the self-checks:
 python3 -m unittest discover -s tests
 ```
 
+Check the notes against what you actually said:
+
+```bash
+python3 -m resume_maker.audit          # one model call, reports, changes nothing
+python3 -m resume_maker.audit --dry    # pair claims with evidence, no model
+```
+
+Every claim in `notes.md` is matched against your own messages, in the app's
+chats and in this project's Claude Code transcripts, and a model is asked which
+claims the evidence does not support. It prints what to look at. You edit.
+
 ## Chat and import
 
 The right-hand panel talks to an LLM about the open document. Click **Connect
