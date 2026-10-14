@@ -245,6 +245,20 @@ class AssistantTests(unittest.TestCase):
         self.assertIn("never add a word to score a match", note.lower())
         self.assertEqual(assistant.coverage_note([]), "")
 
+    def test_terms_already_on_the_page_are_protected(self):
+        """Trimming to one page and matching the posting pull against each other.
+
+        A rewrite that reads better can quietly cost the user the search, so
+        the words already doing work are named and the trim is told to go
+        around them.
+        """
+        note = assistant.coverage_note(["roadmap"], ["product strategy", "cross functional"])
+        self.assertIn("already uses", note)
+        self.assertIn("product strategy", note)
+        self.assertIn("shorten around them", note)
+        self.assertIn("roadmap", note)                 # still says what is missing
+        self.assertEqual(assistant.coverage_note([], []), "")
+
     def test_fit_reply_is_validated_before_it_is_trusted(self):
         """A screening reply is three fields, and nothing else gets through."""
         good = assistant.parse_fit('{"score": 72, "strengths": ["data products", "x", "y", "z"],'

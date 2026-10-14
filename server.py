@@ -696,7 +696,7 @@ class EditorHandler(BaseHTTPRequestHandler):
             parts = [text for _, _, text in assistant.field_paths(kind, doc)]
             company = str(_read_json(self._cover_path).get("company") or "")
             covered = match.score(parts, jd, company)
-            note = assistant.coverage_note(covered.missing)
+            note = assistant.coverage_note(covered.missing, covered.matched)
             fit = f"{fit}\n{note}".strip() if note else fit
         stable, volatile = assistant.prompt_parts(
             kind, doc, jd, voice_md=voice, notes_md=notes, fit=fit)

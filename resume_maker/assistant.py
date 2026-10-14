@@ -293,7 +293,7 @@ def fit_note(pages: float = 0, overflowing: Sequence[str] = ()) -> str:
     return "\n".join(lines)
 
 
-def coverage_note(missing: Sequence[str]) -> str:
+def coverage_note(missing: Sequence[str], matched: Sequence[str] = ()) -> str:
     """The posting's words that appear nowhere in the document.
 
     Counted, not guessed. A recruiter's search over the applicant database is
@@ -301,13 +301,25 @@ def coverage_note(missing: Sequence[str]) -> str:
     the page costs them the search. The instruction is deliberately narrow:
     use the ones that are honestly true, never the rest.
     """
-    if not missing:
-        return ""
-    return ("Words this posting leans on that appear nowhere in the document: "
+    lines = []
+    if missing:
+        lines.append(
+            "Words this posting leans on that appear nowhere in the document: "
             + ", ".join(missing[:10]) + ". A recruiter searching the applicant"
             " database matches these literally, so work in the ones that are"
             " honestly true of the user's experience, in their own sentences."
             " Leave the rest out, and never add a word to score a match.")
+    if matched:
+        # Trimming to one page and matching the posting's language pull in
+        # opposite directions, and the trim has no way of knowing which words
+        # were doing work. Naming them is what stops a rewrite that reads
+        # better from quietly costing the user the search.
+        lines.append(
+            "Words from the posting that the document already uses: "
+            + ", ".join(matched[:12]) + ". Keep them. If a line has to be"
+            " shortened or merged, shorten around them rather than through"
+            " them.")
+    return "\n".join(lines)
 
 
 def prompt_parts(
