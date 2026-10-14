@@ -148,8 +148,9 @@ iframe {
    not printed. Counted locally, so it is free and says the same twice. */
 .score-ring {
   position: absolute; z-index: 3; width: 44px; height: 44px; padding: 0; margin: 0;
-  /* Same gap from the top of the preview as from its right edge. */
-  top: calc(var(--sheet-top, 16px) + 10px); right: calc(var(--sheet-top, 16px) + 10px);
+  /* The top follows the sheet; the right edge is its own fixed gap. Deriving
+     one from the other moved the ring inward whenever the paper sat lower. */
+  top: calc(var(--sheet-top, 16px) + 10px); right: 16px;
   border: 0; border-radius: 50%; background: rgba(255, 255, 255, .92);
   box-shadow: 0 2px 10px rgba(0, 0, 0, .25); cursor: pointer;
 }
@@ -169,7 +170,7 @@ iframe {
 }
 .score-detail {
   position: absolute; z-index: 4; width: 240px; padding: 10px 12px;
-  top: calc(var(--sheet-top, 16px) + 60px); right: calc(var(--sheet-top, 16px) + 10px);
+  top: calc(var(--sheet-top, 16px) + 60px); right: 16px;
   border-radius: 8px; background: #1b1b1b; border: 1px solid var(--pico-card-border-color);
   box-shadow: 0 8px 24px rgba(0, 0, 0, .5); font-size: 12px; line-height: 1.45;
   color: var(--pico-color);
@@ -807,6 +808,7 @@ function setMode(next, { push = true } = {}) {
     history.pushState({ mode: next }, "", modePath(next));
   }
   document.body.dataset.page = next === "cover" ? "cover" : "resume";
+  loadFit();            // each document keeps its own rating
   $("mode-cv").toggleAttribute("aria-current", next === "cv");
   $("mode-cover").toggleAttribute("aria-current", next === "cover");
   $("panel-cv-sections").hidden = next !== "cv";
@@ -902,15 +904,18 @@ function fitKey() {
   return `${documentMode}:${jd.length}:${JSON.stringify(header()).length}:${jd.slice(0, 60)}`;
 }
 
-const FIT_STORE = `resume-maker.fit.${APP || "default"}`;
+// A rating belongs to one document, not to the application. They were sharing
+// a slot, so rating the letter wiped the CV's rating and the arc came back
+// empty on a document nobody had touched.
+const fitStore = () => `resume-maker.fit.${APP || "default"}.${documentMode}`;
 
 function loadFit() {
-  try { lastFit = JSON.parse(localStorage.getItem(FIT_STORE) || "null"); } catch { lastFit = null; }
+  try { lastFit = JSON.parse(localStorage.getItem(fitStore()) || "null"); } catch { lastFit = null; }
 }
 
 function saveFit(value) {
   lastFit = value;
-  try { localStorage.setItem(FIT_STORE, JSON.stringify(value)); } catch { /* optional */ }
+  try { localStorage.setItem(fitStore(), JSON.stringify(value)); } catch { /* optional */ }
 }
 
 // Coverage answers one question: would a recruiter's keyword search over the
@@ -1169,8 +1174,27 @@ $("save").addEventListener("click", async () => {
     const files = (data.written || []).map((p) => p.split("/").pop()).join(", ");
     const pages = data.pages && data.pages !== 1 ? ` — ${data.pages} pages` : "";
     setStatus(`saved and rebuilt ${files}${pages}`);
+    rateAfterSave();
   } catch (error) { setStatus(error.message, true); }
 });
+
+// Saving is a checkpoint, so it is the moment to refresh the model's read.
+// It runs after the save, never blocks it, and only when there is something
+// new to judge: an unchanged document would spend a call to be told what the
+// ring already says.
+function rateAfterSave() {
+  const jd = (typeof chat !== "undefined" && chat && chat.job_description) || "";
+  const agent = typeof agentModel === "function" ? agentModel() : null;
+  if (!jd.trim() || !agent) return;
+  if (lastFit && lastFit.key === fitKey()) return;
+  api("/api/fit", {
+    document: documentMode, doc: header(), job_description: jd,
+    provider: agent.provider, model: agent.model,
+  }).then((r) => r.json()).then((data) => {
+    saveFit({ ...data, key: fitKey(), at: Date.now() });
+    paintRing();
+  }).catch(() => { /* the save succeeded; a rating is not worth an error */ });
+}
 
 async function download(format) {
   setStatus(`building ${format.toUpperCase()}…`);
