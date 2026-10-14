@@ -18,6 +18,10 @@ let chat = null;
 let chatController = null;
 let pendingImport = null; // { mode, doc } shown in the preview until accepted
 let fieldCache = null;
+// A file attached to the next message. Extracted on pick, carried into the
+// message body on send, then forgotten: it lives in the transcript after that.
+let chatAttachment = null; // { name, text, truncated }
+const MAX_ATTACH_CHARS = 60000;
 
 /* ---------------------------------------------------------------- paths */
 
@@ -392,6 +396,16 @@ function plainText(text) {
     .trim();
 }
 
+// A user turn. An attached file is shown as a chip, its text hidden from the
+// bubble but kept in the message so the model reads it.
+function renderUser(message) {
+  const box = el("div", { class: "chat-msg user" });
+  const { name, text } = userParts(message.content);
+  if (name) box.append(el("div", { class: "chat-attachment-chip", text: `Attached: ${name}` }));
+  if (text.trim()) box.append(el("p", { text }));
+  return box;
+}
+
 function renderAssistant(message, index, streaming) {
   const box = el("div", { class: "chat-msg assistant" });
   const content = message.content;
@@ -511,9 +525,7 @@ function renderChat({ streaming = false } = {}) {
   if (!state.messages.length) host.append(emptyState());
   state.messages.forEach((m, i) => {
     const isLast = i === state.messages.length - 1;
-    host.append(m.role === "user"
-      ? el("div", { class: "chat-msg user" }, [el("p", { text: m.content })])
-      : renderAssistant(m, i, streaming && isLast));
+    host.append(m.role === "user" ? renderUser(m) : renderAssistant(m, i, streaming && isLast));
   });
   host.scrollTop = host.scrollHeight;
 }
@@ -662,24 +674,82 @@ async function disconnectAgent() {
 
 /* ----------------------------------------------------------------- send */
 
+/* ----------------------------------------------------------- attachments */
+
+// A file read in as chat context. The text is extracted server-side (no model
+// call) and carried on the next message, where the model then sees it like any
+// other turn. A big file is trimmed, and the chip says so.
+async function attachFile(file) {
+  setStatus(`reading ${file.name}…`);
+  try {
+    const data = await api("/api/setup/extract", {
+      filename: file.name, file: await readFile(file),
+    }).then((r) => r.json());
+    const full = String(data.text || "").trim();
+    if (!full) { setStatus(`${file.name} had no readable text`, true); return; }
+    chatAttachment = {
+      name: file.name, text: full.slice(0, MAX_ATTACH_CHARS),
+      truncated: full.length > MAX_ATTACH_CHARS,
+    };
+    drawAttachment();
+    setStatus("");
+    $("chat-input").focus();
+  } catch (error) {
+    setStatus(`could not read ${file.name}: ${error.message}`, true);
+  }
+}
+
+function drawAttachment() {
+  const box = $("chat-attachment");
+  box.textContent = "";
+  if (!chatAttachment) { box.hidden = true; return; }
+  const note = chatAttachment.truncated ? " · trimmed" : "";
+  box.hidden = false;
+  box.append(
+    el("span", { class: "chat-attachment-name",
+      text: `${chatAttachment.name} · ${chatAttachment.text.length.toLocaleString()} chars${note}` }),
+    el("button", { class: "tiny secondary", text: "Remove",
+      onclick: () => { chatAttachment = null; drawAttachment(); } }),
+  );
+}
+
+// The block that wraps an attached file inside a stored user message. Composed
+// on send, unwrapped for display so the bubble shows a chip, not a wall of text.
+const UPLOAD_RE = /^\[Uploaded file: ([^\]]*)\]\n[\s\S]*?\n\[End of uploaded file\]\n*/;
+function userParts(content) {
+  const match = UPLOAD_RE.exec(content);
+  return match ? { name: match[1], text: content.slice(match[0].length) } : { name: "", text: content };
+}
+
 function setBusy(busy) {
   $("chat-send").hidden = busy;
   $("chat-stop").hidden = !busy;
   $("chat-input").disabled = busy;
   $("chat-mic").disabled = busy;
+  $("chat-attach").disabled = busy;
 }
 
 /* ------------------------------------------------------------ dictation */
 
-// The browser's own speech recognition. Note this one is not local: Chrome
-// streams the audio to Google to transcribe it. Browsers without it (Firefox)
-// simply do not get the button.
+// Two ways to dictate. When a local Whisper engine is installed the audio is
+// recorded here and transcribed on the machine, so it works everywhere. When
+// there is none, we fall back to the browser's own recognition, which is not
+// local: Chrome streams the audio to Google, and some builds (Vivaldi, Brave,
+// Firefox) have no such service at all.
 const Dictation = window.SpeechRecognition || window.webkitSpeechRecognition;
-let listener = null;
+let listener = null;      // an active Web Speech session
+let recorder = null;      // an active local capture session
+let transcribeReady = false; // set once the server says a local engine exists
+
+function insertTranscript(text) {
+  const input = $("chat-input");
+  input.value += input.value && !/\s$/.test(input.value) ? ` ${text}` : text;
+  input.focus();
+}
 
 function toggleDictation() {
+  if (transcribeReady) { recorder ? stopRecording() : startRecording(); return; }
   if (listener) { listener.stop(); return; }
-  const input = $("chat-input");
   const speech = new Dictation();
   speech.lang = navigator.language || "en-US";
   speech.continuous = true;
@@ -688,9 +758,7 @@ function toggleDictation() {
     for (let i = event.resultIndex; i < event.results.length; i += 1) {
       if (event.results[i].isFinal) heard += event.results[i][0].transcript;
     }
-    heard = heard.trim();
-    if (!heard) return;
-    input.value += input.value && !/\s$/.test(input.value) ? ` ${heard}` : heard;
+    if (heard.trim()) insertTranscript(heard.trim());
   };
   speech.onerror = (event) => {
     const why = event.error === "not-allowed" ? "microphone access was refused" : event.error;
@@ -704,18 +772,165 @@ function toggleDictation() {
   speech.start();
   listener = speech;
   $("chat-mic").classList.add("listening");
-  input.focus();
+  $("chat-input").focus();
+}
+
+// ----- local capture: raw PCM -> 16 kHz mono WAV -> /api/transcribe -----
+
+// How often to transcribe while recording. Each pass re-reads everything said
+// so far and replaces the tail, so the text self-corrects as context arrives;
+// the engine is fast enough on a local CPU that this stays ahead of speech.
+const LIVE_MS = 500;
+
+async function startRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const ctx = new AudioContext();
+    const source = ctx.createMediaStreamSource(stream);
+    // ponytail: ScriptProcessorNode is deprecated, but it is dependency-free
+    // and works in every browser; swap to an AudioWorklet if it ever breaks.
+    const node = ctx.createScriptProcessor(4096, 1, 1);
+    const chunks = [];
+    node.onaudioprocess = (event) => chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+    source.connect(node);
+    node.connect(ctx.destination);
+    recorder = {
+      stream, ctx, source, node, chunks, rate: ctx.sampleRate,
+      base: $("chat-input").value,   // text before dictation: we replace after it
+      timer: null, busy: false,
+    };
+    recorder.timer = setInterval(flushRecording, LIVE_MS);
+    $("chat-mic").classList.add("listening");
+    setStatus("Listening… click the mic again to stop");
+  } catch (error) {
+    setStatus(`Microphone error: ${error.message}`, true);
+  }
+}
+
+// One pass: transcribe everything captured so far and drop it after `base`.
+async function transcribeChunk(rec) {
+  if (!rec.chunks.length) return;
+  const samples = mergePcm(rec.chunks);
+  const wav = encodeWav(downsample(samples, rec.rate, 16000), 16000);
+  const data = await api("/api/transcribe", { audio: bytesToBase64(wav) }).then((r) => r.json());
+  const text = String(data.text || "").trim();
+  const input = $("chat-input");
+  input.value = text ? joinText(rec.base, text) : rec.base;
+}
+
+async function flushRecording() {
+  const rec = recorder;
+  if (!rec || rec.busy || !rec.chunks.length) return;  // skip if still busy
+  rec.busy = true;
+  try {
+    await transcribeChunk(rec);
+  } catch (error) {
+    setStatus(`Could not transcribe: ${error.message}`, true);
+  } finally {
+    rec.busy = false;
+  }
+}
+
+async function stopRecording() {
+  const rec = recorder;
+  recorder = null;
+  $("chat-mic").classList.remove("listening");
+  if (!rec) return;
+  clearInterval(rec.timer);
+  let failed = false;
+  try {
+    await transcribeChunk(rec);   // a last pass over the full utterance
+  } catch (error) {
+    failed = true;
+    setStatus(`Could not transcribe: ${error.message}`, true);
+  }
+  rec.node.disconnect();
+  rec.source.disconnect();
+  rec.stream.getTracks().forEach((track) => track.stop());
+  await rec.ctx.close();
+  if (!failed) setStatus("");
+}
+
+function joinText(base, text) {
+  return base && !/\s$/.test(base) ? `${base} ${text}` : base + text;
+}
+
+function mergePcm(chunks) {
+  let length = 0;
+  for (const chunk of chunks) length += chunk.length;
+  const merged = new Float32Array(length);
+  let offset = 0;
+  for (const chunk of chunks) { merged.set(chunk, offset); offset += chunk.length; }
+  return merged;
+}
+
+function downsample(samples, from, to) {
+  if (to >= from) return samples;
+  const ratio = from / to;
+  const length = Math.floor(samples.length / ratio);
+  const out = new Float32Array(length);
+  for (let i = 0; i < length; i += 1) {
+    const start = Math.floor(i * ratio);
+    const end = Math.floor((i + 1) * ratio);
+    let sum = 0;
+    for (let j = start; j < end; j += 1) sum += samples[j];
+    out[i] = sum / (end - start);
+  }
+  return out;
+}
+
+// 16-bit mono PCM in a WAV container — exactly what whisper.cpp reads.
+function encodeWav(samples, rate) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  const ascii = (offset, text) => {
+    for (let i = 0; i < text.length; i += 1) view.setUint8(offset + i, text.charCodeAt(i));
+  };
+  ascii(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  ascii(8, "WAVE");
+  ascii(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);              // PCM
+  view.setUint16(22, 1, true);              // mono
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);       // byte rate
+  view.setUint16(32, 2, true);              // block align
+  view.setUint16(34, 16, true);             // bits per sample
+  ascii(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  let offset = 44;
+  for (let i = 0; i < samples.length; i += 1, offset += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Uint8Array(buffer);
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  const step = 0x8000;
+  for (let i = 0; i < bytes.length; i += step) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + step));
+  }
+  return btoa(binary);
 }
 
 async function sendMessage() {
   const input = $("chat-input");
-  const text = input.value.trim();
+  const typed = input.value.trim();
   const state = chat;
-  if (!text || !state || chatController) return;
+  if ((!typed && !chatAttachment) || !state || chatController) return;
   const agent = agentModel();
   if (!agent) { openAgent(); setStatus("Connect an agent first", true); return; }
+  const attached = chatAttachment;   // kept to put back if the turn fails
+  const content = attached
+    ? `[Uploaded file: ${attached.name}]\n${attached.text}\n[End of uploaded file]\n\n${typed}`.trim()
+    : typed;
   input.value = "";
-  state.messages.push({ role: "user", content: text, document: documentMode });
+  chatAttachment = null;
+  drawAttachment();
+  state.messages.push({ role: "user", content, document: documentMode });
   const reply = { role: "assistant", content: "", document: documentMode };
   state.messages.push(reply);
   renderChat({ streaming: true });
@@ -724,7 +939,9 @@ async function sendMessage() {
   const failed = (message) => {
     // Put the question back so it can be retried; providers expect turns to alternate.
     state.messages.splice(-2, 2);
-    input.value = text;
+    input.value = typed;
+    chatAttachment = attached;
+    drawAttachment();
     setStatus(message, true);
   };
   try {
@@ -934,8 +1151,13 @@ function refreshLabels() {
 }
 
 $("chat-send").addEventListener("click", sendMessage);
-if (Dictation) $("chat-mic").addEventListener("click", toggleDictation);
-else $("chat-mic").hidden = true;
+// The mic is offered when either path works: a local engine (asked of the
+// server) or the browser's own recognition. Hidden only when neither is there.
+$("chat-mic").addEventListener("click", toggleDictation);
+fetch("/api/transcribe").then((r) => r.json())
+  .then((d) => { transcribeReady = Boolean(d.available); })
+  .catch(() => { /* no endpoint: keep the browser path */ })
+  .finally(() => { $("chat-mic").hidden = !(transcribeReady || Dictation); });
 $("chat-stop").addEventListener("click", () => chatController && chatController.abort());
 $("chat-input").addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendMessage(); }
@@ -992,6 +1214,14 @@ $("cv-clear").addEventListener("click", () => {
   uploaded[documentMode] = null;
   drawDocTile();
   if (pendingImport && pendingImport.mode === documentMode) discardImport();
+});
+
+// Attach a file to the chat: click the paperclip, pick, extract, chip.
+$("chat-attach").addEventListener("click", () => $("chat-file").click());
+$("chat-file").addEventListener("change", (event) => {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = "";
+  if (file) attachFile(file);
 });
 
 $("import-accept").addEventListener("click", acceptImport);

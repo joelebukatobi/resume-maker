@@ -107,7 +107,7 @@ body:not(.chat-open) .chat { display: none; }
 .tile-x[hidden] { display: none; }
 /* Message box: full width, send icon in its bottom-right corner. */
 .chat-compose { position: relative; }
-.chat-compose textarea { width: 100%; margin: 0; resize: none; min-height: 84px; padding: 10px 76px 10px 12px; }
+.chat-compose textarea { width: 100%; margin: 0; resize: none; min-height: 140px; padding: 10px 106px 10px 12px; }
 .chat-icon {
   position: absolute; right: 8px; bottom: 8px; width: 26px; height: 26px; margin: 0; padding: 0;
   display: inline-flex; align-items: center; justify-content: center; border-radius: 50%;
@@ -117,7 +117,26 @@ body:not(.chat-open) .chat { display: none; }
 .chat-icon[hidden] { display: none; }
 .chat-icon:disabled { opacity: .45; }
 .chat-mic { right: 38px; }
-.chat-mic.listening, .chat-mic.listening:hover { color: #d9534f; }
+/* Active dictation: a filled green disc with a white mic, not the old red. */
+.chat-mic.listening, .chat-mic.listening:hover {
+  background: var(--accent); color: #fff;
+}
+.chat-attach { right: 68px; }
+
+/* A file attached to the next message, above the composer. */
+.chat-attachment {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 6px 10px;
+  background: var(--pico-card-background-color); border-radius: var(--pico-border-radius);
+  font-size: 12px; color: var(--pico-muted-color);
+}
+.chat-attachment[hidden] { display: none; }
+.chat-attachment-name {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #cfcfcf;
+}
+.chat-attachment button { margin: 0; width: auto; }
+.chat-attachment-chip {
+  font-size: 12px; color: var(--pico-muted-color); margin-bottom: 4px;
+}
 dialog article { width: min(460px, 92vw); padding: 20px; }
 .dialog-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .dialog-foot { display: flex; gap: 8px; align-items: center; margin-top: 12px; }

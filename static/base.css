@@ -167,18 +167,18 @@ body.chat-open .workspace > .chat { flex: 0 0 clamp(440px, 24vw, 620px); }
 
 /* One scrollbar style everywhere: thin, no arrow buttons, grey thumb.
    Named once here; every scrolling surface in the app is in this list. */
-:is(.thin-scroll, .chat-log, .panel-body, .editor, .preview)::-webkit-scrollbar {
+:is(.thin-scroll, .chat-log, .panel-body, .editor, .preview, .chat-compose textarea)::-webkit-scrollbar {
   width: var(--editor-scroll-size); height: var(--editor-scroll-size); background: transparent;
 }
-:is(.thin-scroll, .chat-log, .panel-body, .editor, .preview)::-webkit-scrollbar-button {
+:is(.thin-scroll, .chat-log, .panel-body, .editor, .preview, .chat-compose textarea)::-webkit-scrollbar-button {
   display: none !important; width: 0 !important; height: 0 !important;
   background: transparent; border: 0;
 }
-:is(.thin-scroll, .chat-log, .panel-body, .editor, .preview)::-webkit-scrollbar-track { background: transparent; margin: 0; }
-:is(.thin-scroll, .chat-log, .panel-body, .editor, .preview)::-webkit-scrollbar-thumb { background: #5a5a5a; border-radius: 8px; }
-:is(.thin-scroll, .chat-log, .panel-body, .editor, .preview)::-webkit-scrollbar-corner { background: transparent; }
+:is(.thin-scroll, .chat-log, .panel-body, .editor, .preview, .chat-compose textarea)::-webkit-scrollbar-track { background: transparent; margin: 0; }
+:is(.thin-scroll, .chat-log, .panel-body, .editor, .preview, .chat-compose textarea)::-webkit-scrollbar-thumb { background: #5a5a5a; border-radius: 8px; }
+:is(.thin-scroll, .chat-log, .panel-body, .editor, .preview, .chat-compose textarea)::-webkit-scrollbar-corner { background: transparent; }
 @supports not selector(::-webkit-scrollbar) {
-  .thin-scroll, .chat-log, .panel-body, .editor, .preview { scrollbar-width: thin; scrollbar-color: #5a5a5a transparent; }
+  .thin-scroll, .chat-log, .panel-body, .editor, .preview, .chat-compose textarea { scrollbar-width: thin; scrollbar-color: #5a5a5a transparent; }
 }
 
 /* Small shared pieces. */
