@@ -68,6 +68,16 @@ def _mapping(value: Any, *, where: str, allowed: Iterable[str]) -> dict[str, Any
     return dict(value)
 
 
+def _count(value: Any, *, where: str, default: int) -> int:
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ContentError(f"{where}: expected a whole number")
+    if value < 0:
+        raise ContentError(f"{where}: cannot be negative")
+    return value
+
+
 def _sequence(value: Any, *, where: str) -> list[Any]:
     if value is None:
         return []
@@ -137,6 +147,53 @@ def header_items(contact: Iterable[ContactItem]) -> tuple[ContactItem, ...]:
     return tuple(item for item in contact if item.header)
 
 
+def shown(entries: Iterable["Entry"]) -> tuple["Entry", ...]:
+    """The entries that print. Both renderers and the page measurement read
+    this, so an entry that is off is absent from the document rather than
+    hidden by styling."""
+    return tuple(entry for entry in entries if not entry.off)
+
+
+@dataclass(frozen=True, slots=True)
+class Budget:
+    """How much of the page one entry may take.
+
+    A CV for a first role after an MBA is one page, so the room each entry gets
+    is part of the document rather than a matter of taste. ``lines`` is how many
+    rendered lines a bullet may run to, ``long`` how many of its bullets may run
+    one line further, and ``bullets`` how many bullets it may have at all. The
+    allowance belongs to the entry and not to a company: the headline role gets
+    three bullets of which two may run to three lines, and the day the headline
+    role is somewhere else, no code has to learn a new employer's name.
+
+    Nothing here is enforced. It is what the page is measured against, and what
+    the user is told about when a document is over.
+    """
+
+    lines: int = 2
+    long: int = 0
+    bullets: int | None = None
+
+    @classmethod
+    def parse(cls, data: Any, *, where: str) -> "Budget":
+        raw = _mapping(data, where=where, allowed={"lines", "long", "bullets"})
+        bullets = raw.get("bullets")
+        return cls(
+            lines=_count(raw.get("lines"), where=f"{where}.lines", default=2),
+            long=_count(raw.get("long"), where=f"{where}.long", default=0),
+            bullets=None if bullets is None
+            else _count(bullets, where=f"{where}.bullets", default=0),
+        )
+
+    def allowance(self, index: int) -> int:
+        """Lines allowed to the bullet at ``index``.
+
+        The long ones come first, because a bullet that needs the room is the
+        one the user put first.
+        """
+        return self.lines + 1 if index < self.long else self.lines
+
+
 @dataclass(frozen=True, slots=True)
 class Entry:
     """One job or degree.
@@ -153,6 +210,11 @@ class Entry:
     sub_italic: bool = False
     note: str | None = None
     bullets: tuple[str, ...] = field(default_factory=tuple)
+    # History the document holds without printing it. Which roles answer a
+    # posting changes with the posting, so the CV carries every role the user
+    # has and each application turns on the ones that answer its own.
+    off: bool = False
+    budget: Budget = field(default_factory=Budget)
 
     @classmethod
     def parse(cls, data: Any, *, where: str, separator: str) -> "Entry":
@@ -167,11 +229,16 @@ class Entry:
                 "sub_italic",
                 "note",
                 "bullets",
+                "off",
+                "budget",
             },
         )
         sub_italic = raw.get("sub_italic", False)
         if not isinstance(sub_italic, bool):
             raise ContentError(f"{where}.sub_italic: must be true or false")
+        off = raw.get("off", False)
+        if not isinstance(off, bool):
+            raise ContentError(f"{where}.off: must be true or false")
 
         right = _optional_text(raw.get("right"), where=f"{where}.right") or ""
         sub_right = _optional_text(raw.get("sub_right"), where=f"{where}.sub_right")
@@ -189,6 +256,9 @@ class Entry:
             sub_italic=sub_italic,
             note=_optional_text(raw.get("note"), where=f"{where}.note"),
             bullets=bullets,
+            off=off,
+            budget=Budget.parse(raw["budget"], where=f"{where}.budget")
+            if raw.get("budget") is not None else Budget(),
         )
 
     def column_pairs(self) -> tuple[tuple[str, str], ...]:
@@ -315,7 +385,8 @@ class CV:
         pairs: list[tuple[str, str]] = []
         for section in self.sections:
             if isinstance(section, EntrySection):
-                for entry in section.entries:
+                # Only what prints: an entry that is off has no line to measure.
+                for entry in shown(section.entries):
                     pairs.extend(entry.column_pairs())
         return tuple(pairs)
 

@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, Sequence
 
-from .export_pdf import Browser, page_count
+from .export_pdf import Browser, OverBudget, page_count
 from .model import CV, title_case, CoverLetter
 from .render_docx import DocxRenderer
 from .render_html import HtmlRenderer
@@ -56,6 +56,9 @@ def export_name(kind: str, name: str, company: str = "", role: str = "") -> str:
 class BuildResult:
     issues: tuple[Issue, ...] = ()
     overflowing: tuple[str, ...] = ()
+    # Bullets that render to more lines than their entry allows. Reported, never
+    # enforced: the file is written either way and the trims are offered.
+    over_budget: tuple[OverBudget, ...] = ()
     written: tuple[Path, ...] = ()
     pages: int | None = None
     artifacts: dict[str, bytes] = field(default_factory=dict)
@@ -129,6 +132,7 @@ class Builder:
         print_html = self.print_html()
 
         overflowing: tuple[str, ...] = ()
+        over_budget: tuple[OverBudget, ...] = ()
         pages: int | None = None
         artifacts: dict[str, bytes] = {}
         written: list[Path] = []
@@ -137,7 +141,9 @@ class Builder:
         browser: Browser | None = None
         if needs_browser:
             browser = Browser.locate(self._browser_hint)
-            overflowing = browser.measure_overflow(print_html)
+            measured = browser.measure(print_html)
+            overflowing = measured.overflowing
+            over_budget = measured.over_budget
 
         out = Path(out_dir)
         stem = safe_stem(stem)
@@ -170,6 +176,7 @@ class Builder:
         return BuildResult(
             issues=issues,
             overflowing=overflowing,
+            over_budget=over_budget,
             written=tuple(written),
             pages=pages,
             artifacts=artifacts,

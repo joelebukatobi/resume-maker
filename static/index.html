@@ -109,6 +109,12 @@ details.panel[open]:not(:has(.panel-foot)) .panel-body {
   background: transparent;
   padding: 14px 0 4px; margin-bottom: 8px;
 }
+/* History the document holds without printing it: still editable, visibly not
+   on the page. Dimmed rather than hidden, because it is part of the CV the
+   user is looking at. */
+.row-item.row-off { opacity: .55; border-left: 2px solid var(--pico-muted-border-color); }
+.row-item.row-off .row-shown { opacity: 1; }
+.row-shown { display: flex; align-items: center; font-size: 12px; margin: 0 0 10px; }
 .row-head {
   display: flex; flex-direction: row; align-items: center; gap: 6px; margin: 0;
 }
@@ -179,7 +185,9 @@ iframe {
 .score-detail strong { display: block; margin-bottom: 4px; color: #ececec; font-size: 12px; }
 .score-detail ul { margin: 2px 0 8px; padding-left: 16px; }
 .score-detail li { margin: 0; }
-.score-detail button { width: 100%; margin: 8px 0 0; }
+/* Two buttons, one row, equal halves: neither measure is the main one. */
+.score-actions { display: flex; gap: 6px; margin-top: 8px; }
+.score-detail button { width: 100%; margin: 0; }
 .score-detail .miss { color: var(--pico-muted-color); }
 
 .zoom-controls {
@@ -420,6 +428,7 @@ details.row-item:not([open]) > summary { margin-bottom: 0; padding-bottom: 0; bo
     <div class="chat-head">
       <strong id="chat-title">Chat</strong>
       <span class="chat-head-actions">
+        <button type="button" class="chat-link" id="chat-tailor" hidden>Tailor To This Posting</button>
         <button type="button" class="chat-link" id="agent-link">Connect Agent</button>
         <button type="button" class="chat-link" id="chat-clear">Clear</button>
       </span>
@@ -489,6 +498,9 @@ function applyPageSize(key) {
 }
 
 let cv = null, themeCv = null, themeCover = null, cover = null, fonts = [], overflowing = [];
+// Bullets the rendered page reports as longer than their entry allows.
+// Measured, not estimated: the page counts its own lines at the real font.
+let overBudget = [];
 let documentMode = "cv";
 let previewZoom = 1;
 let previewPages = 1;
@@ -500,6 +512,12 @@ const collapsed = new WeakSet();
 // The application this page is for: it is in the URL, so two tabs on two
 // applications cannot write over one another.
 const APP = document.body.dataset.app || "";
+// What the browser keys this application's local state on. The slug is not
+// it: naming an application moves the folder, and deleting one frees its slug
+// for the next application made from the same posting — which then opened
+// with the dead application's unsaved draft and its fit score. The id is made
+// once, with the folder, and is never reused.
+const APP_ID = document.body.dataset.appId || APP || "default";
 const withApp = (path) => (APP ? `${path}${path.includes("?") ? "&" : "?"}app=${encodeURIComponent(APP)}` : path);
 
 function el(tag, attrs = {}, children = []) {
@@ -662,10 +680,28 @@ function drawContact() {
   });
 }
 
+// An entry that is off stays in the document and out of the page. The CV is one
+// page and which roles answer a posting changes with the posting, so the history
+// travels with the document and each application prints its own set.
+function shownToggle(entry) {
+  const box = el("input", { type: "checkbox" });
+  box.style.width = "auto";
+  box.style.marginRight = "6px";
+  box.checked = !entry.off;
+  box.addEventListener("change", (e) => {
+    if (e.target.checked) delete entry.off; else entry.off = true;
+    draw();
+  });
+  return el("label", { class: "row-shown" },
+    [box, document.createTextNode(" on the CV")]);
+}
+
 function drawEntry(entries, entry, index) {
   const bullets = entry.bullets || (entry.bullets = []);
-  return el("div", { class: "row-item" }, [
-    el("div", { class: "row-head" }, rowControls(entries, index, entry.left || `entry ${index + 1}`)),
+  return el("div", { class: `row-item ${entry.off ? "row-off" : ""}` }, [
+    el("div", { class: "row-head" },
+      rowControls(entries, index, entry.left || `entry ${index + 1}`)),
+    shownToggle(entry),
     el("div", { class: "grid2" }, [
       field("Left (organisation)", entry.left, (e) => { entry.left = e.target.value; schedule(); }),
       field("Right (location)", entry.right, (e) => { entry.right = e.target.value; schedule(); }),
@@ -870,10 +906,18 @@ function sendZoom() {
   }
 }
 
+// Set while a restored draft has not yet rendered. A draft is a convenience,
+// so one that cannot be rendered must not be sticky: the document it holds
+// cannot be saved either, and Save is what clears the draft, so without this
+// a bad draft came back on every reload and the only way out was to retype
+// the broken field.
+let unprovenDraft = false;
+
 async function refresh() {
   try {
     const response = await api("/api/preview", previewPayload());
     const data = await response.json();
+    unprovenDraft = false;
     // The sandboxed srcdoc frame has no usable base URL, so point relative
     // links (the preview's bitmap-free fonts) back at this server.
     $("preview").srcdoc = data.html.replace("<head>", `<head><base href="${location.origin}/">`);
@@ -881,7 +925,29 @@ async function refresh() {
     showIssues(data.issues);
     setStatus("ready");
   } catch (error) {
+    if (unprovenDraft) return discardDraft(error.message);
     setStatus(error.message, true);
+  }
+}
+
+// Throw the restored draft away and go back to what is on disk, which was
+// valid when it was written.
+async function discardDraft(why) {
+  unprovenDraft = false;
+  dropDraft();
+  setStatus(`the restored changes could not be rendered, so they were dropped: ${why}`,
+            true);
+  try {
+    const saved = await api(withApp("/api/document")).then((r) => r.json());
+    cv = saved.cv;
+    cover = saved.cover;
+    themeCv = saved.theme;
+    themeCover = saved.cover_theme || JSON.parse(JSON.stringify(saved.theme));
+    $("name").value = cv.name;
+    fillStyleForm();
+    draw();
+  } catch (problem) {
+    setStatus(problem.message, true);
   }
 }
 
@@ -899,15 +965,105 @@ let lastFit = null;   // the model's read, kept until the document moves on
 // A fit reading belongs to the document it judged, so it is stored against a
 // fingerprint of that document and the posting. Edit either and it goes stale
 // rather than quietly describing something that no longer exists.
+// A short hash of the text itself. The key used to be the document's length,
+// so swapping a word for one the same length read as no change at all, which
+// is harmless when it only decides whether to re-rate after a save, and wrong
+// once it decides whether Rate Again asks at all.
+function fingerprint(text) {
+  let hash = 5381;
+  for (let i = 0; i < text.length; i += 1) hash = ((hash * 33) ^ text.charCodeAt(i)) >>> 0;
+  return hash.toString(36);
+}
+
 function fitKey() {
   const jd = (typeof chat !== "undefined" && chat && chat.job_description) || "";
-  return `${documentMode}:${jd.length}:${JSON.stringify(header()).length}:${jd.slice(0, 60)}`;
+  return `${documentMode}:${fingerprint(jd)}:${fingerprint(JSON.stringify(header()))}`;
 }
+
 
 // A rating belongs to one document, not to the application. They were sharing
 // a slot, so rating the letter wiped the CV's rating and the arc came back
 // empty on a document nobody had touched.
-const fitStore = () => `resume-maker.fit.${APP || "default"}.${documentMode}`;
+const fitStore = () => `resume-maker.fit.${APP_ID}.${documentMode}`;
+// The posting's keyword list, read once by a model when the posting arrives
+// and kept beside the application on the server. It used to live here and was
+// asked for again on every press, so the same posting gave fifteen terms, then
+// twelve, then ten, and the ring moved while the CV stood still.
+let keywordState = { keywords: [], map: {}, current: false };
+
+const keywordList = () => (keywordState.current ? keywordState.keywords : null);
+
+async function loadKeywords() {
+  try {
+    keywordState = await api("/api/keywords", { action: "get", app: APP }).then((r) => r.json());
+  } catch { keywordState = { keywords: [], map: {}, current: false }; }
+}
+
+// Reads a list for the posting now in the chat, replacing any earlier one.
+// Asked for by name, or when the posting changes; never on its own otherwise.
+async function readKeywords({ fresh = false, button = null } = {}) {
+  const jd = (typeof chat !== "undefined" && chat && chat.job_description) || "";
+  const agent = typeof agentModel === "function" ? agentModel() : null;
+  if (!jd.trim()) return;
+  if (!agent) { setStatus("Connect an agent to read this posting's keywords", true); return; }
+  const label = button ? button.textContent : "";
+  if (button) { button.disabled = true; button.textContent = "Reading…"; }
+  setStatus(fresh ? "reading a fresh keyword list…" : "reading this posting's keywords…");
+  try {
+    keywordState = await api("/api/keywords", {
+      action: "read", app: APP, job_description: jd,
+      provider: agent.provider, model: agent.model,
+    }).then((r) => r.json());
+    setStatus(`${keywordState.keywords.length} keywords read from the posting`);
+  } catch (error) {
+    setStatus(error.message, true);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = label; }
+    // Either way the ring is redrawn: after a failed first read, it is where
+    // the button to try again lives.
+    await updateScore();
+    if (!$("score-detail").hidden) toggleScoreDetail();
+    if (button) toggleScoreDetail();
+  }
+}
+
+// The map again, from the notes as they are now, keeping the list. Notes added
+// on the notes page are invisible to the map until this runs, and reading a
+// fresh list to see them would change what is being counted.
+async function remapKeywords(button) {
+  const agent = typeof agentModel === "function" ? agentModel() : null;
+  if (!agent) { setStatus("Connect an agent to check your notes", true); return; }
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = "Checking…";
+  try {
+    keywordState = await api("/api/keywords", {
+      action: "remap", app: APP, provider: agent.provider, model: agent.model,
+    }).then((r) => r.json());
+    setStatus("checked your notes against the keyword list");
+  } catch (error) {
+    setStatus(error.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
+    await updateScore();
+    if (!$("score-detail").hidden) toggleScoreDetail();
+    toggleScoreDetail();
+  }
+}
+
+// An application with a posting and no list for it, which is every one made
+// before the list was kept on the server, gets one the first time it opens.
+async function ensureKeywords() {
+  await loadKeywords();
+  const jd = (typeof chat !== "undefined" && chat && chat.job_description) || "";
+  if (jd.trim() && !keywordState.current
+      && typeof agentModel === "function" && agentModel()) {
+    await readKeywords();
+  } else {
+    await updateScore();
+  }
+}
 
 function loadFit() {
   try { lastFit = JSON.parse(localStorage.getItem(fitStore()) || "null"); } catch { lastFit = null; }
@@ -923,22 +1079,62 @@ function saveFit(value) {
 // prose nobody searches, it scores lower for being shorter, and chasing the
 // number there turns a letter into a keyword list. So the CV gets both arcs
 // and the letter gets the model's read on fit.
-const coverageApplies = () => documentMode !== "cover";
+const coverageApplies = () => documentMode !== "cover" || countingLetter;
+// Set by "Count The Language" while the letter is open. The count is free, so
+// it is there when asked for, and it lasts the session rather than being
+// stored: a fit reading is a model call that was paid for, a count is not.
+let countingLetter = false;
 
 async function updateScore() {
   const jd = (typeof chat !== "undefined" && chat && chat.job_description) || "";
   const ring = $("score");
-  if (!jd.trim()) { ring.hidden = true; $("score-detail").hidden = true; return; }
-  if (!coverageApplies()) { lastScore = { score: 0, missing: [], skipped: true }; paintRing(); ring.hidden = false; return; }
-  try {
-    const data = await api("/api/match", {
-      document: documentMode, doc: header(), job_description: jd,
-      company: (cover && cover.company) || "",
-    }).then((r) => r.json());
-    lastScore = data;
+  if (!jd.trim()) { ring.hidden = true; $("score-detail").hidden = true; return null; }
+  if (!coverageApplies()) {
+    lastScore = { score: 0, missing: [], skipped: true };
     paintRing();
     ring.hidden = false;
-  } catch { ring.hidden = true; }
+    return lastScore;
+  }
+  try {
+    const data = await api("/api/match", {
+      document: documentMode, doc: header(), job_description: jd, app: APP,
+    }).then((r) => r.json());
+    lastScore = data.needs_list ? { score: 0, matched: [], missing: [], needsList: true } : data;
+    paintRing();
+    ring.hidden = false;
+    return data;
+  } catch (error) { ring.hidden = true; throw error; }
+}
+
+// The count on demand. On the CV it skips the wait for the debounce; on the
+// letter it is the only way to get the number at all.
+//
+// It says what it counted even when the number has not moved. On the CV the
+// count already reruns after every edit, so clicking it usually confirms the
+// number rather than changing it, and without a line saying so the click
+// looked like it had done nothing at all.
+async function countLanguage(button) {
+  const before = lastScore && !lastScore.skipped ? lastScore.score : null;
+  button.disabled = true;
+  button.textContent = "Counting…";
+  setStatus("counting the posting's keywords…");
+  try {
+    if (documentMode === "cover") countingLetter = true;
+    const counted = await updateScore();
+    const kind = documentMode === "cover" ? "letter" : "CV";
+    if (!counted) setStatus("paste a job description first", true);
+    else if (before === counted.score) {
+      setStatus(`still ${counted.score}% of the posting's keywords in your ${kind}`);
+    } else {
+      setStatus(`${counted.score}% of the posting's keywords in your ${kind}`);
+    }
+    if (!$("score-detail").hidden) toggleScoreDetail();   // closed, then rebuilt
+    toggleScoreDetail();
+  } catch (error) {
+    setStatus(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 const band = (n) => (n >= 65 ? "#4f7d58" : n >= 40 ? "#b08b2e" : "#a34141");
@@ -946,7 +1142,7 @@ const band = (n) => (n >= 65 ? "#4f7d58" : n >= 40 ? "#b08b2e" : "#a34141");
 function paintRing() {
   const ring = $("score");
   const fresh = lastFit && lastFit.key === fitKey() ? lastFit : null;
-  const skipped = Boolean(lastScore && lastScore.skipped);
+  const skipped = Boolean(lastScore && (lastScore.skipped || lastScore.needsList));
   const coverage = lastScore && !skipped ? lastScore.score : 0;
   $("score-bar").style.strokeDashoffset = String(2 * Math.PI * 14 * (1 - coverage / 100));
   ring.style.setProperty("--score-colour", skipped ? "transparent" : band(coverage));
@@ -959,20 +1155,30 @@ function paintRing() {
     fresh ? String(fresh.score) : skipped ? "–" : String(coverage);
   const kind = documentMode === "cover" ? "letter" : "CV";
   if (skipped) {
-    ring.title = fresh
-      ? `Fit ${fresh.score} for this ${kind}. Coverage is a CV measure and is not counted here.`
-      : `Click to rate how this ${kind} reads against the posting.`;
+    ring.title = lastScore.needsList
+      ? "No keyword list for this posting yet. Click for how to get one."
+      : fresh
+        ? `Fit ${fresh.score} for this ${kind}. Keywords are counted on the CV.`
+        : `Click to rate how this ${kind} reads against the posting.`;
     return;
   }
+  const had = lastScore.matched.length;
+  const of = had + lastScore.missing.length;
   ring.title = fresh
-    ? `Fit ${fresh.score}, coverage ${coverage}. Outer ring is the model's read on this ${kind}; inner is how much of the posting's language it uses.`
-    : `${coverage}% of the words this posting leans on appear in your ${kind}. Click to rate the fit.`;
+    ? `Fit ${fresh.score}. ${had} of ${of} keywords. Outer ring is the model's read on this ${kind}; inner is the posting's keywords.`
+    : `${had} of ${of} of the posting's keywords in your ${kind}. Click to rate the fit.`;
 }
 
 async function rateFit(button) {
   const jd = (typeof chat !== "undefined" && chat && chat.job_description) || "";
   const agent = typeof agentModel === "function" ? agentModel() : null;
   if (!agent) { setStatus("Connect an agent to rate the fit", true); return; }
+  // The same CV against the same posting gets the reading it already has.
+  // Asking again could only produce a different number for the same thing.
+  if (lastFit && lastFit.key === fitKey()) {
+    setStatus(`nothing has changed since the last reading, still ${lastFit.score}`);
+    return;
+  }
   button.disabled = true;
   button.textContent = "Reading…";
   try {
@@ -982,17 +1188,44 @@ async function rateFit(button) {
     }).then((r) => r.json());
     saveFit({ ...data, key: fitKey(), at: Date.now() });
     paintRing();
-    toggleScoreDetail();
+    // Rebuild the panel around the new reading. Closing it first only when it
+    // is open, because a bare pair of toggles from a closed panel opens it and
+    // then shuts it again, which is the shape that made a click look dead.
+    if (!$("score-detail").hidden) toggleScoreDetail();
     toggleScoreDetail();
   } catch (error) {
     setStatus(error.message, true);
   } finally {
     button.disabled = false;
-    button.textContent = "Rate the fit";
+    button.textContent = "Rate The Fit";
   }
 }
 
 const scoreSoon = debounce(updateScore, 600);
+
+// The two numbers are measured by different means and cost different things,
+// so each has its own button rather than one that does both. Fit is the model
+// reading the document. The language count is a stemmed string match on the
+// server, free, and on the CV it already runs itself after every edit, so the
+// button is there to force it now and to get a number for a letter at all.
+function scoreActions(fresh) {
+  const agent = typeof agentModel === "function" ? agentModel() : null;
+  // On a letter the count is shown only when asked for. Everywhere else the
+  // second button replaces the list, and says so: the list is frozen until
+  // someone asks for a new one.
+  const second = documentMode === "cover" && lastScore && lastScore.skipped
+    ? { text: "Count The Keywords", run: countLanguage }
+    : { text: "Read Afresh",
+        run: (button) => (agent
+          ? readKeywords({ fresh: true, button })
+          : setStatus("Connect an agent to read this posting's keywords", true)) };
+  return el("div", { class: "score-actions" }, [
+    el("button", { class: "tiny", text: fresh ? "Rate Again" : "Rate The Fit",
+      onclick: (e) => { e.stopPropagation(); rateFit(e.target); } }),
+    el("button", { class: "tiny secondary", text: second.text,
+      onclick: (e) => { e.stopPropagation(); second.run(e.target); } }),
+  ]);
+}
 
 function toggleScoreDetail() {
   const panel = $("score-detail");
@@ -1012,24 +1245,56 @@ function toggleScoreDetail() {
       text: `The last fit reading (${lastFit.score}) was for an older draft.` }));
   }
 
-  if (lastScore.skipped) {
-    panel.append(el("div", { class: "miss",
-      text: "Coverage is not counted for a letter. A recruiter's keyword search "
-        + "runs on your CV, nobody searches a letter, and writing one to raise "
-        + "the number would only make it read worse." }));
-    panel.append(el("button", { class: "tiny", text: fresh ? "Rate again" : "Rate the fit",
-      onclick: (e) => { e.stopPropagation(); rateFit(e.target); } }));
+  if (lastScore.needsList) {
+    panel.append(el("div", { class: "miss", text:
+      typeof agentModel === "function" && agentModel()
+        ? "No keyword list for this posting yet. Read one, and it is kept until you ask for a fresh one."
+        : "Connect an agent to read this posting's keywords." }));
+    panel.append(scoreActions(fresh));
     panel.hidden = false;
     return;
   }
-  panel.append(el("strong", { text: `${lastScore.score}% of the posting's language` }));
-  panel.append(el("div", { class: "miss",
-    text: lastScore.missing.length
-      ? `Not mentioned anywhere: ${lastScore.missing.join(", ")}. Coverage is not fit, `
-        + `so only borrow a word where it is honestly true of your work.`
-      : "Every term the posting leans on appears somewhere." }));
-  panel.append(el("button", { class: "tiny", text: fresh ? "Rate again" : "Rate the fit",
-    onclick: (e) => { e.stopPropagation(); rateFit(e.target); } }));
+  if (lastScore.skipped) {
+    panel.append(el("div", { class: "miss",
+      text: "Keywords are not counted on a letter unless you ask. A recruiter's "
+        + "search runs on your CV, and writing a letter to raise a number only "
+        + "makes it read worse. Count them if you want to see it anyway." }));
+    panel.append(scoreActions(fresh));
+    panel.hidden = false;
+    return;
+  }
+  const had = lastScore.matched.length;
+  panel.append(el("strong", { text: `${had} of ${had + lastScore.missing.length} keywords` }));
+  // The missing keywords are the to-do list, and each arrives with where the
+  // notes show it and a line that says it. A no he has already given sits
+  // apart, after the rest, so it reads as settled rather than as a gap.
+  const entry = (term) => keywordState.map[term] || { state: "unanswered" };
+  const open = lastScore.missing.filter((t) => entry(t).state !== "declined");
+  const settled = lastScore.missing.filter((t) => entry(t).state === "declined");
+  if (!open.length && !settled.length) {
+    panel.append(el("div", { class: "miss", text: "Every keyword on the list is in your CV." }));
+  }
+  const rows = el("ul", { class: "keyword-rows" });
+  for (const term of open) {
+    const item = entry(term);
+    rows.append(el("li", { class: `keyword ${item.state}` }, [
+      el("strong", { text: term }),
+      el("span", { text: item.state === "answered"
+        ? ` — ${item.say}  (from ${item.from})`
+        : " — not in your notes yet" }),
+    ]));
+  }
+  for (const term of settled) {
+    rows.append(el("li", { class: "keyword declined" }, [
+      el("span", { text: `${term} — you said no` }),
+    ]));
+  }
+  panel.append(rows);
+  if (open.length) {
+    panel.append(el("button", { class: "tiny secondary", text: "Read Notes",
+      onclick: (e) => { e.stopPropagation(); remapKeywords(e.target); } }));
+  }
+  panel.append(scoreActions(fresh));
   panel.hidden = false;
 }
 
@@ -1038,7 +1303,7 @@ function toggleScoreDetail() {
    a refresh threw that away and the work had to be done again from the chat.
    The draft is per application and per document, and it is cleared on Save. */
 
-const DRAFT_KEY = `resume-maker.draft.${APP || "default"}`;
+const DRAFT_KEY = `resume-maker.draft.${APP_ID}`;
 
 function keepDraft() {
   if (!cv) return;
@@ -1069,6 +1334,9 @@ function showIssues(issues) {
   const all = issues.concat(overflowing.map((label) => ({
     level: "error", where: label,
     message: "left and right text do not fit on one line; shorten one side",
+  })), overBudget.map((item) => ({
+    level: "warning", where: `${item.label} bullet ${item.bullet}`,
+    message: `runs ${item.lines} lines, allowed ${item.allowed}`,
   })));
   for (const issue of all) {
     host.append(el("div", { class: `issue ${issue.level}` },
@@ -1102,6 +1370,7 @@ window.addEventListener("message", (event) => {
   }
   if (event.data.type !== "resume-overflow") return;
   overflowing = Array.isArray(event.data.offenders) ? event.data.offenders : [];
+  overBudget = Array.isArray(event.data.over) ? event.data.over : [];
   // Redraw the Checks list only; re-rendering the preview here would reload
   // the frame, which measures again and posts again, forever.
   showIssues(lastIssues);
@@ -1162,18 +1431,39 @@ $("bullet_char").addEventListener("input", (e) => {
   if (e.target.value) { style().bullet_char = e.target.value; schedule(); }
 });
 
+// Write both documents and their themes, and rebuild. Separate from the
+// button because naming an application saves first: a document still matching
+// the bytes it was seeded with is one the server is free to re-seed over.
+// What the measured page has to say beyond the page count. Appended to the
+// toast so a document that is over tells you where, the first time you look.
+function budgetNote(pages) {
+  const bits = [];
+  if (pages && Number(pages) > 1) bits.push(`${pages} pages, it has to be one`);
+  if (overBudget.length) {
+    const first = overBudget[0];
+    const rest = overBudget.length - 1;
+    bits.push(`${first.label} bullet ${first.bullet} runs ${first.lines} lines,`
+      + ` allowed ${first.allowed}${rest > 0 ? ` and ${rest} more over` : ""}`);
+  }
+  return bits.length ? ` — ${bits.join("; ")}` : "";
+}
+
+async function saveNow({ build = true } = {}) {
+  const data = await api("/api/save", { ...payload(), app: APP, build }).then((r) => r.json());
+  dropDraft();
+  return data;
+}
+
 $("save").addEventListener("click", async () => {
   setStatus("saving and rebuilding…");
   try {
-    const data = await api("/api/save", { ...payload(), app: APP }).then((r) => r.json());
-    dropDraft();
+    const data = await saveNow();
     if (data.build_error) {
       setStatus(`saved JSON, but rebuild failed: ${data.build_error}`, true);
       return;
     }
     const files = (data.written || []).map((p) => p.split("/").pop()).join(", ");
-    const pages = data.pages && data.pages !== 1 ? ` — ${data.pages} pages` : "";
-    setStatus(`saved and rebuilt ${files}${pages}`);
+    setStatus(`saved and rebuilt ${files}${budgetNote(data.pages)}`);
     rateAfterSave();
   } catch (error) { setStatus(error.message, true); }
 });
@@ -1208,8 +1498,7 @@ async function download(format) {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
-    const pages = response.headers.get("X-Pages");
-    setStatus(pages && pages !== "1" ? `downloaded — ${pages} pages` : "downloaded");
+    setStatus(`downloaded${budgetNote(response.headers.get("X-Pages"))}`);
   } catch (error) { setStatus(error.message, true); }
 }
 
@@ -1250,6 +1539,7 @@ $("zoom-out").addEventListener("click", () => {
     if (draft) {
       const when = new Date(draft.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       setStatus(`restored unsaved changes from ${when}`);
+      unprovenDraft = true;      // until the preview says it can be rendered
     }
     $("name").value = cv.name;
     fillStyleForm();

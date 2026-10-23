@@ -30,7 +30,7 @@ from urllib.parse import parse_qs, quote
 from resume_maker.applications import UNNAMED, ApplicationError, Workspace, as_json
 from resume_maker.build import FORMAT_ALIASES, Builder, export_name, safe_stem
 from resume_maker.export_pdf import BrowserNotFound, ExportError
-from resume_maker import assistant, llm, match, setup, transcribe
+from resume_maker import assistant, keywords, llm, match, setup, transcribe
 from resume_maker.fonts import catalogue, preview_face
 from resume_maker.model import CV, ContentError, CoverLetter
 from resume_maker.theme import Theme, ThemeError
@@ -325,6 +325,7 @@ class EditorHandler(BaseHTTPRequestHandler):
             "/api/setup/extract": self._setup_extract,
             "/api/llm/key": self._key,
             "/api/match": self._match,
+            "/api/keywords": self._keywords,
             "/api/fit": self._fit,
             "/api/transcribe": self._transcribe,
             "/api/apps": self._apps_post,
@@ -371,9 +372,10 @@ class EditorHandler(BaseHTTPRequestHandler):
         html = path.read_text(encoding="utf-8")
         try:
             slug = app or self._workspace.current
-            name = next(a.name for a in self._workspace.list() if a.slug == slug)
+            found = next(a for a in self._workspace.list() if a.slug == slug)
+            name, app_id = found.name, found.id
         except (ApplicationError, StopIteration):
-            slug, name = "", "No application"
+            slug, name, app_id = "", "No application", ""
         # The nav's document links point into this application, and its name
         # sits between the nav and the page's own buttons.
         nav = (STATIC_ROOT / "_nav.html").read_text(encoding="utf-8").strip()
@@ -381,6 +383,7 @@ class EditorHandler(BaseHTTPRequestHandler):
         html = html.replace("<!-- site-nav -->", nav, 1).replace(
             '<body data-page="">',
             f'<body data-page="{page}" data-app="{escape(slug)}"'
+            f' data-app-id="{escape(app_id)}"'
             f'{" data-unnamed=\"1\"" if name == UNNAMED else ""}>', 1
         )
         # Any link in any page can point into the open application.
@@ -480,10 +483,17 @@ class EditorHandler(BaseHTTPRequestHandler):
         _atomic_write(paths["cover_theme"], json.dumps(payload["cover_theme"], indent=2))
 
         kind = payload.get("document", "cv")
+        response: dict[str, Any] = {"saved": True, "written": [], "pages": None}
+        # Naming an application saves the documents purely so they are no
+        # longer the untouched copies a re-seed may replace. The files in out/
+        # are named after the company on the cover letter, which the posting
+        # has not been read for yet, so building here would write a second set
+        # under the previous application's name.
+        if payload.get("build") is False:
+            return self._json(HTTPStatus.OK, response)
         # out/ keeps the same names as an export, so each application's files
         # stand on their own instead of overwriting the last one.
         stem = self._export_name(payload)
-        response: dict[str, Any] = {"saved": True, "written": [], "pages": None}
         try:
             if kind == "cover":
                 result = Builder(cv, cover_theme, letter=cover).build(
@@ -652,9 +662,126 @@ class EditorHandler(BaseHTTPRequestHandler):
         kind = self._document_kind(payload.get("document"))
         doc = self._checked_document(kind, payload.get("doc"))
         jd = str(payload.get("job_description") or "")[:40_000]
-        parts = [text for _, _, text in assistant.field_paths(kind, doc)]
+        parts = [text for _, _, text in assistant.field_paths(kind, doc, printed_only=True)]
+        # One ruler. The ring used to count the posting's repeated words until a
+        # list was read and then switch to the list without saying so, which
+        # showed 52 and then 25 for the same CV. A list the browser sends is
+        # ignored: the one counted is the one kept beside this posting.
+        stored = keywords.load(self._paths(str(payload.get("app") or ""))["keywords"])
+        if not keywords.is_current(stored, jd):
+            return self._json(HTTPStatus.OK, {"score": None, "matched": [], "missing": [],
+                                              "needs_list": True})
         self._json(HTTPStatus.OK,
-                   match.score(parts, jd, str(payload.get("company") or "")).as_json())
+                   match.score_against(parts, stored["keywords"]).as_json())
+
+    def _keywords(self, payload: dict[str, Any]) -> None:
+        """The posting's keyword list and its map, kept beside the application.
+
+        ``get`` reports what is kept and whether it was read from the posting
+        now in the chat. ``read`` asks for a fresh list and map, replacing any
+        earlier one. ``answer`` and ``decline`` record what the user said about
+        one keyword, in the notes first, then in that keyword's map entry only:
+        rewriting the whole map would re-roll lines he has already used.
+        """
+        slug = str(payload.get("app") or "")
+        path = self._paths(slug)["keywords"]
+        action = str(payload.get("action") or "read")
+        if action == "get":
+            return self._json(HTTPStatus.OK, self._keyword_state(slug))
+        if action == "read":
+            jd = str(payload.get("job_description") or "")[: assistant.MAX_IMPORT_TEXT]
+            if not jd.strip():
+                raise ValueError("paste a job description first")
+            self._read_keywords(path, jd, payload)
+            return self._json(HTTPStatus.OK, self._keyword_state(slug))
+        stored = keywords.load(path)
+        jd = str(_read_json(self._paths(slug)["chat"]).get("job_description") or "")
+        # Saving stamps the list with the posting in the chat. A list read from
+        # another posting would come out of that save looking current, and the
+        # ring would count the CV against the wrong job.
+        if not keywords.is_current(stored, jd):
+            raise ValueError("this posting's keyword list is out of date; read a fresh one")
+        if action == "remap":
+            provider = str(payload.get("provider", ""))
+            model = llm.check_model(payload.get("model", ""))
+            _, notes = self._voice_and_notes()
+            stored["map"] = assistant.parse_map(
+                llm.complete(provider, model, assistant.map_prompt(),
+                             assistant.map_request(stored["keywords"], notes), temperature=0),
+                stored["keywords"])
+            keywords.save(path, posting=jd, terms=stored["keywords"], entries=stored["map"],
+                          skipped=stored["skipped"])
+            return self._json(HTTPStatus.OK, self._keyword_state(slug))
+        if action == "skip":
+            what = str(payload.get("path") or "").strip()[:120]
+            if not what:
+                raise ValueError("nothing to skip")
+            if what not in stored["skipped"]:
+                stored["skipped"].append(what)
+            keywords.save(path, posting=jd, terms=stored["keywords"], entries=stored["map"],
+                          skipped=stored["skipped"][-100:])
+            return self._json(HTTPStatus.OK, self._keyword_state(slug))
+        term = str(payload.get("keyword") or "")
+        if term not in stored["keywords"]:
+            raise ValueError("that keyword is not on this posting's list")
+        if action == "decline":
+            self._append_note(str(payload.get("line") or "").strip()[:400])
+            stored["map"][term] = {"state": "declined", "from": "", "say": ""}
+        elif action == "answer":
+            sentence = str(payload.get("sentence") or "").strip()[:1000]
+            if not sentence:
+                raise ValueError("say what you did, in a sentence")
+            provider = str(payload.get("provider", ""))
+            if not provider or not payload.get("model"):
+                raise ValueError("connect an agent first, so the answer can be matched")
+            model = llm.check_model(payload.get("model", ""))
+            # The note is written before the model is asked anything, so a
+            # failed call cannot lose what he typed. Once: a retry after a
+            # failed call would otherwise add the same sentence again.
+            _, notes = self._voice_and_notes()
+            if sentence not in notes:
+                self._append_note(sentence)
+                _, notes = self._voice_and_notes()
+            reply = llm.complete(provider, model, assistant.map_prompt(),
+                                 assistant.map_request([term], notes), temperature=0)
+            stored["map"][term] = assistant.parse_map(reply, [term])[term]
+        else:
+            raise ValueError(f"unknown keyword action: {action}")
+        keywords.save(path, posting=jd, terms=stored["keywords"], entries=stored["map"],
+                      skipped=stored["skipped"])
+        self._json(HTTPStatus.OK, self._keyword_state(slug))
+
+    def _keyword_state(self, slug: str) -> dict[str, Any]:
+        paths = self._paths(slug)
+        stored = keywords.load(paths["keywords"])
+        jd = str(_read_json(paths["chat"]).get("job_description") or "")
+        return {"keywords": stored["keywords"], "map": stored["map"],
+                 "skipped": stored["skipped"], "current": keywords.is_current(stored, jd)}
+
+    def _read_keywords(self, path: Path, jd: str, payload: dict[str, Any]) -> None:
+        """Read a list and its map for ``jd`` and keep them, replacing any earlier."""
+        provider = str(payload.get("provider", ""))
+        model = llm.check_model(payload.get("model", ""))
+        # The application being read, which during naming is not yet the one
+        # the request was addressed to.
+        company = str(_read_json(path.with_name("cover.json")).get("company") or "")
+        terms = assistant.parse_keywords(
+            llm.complete(provider, model, assistant.keywords_prompt(),
+                         assistant.keywords_request(jd), temperature=0),
+            company=company)
+        _, notes = self._voice_and_notes()
+        entries = assistant.parse_map(
+            llm.complete(provider, model, assistant.map_prompt(),
+                         assistant.map_request(terms, notes), temperature=0),
+            terms)
+        keywords.save(path, posting=jd, terms=terms, entries=entries)
+
+    def _append_note(self, text: str) -> None:
+        if not text:
+            raise ValueError("nothing to add to the notes")
+        current = assistant.load_text(self._notes_path)
+        updated = setup.append_text(current, text, today=date.today().isoformat())
+        _atomic_write(self._notes_path, updated.rstrip("\n"))
 
     def _fit(self, payload: dict[str, Any]) -> None:
         """One screening pass: how strong does this candidate look for this role.
@@ -671,6 +798,7 @@ class EditorHandler(BaseHTTPRequestHandler):
         reply = llm.complete(
             str(payload.get("provider", "")), llm.check_model(payload.get("model", "")),
             assistant.fit_prompt(), assistant.fit_request(kind, doc, jd),
+            temperature=0,
         )
         self._json(HTTPStatus.OK, assistant.parse_fit(reply))
 
@@ -686,20 +814,74 @@ class EditorHandler(BaseHTTPRequestHandler):
         # The editor measured the rendered page; pass that on rather than
         # letting the model guess whether the CV still fits.
         overflowing = payload.get("overflowing")
+        over = payload.get("over_budget")
         fit = assistant.fit_note(
             _as_pages(payload.get("pages")),
             [str(x)[:120] for x in overflowing][:8] if isinstance(overflowing, list) else (),
+            [str(x)[:160] for x in over][:6] if isinstance(over, list) else (),
         )
         # The same count the ring shows, so the model knows which of the
         # posting's words are missing instead of guessing at them.
         if jd.strip():
-            parts = [text for _, _, text in assistant.field_paths(kind, doc)]
-            company = str(_read_json(self._cover_path).get("company") or "")
-            covered = match.score(parts, jd, company)
-            note = assistant.coverage_note(covered.missing, covered.matched)
-            fit = f"{fit}\n{note}".strip() if note else fit
+            parts = [text for _, _, text in assistant.field_paths(kind, doc, printed_only=True)]
+            # The kept keyword list, so the model is told the same thing the
+            # ring shows, and the map, so a missing keyword is answered from the
+            # user's own work rather than pasted in.
+            stored = keywords.load(self._paths(str(payload.get("app") or ""))["keywords"])
+            if keywords.is_current(stored, jd):
+                covered = match.score_against(parts, stored["keywords"])
+                note = assistant.coverage_note(covered.missing, covered.matched)
+                fit = f"{fit}\n{note}".strip() if note else fit
+                mapped = assistant.map_note(stored, on_page=covered.matched)
+                fit = f"{fit}\n{mapped}".strip() if mapped else fit
+            # Which jobs answer this posting. Always from the CV, including
+            # while the letter is open: the letter argues the CV's case, and
+            # the letter inheriting the last posting's argument is what made
+            # this necessary.
+            cv_data = doc if kind == "cv" else _read_json(self._paths()["cv"])
+            lead = assistant.experience_note(cv_data, jd)
+            fit = f"{fit}\n{lead}".strip() if lead else fit
+        # A tailoring round is an ordinary turn with one extra instruction: the
+        # user pasted a posting and typed nothing, so the work they would have
+        # had to ask for is described here instead. Sharing /api/chat keeps the
+        # streaming, the transcript window and the error handling identical.
+        task = ""
+        if payload.get("task") == "tailor":
+            if kind != "cv":
+                raise ValueError("tailoring runs on the CV")
+            if not jd.strip():
+                raise ValueError("paste a job description first")
+            raw = payload.get("settled")
+            settled = [str(x)[:120] for x in raw][:20] if isinstance(raw, list) else []
+            # Which step of the round this is. The browser runs them in order
+            # and asks for one suggestion at a time, so the step decides what
+            # the model is being asked for.
+            phase = str(payload.get("phase") or "wording")
+            if phase not in assistant.PHASES:
+                raise ValueError(f"unknown tailoring step: {phase}")
+            raw_no = payload.get("declined")
+            declined = [str(x)[:120] for x in raw_no][:20] if isinstance(raw_no, list) else []
+            task = assistant.tailor_rules(phase, settled=settled, declined=declined)
+        # The requirement list the editor read off this posting, if it has one.
+        # It is the only thing in the prompt that says what the posting asks
+        # for rather than what the notes happen to hold.
+        raw_wanted = payload.get("wanted")
+        wanted = assistant.wanted_note(
+            [str(w)[:60] for w in raw_wanted][: assistant.MAX_KEYWORDS]
+            if isinstance(raw_wanted, list) else [])
+        if kind == "cv" or jd.strip():
+            cv_for_bench = doc if kind == "cv" else _read_json(self._paths()["cv"])
+            bench = assistant.bench_note(
+                cv_for_bench,
+                [str(w)[:60] for w in raw_wanted][: assistant.MAX_KEYWORDS]
+                if isinstance(raw_wanted, list) else [],
+                jd,
+            )
+            if bench:
+                fit = f"{fit}\n{bench}".strip()
         stable, volatile = assistant.prompt_parts(
-            kind, doc, jd, voice_md=voice, notes_md=notes, fit=fit)
+            kind, doc, jd, voice_md=voice, notes_md=notes, fit=fit, wanted=wanted,
+            task=task)
         turns = assistant.condense(self._checked_turns(payload.get("messages")))
         # Guard what is actually sent, not the stored conversation: the window
         # above has already dropped everything but the last few turns.
@@ -778,11 +960,16 @@ class EditorHandler(BaseHTTPRequestHandler):
         if action == "create":
             # A new application starts from the one you were last on, so the
             # work already done carries over; the base files seed the first.
-            source = str(payload.get("source") or "") or self._last_opened()
+            # Duplicate names its source; a plain New follows on from the
+            # application you were last on. The letter travels only in the
+            # first case, because a letter argues one posting's case.
+            chosen = str(payload.get("source") or "")
+            source = chosen or self._last_opened()
             app = self._workspace.create(
                 str(payload.get("name") or "").strip() or UNNAMED,
                 job_url=str(payload.get("job_url") or ""),
                 source=source or None,
+                keep_letter=bool(chosen),
             )
         elif action == "open":
             app = self._workspace.set_current(slug)
@@ -841,6 +1028,13 @@ class EditorHandler(BaseHTTPRequestHandler):
             cover["company"] = found["company"] or cover.get("company", "")
             cover["role"] = found["role"] or cover.get("role", "")
             _atomic_write(cover_path, json.dumps(cover, indent=2, ensure_ascii=False))
+        # The posting has just been read once; this is when its keyword list
+        # is read and frozen. A failure here costs the list, never the name:
+        # the editor reads it again when the application next opens.
+        try:
+            self._read_keywords(self._paths(app.slug)["keywords"], text, payload)
+        except (llm.LLMError, assistant.ImportFailed, ValueError) as exc:
+            print(f"[keywords] not read for {app.slug}: {exc}")
         self._json(HTTPStatus.OK, {"application": as_json(app), **found,
                                    "reseeded": reseeded,
                                    "current": self._workspace.current})
@@ -870,6 +1064,10 @@ class EditorHandler(BaseHTTPRequestHandler):
             # document whose field it names, whichever one is open now.
             if m.get("document") in DOCUMENTS:
                 item["document"] = m["document"]
+            # A tailoring round is a turn nobody typed. The flag is what keeps
+            # it from reading as the user's own words after a reload.
+            if m.get("pipeline") is True:
+                item["pipeline"] = True
             if isinstance(m.get("resolved"), dict):  # which proposals were accepted/dismissed
                 item["resolved"] = {str(k): str(v) for k, v in m["resolved"].items()
                                     if v in ("accepted", "dismissed")}

@@ -22,6 +22,8 @@ import hashlib
 import json
 import re
 import shutil
+import time
+import uuid
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
@@ -45,10 +47,13 @@ FILES = {
     "theme": "theme.json",
     "cover_theme": "cover-theme.json",
     "chat": "chat.json",
+    "keywords": "keywords.json",
 }
 # A new application inherits the documents, never the conversation: the
-# tailoring is a head start, the chat about another job is noise.
-COPIED = tuple(k for k in FILES if k != "chat")
+# tailoring is a head start, the chat about another job is noise. Nor the
+# keyword list, which was read from the last posting and would count the next
+# application against the wrong job.
+COPIED = tuple(k for k in FILES if k not in ("chat", "keywords"))
 _SLUG_OK = re.compile(r"\A[a-z0-9][a-z0-9-]{0,63}\Z")
 
 
@@ -74,6 +79,16 @@ class Application:
     job_url: str = ""
     archived: bool = False
     track: str = ""
+    # Stable across renames, and never reused. The slug is neither: naming an
+    # application moves its folder, and deleting one frees its slug for the
+    # next application made from the same posting, which then inherited the
+    # dead one's unsaved draft and its fit score from the browser.
+    id: str = ""
+    # When this application was last opened, as a unix timestamp. ``created``
+    # is a date, so every application made on the same day ties on it and the
+    # slug broke the tie: after deleting the open application, "the one you
+    # were last on" became whichever slug sorted last.
+    opened: float = 0.0
 
 
 class Workspace:
@@ -126,6 +141,10 @@ class Workspace:
             return None
         if not isinstance(data, dict):
             return None
+        try:
+            opened = float(data.get("opened") or 0.0)
+        except (TypeError, ValueError):
+            opened = 0.0
         return Application(
             slug=folder.name,
             name=str(data.get("name") or folder.name),
@@ -133,6 +152,8 @@ class Workspace:
             job_url=str(data.get("job_url") or ""),
             archived=archived,
             track=str(data.get("track") or ""),
+            id=str(data.get("id") or ""),
+            opened=opened,
         )
 
     def list(self) -> list[Application]:
@@ -154,7 +175,15 @@ class Workspace:
 
     @property
     def current(self) -> str:
-        """The open application, falling back to the first live one."""
+        """The open application, falling back to the one opened most recently.
+
+        The pointer goes when the open application is deleted, and what
+        replaces it seeds the next application's documents. Falling back to
+        the first of ``list()`` meant falling back to a date-then-slug sort,
+        so deleting today's open application handed the next one an
+        alphabetical winner from earlier in the day rather than the CV the
+        user had actually been working on.
+        """
         try:
             slug = (self.root / CURRENT).read_text(encoding="utf-8").strip()
             self.find(slug)
@@ -164,6 +193,7 @@ class Workspace:
         live = [a for a in self.list() if not a.archived]
         if not live:
             raise ApplicationError("no applications yet")
+        live.sort(key=lambda a: (a.opened, a.created, a.slug), reverse=True)
         self.set_current(live[0].slug)
         return live[0].slug
 
@@ -173,14 +203,27 @@ class Workspace:
             raise ApplicationError("restore this application before opening it")
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / CURRENT).write_text(slug + "\n", encoding="utf-8")
+        self._patch(folder, opened=time.time())
         app = self._read(folder, False)
         assert app is not None  # find() just read the same file
         return app
 
+    def _patch(self, folder: Path, **fields: Any) -> dict[str, Any]:
+        """Change some of an application's metadata, leaving the rest alone."""
+        try:
+            meta = json.loads((folder / META).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            meta = {}
+        if not isinstance(meta, dict):
+            meta = {}
+        meta.update(fields)
+        (folder / META).write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+        return meta
+
     # -- changing ------------------------------------------------------
 
     def create(self, name: str, *, job_url: str = "", source: str | None = None,
-               track: str | None = None) -> Application:
+               track: str | None = None, keep_letter: bool = True) -> Application:
         """A new application, with documents copied from ``source``.
 
         ``source`` is normally the application you were last working on: the
@@ -193,6 +236,13 @@ class Workspace:
         it is given (Duplicate inherits it), the new application starts tagged.
         The hashes of the copied documents are recorded so identify can tell an
         untouched copy from one the user has since edited.
+
+        ``keep_letter`` is the exception to all of that. A CV carries forward
+        because tailoring compounds, but a cover letter is an argument made to
+        one posting, and inheriting it meant a letter that pitched design and
+        Figma work at a company that had not asked for any. Chaining from the
+        last application you were on therefore starts the letter from the base
+        file; Duplicate, which asks for a source by name, keeps it.
         """
         name = " ".join(str(name).split())[:MAX_NAME]
         if not name:
@@ -203,13 +253,16 @@ class Workspace:
         folder.mkdir(parents=True)
         for key in COPIED:
             start = origin.get(key)
+            if key == "cover" and not keep_letter:
+                start = self.base.get("cover")
             if start and Path(start).is_file():
                 shutil.copyfile(start, folder / FILES[key])
         if track is None and source:
             track = self._track_of(source)
         seed = {key: _sha(folder / FILES[key])
                 for key in ("cv", "cover") if (folder / FILES[key]).is_file()}
-        meta = {"name": name, "created": date.today().isoformat(),
+        meta = {"id": uuid.uuid4().hex[:12], "name": name,
+                "created": date.today().isoformat(), "opened": time.time(),
                 "job_url": str(job_url)[:2000], "track": _clean_track(track), "seed": seed}
         (folder / META).write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
         return self.set_current(slug)
@@ -294,11 +347,16 @@ class Workspace:
         return app
 
     def reseed(self, slug: str, track: str) -> bool:
-        """Fill the documents from the newest live application of ``track``.
+        """Fill the CV from the newest live application of ``track``.
 
-        Only a document whose bytes still match what :meth:`create` wrote is
+        Only a CV whose bytes still match what :meth:`create` wrote is
         replaced, so an application the user has already saved or edited is
         never overwritten. Returns whether anything moved.
+
+        The CV only. The letter used to come too, which meant the posting that
+        named an application also handed it the previous application's finished
+        letter, body and all, with the company and the role swapped in. A
+        letter is written to one posting.
         """
         folder, _ = self.find(slug)
         source = self._latest_of_track(track, exclude=slug)
@@ -307,7 +365,7 @@ class Workspace:
         meta = json.loads((folder / META).read_text(encoding="utf-8"))
         seed = meta.get("seed") if isinstance(meta.get("seed"), dict) else {}
         moved = False
-        for key in ("cv", "cover"):
+        for key in ("cv",):
             target, incoming = folder / FILES[key], source / FILES[key]
             if not incoming.is_file() or not target.is_file() or _sha(target) != seed.get(key):
                 continue
@@ -359,6 +417,7 @@ class Workspace:
         after whoever the cover letter was addressed to, so nothing is lost and
         nothing has to be re-tailored.
         """
+        self.adopt_ids()
         live = [a for a in self.list() if not a.archived]
         if live:
             folder, archived = self.find(self.current)
@@ -367,6 +426,30 @@ class Workspace:
         if chat_dir is not None:
             self._adopt_chats(app.slug, Path(chat_dir))
         return app
+
+    def adopt_ids(self) -> int:
+        """Give the applications made before ids one each, and a last-opened.
+
+        Both are what the browser keys its unsaved draft and its fit reading
+        on, so an application without them is one whose work a later
+        application with the same slug could still inherit. ``opened`` starts
+        from when the documents were last written, which is the closest thing
+        on disk to when the application was last worked on.
+        """
+        changed = 0
+        for app in self.list():
+            folder = self.folder(app.slug, archived=app.archived)
+            fields: dict[str, Any] = {}
+            if not app.id:
+                fields["id"] = uuid.uuid4().hex[:12]
+            if not app.opened:
+                stamps = [(folder / FILES[k]).stat().st_mtime
+                          for k in ("cv", "cover") if (folder / FILES[k]).is_file()]
+                fields["opened"] = max(stamps) if stamps else 0.0
+            if fields:
+                self._patch(folder, **fields)
+                changed += 1
+        return changed
 
     def _base_name(self) -> str:
         """``Meta — Rotational Product Manager``, from the base cover letter."""

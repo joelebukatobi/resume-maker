@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from resume_maker import assistant, llm  # noqa: E402
+from resume_maker.model import normalise_dates  # noqa: E402
 
 REPLY = [
     "Here is a tighter summary.\n\n",
@@ -237,6 +238,272 @@ class AssistantTests(unittest.TestCase):
         _, letter = assistant.prompt_parts("cover", {"name": "Joel", "paragraphs": []})
         self.assertIn("Greet the reader", letter)
         self.assertIn("[Company]", letter.split("Before you answer")[1])
+
+    def test_a_letter_is_written_as_one_piece(self):
+        """What the user read on the Flexport letter: the greeting, the stub
+        naming him and the role, and then a jump straight into "At Expert
+        Edge". The editor refused a proposal for the next paragraph, so the
+        model could only leave the stub standing and offer the rest to copy,
+        and nothing in the prompt said the letter had to read as a whole."""
+        letter = assistant.system_prompt("cover", {"name": "Joel", "paragraphs": []})
+        self.assertIn("paragraphs.1", letter)          # the next one is writable
+        self.assertIn("placeholder, not an opening", letter)
+        self.assertIn("one piece of writing", letter)
+        cv = assistant.system_prompt("cv", self.cv)
+        self.assertNotIn("one piece of writing", cv)   # the CV is not a letter
+
+    def test_a_cv_session_is_not_told_how_to_write_a_letter(self):
+        """What the user hit: a full cover letter arrived in an answer block in
+        the middle of a CV session. The prompt carried the letter's rules and
+        the voice file's letter section, opening template and all, and nothing
+        said the letter was not open."""
+        voice = ("# How I write\n\n## Voice\n\nPlain words.\n\n"
+                 "## Cover letters\n\nGreet the reader, then say"
+                 ' "I am applying for the [Role] at [Company]."\n\n'
+                 "## How a CV is actually read\n\nSix seconds, top down.\n")
+        cv = assistant.system_prompt("cv", self.cv, voice_md=voice)
+        self.assertIn("Only the CV is open", cv)
+        self.assertNotIn("[Role] at [Company]", cv)        # the letter's template
+        self.assertIn("Six seconds", cv)                   # the CV's own section stays
+
+        letter = assistant.system_prompt("cover", {"name": "Joel", "paragraphs": []},
+                                         voice_md=voice)
+        self.assertNotIn("Only the CV is open", letter)
+        self.assertIn("[Role] at [Company]", letter)
+        self.assertNotIn("Six seconds", letter)            # the CV's section goes
+
+    def test_an_answer_block_is_not_a_home_for_the_other_document(self):
+        self.assertIn("not a\n  place to put the user's other document",
+                      assistant.system_prompt("cv", self.cv))
+
+    def test_notes_are_ranked_by_density_not_by_size(self):
+        """The plain count rewarded length. A five thousand character section
+        matched more of any posting's words by surface area than a nine
+        hundred character one, so the same employer led every ranking."""
+        notes = ("# Notes\n\n## Long and general\n\n"
+                 + ("I did a lot of work over several years and it went well. " * 40)
+                 + "\n\n## Short and exact\n\nI ran the e-commerce storefront"
+                 " migration and the checkout redesign.\n\n## Unrelated\n\n"
+                 "I repaired computers as a child.\n")
+        ranked = assistant.order_notes(notes, "e-commerce storefront checkout redesign")
+        order = [line for line in ranked.splitlines() if line.startswith("## ")]
+        self.assertEqual(order[0], "## Short and exact")
+
+    def test_which_jobs_answer_the_posting_reaches_the_model(self):
+        """The prompt said which words were missing and never which work to
+        lead with, so the model led with whatever ranked first by size."""
+        cv = {"sections": [{"heading": "EXPERIENCE", "type": "entries", "entries": [
+            {"left": "AMAZON, Customer eXperience Impressions (SCOT-AIM)",
+             "sub_left": "Product Manager",
+             "bullets": ["Owned a customer experience data product and its roadmap."]},
+            {"left": "NUMINIX, e-Commerce", "sub_left": "Frontend",
+             "bullets": ["Shipped storefront and checkout work for an online store."]},
+        ]}]}
+        note = assistant.experience_note(cv, "storefront checkout online store e-commerce")
+        self.assertIn("NUMINIX", note)
+        self.assertLess(note.index("NUMINIX"), note.index("AMAZON"))
+        self.assertNotIn("SCOT-AIM", note)          # the division is an internal name
+        self.assertIn("never move an entry on the page", note)
+        self.assertEqual(assistant.experience_note(cv, ""), "")
+
+    def test_the_dash_in_a_date_is_exempt_from_the_punctuation_rule(self):
+        """The rule was written about prose and was being applied to a date.
+
+        A date range reaches the model as text with a spaced hyphen in it,
+        which the rule bans, so the model proposed "July 2024 to May 2026".
+        Accepting that is worse than cosmetic: ``normalise_dates`` only
+        recognises dash-like separators, so the entry stops following the
+        theme's ``date_separator`` while every other entry still does.
+        """
+        rules, fields = assistant.prompt_parts("cv", self.cv)
+        self.assertIn("A dates field is the exception", rules)
+        self.assertIn("not yours to change", fields.split("Before you answer")[1])
+        self.assertEqual(normalise_dates("July 2024 to May 2026", "-"),
+                         "July 2024 to May 2026")      # why it must not be accepted
+        self.assertEqual(normalise_dates("July 2024 – May 2026", "-"),
+                         "July 2024 - May 2026")       # what the theme does instead
+
+    def test_the_model_may_not_claim_to_have_saved_a_note(self):
+        """What it cost: the one fact the user needed most, work authorisation,
+        was offered twice as a notes card and never written, because the model
+        opened with "I have saved it as a note" and the button went unpressed.
+        It cannot write to the file at all."""
+        rules, fields = assistant.prompt_parts("cv", self.cv)
+        self.assertIn("never say you have saved", rules)
+        self.assertIn("Nothing is saved until the user presses the button",
+                      fields.split("Before you answer")[1])
+
+    def test_the_posting_requirements_reach_the_prompt(self):
+        """The only line in the prompt that says what this posting asks for.
+
+        Without it the model works from the notes, and the notes hold the work
+        done for every other posting too: an Etsy engineering letter carried
+        "I applied WCAG 2.2 accessibility standards" across from the
+        accessibility posting worked on three days earlier, because the notes
+        said it and nothing said not to.
+        """
+        note = assistant.wanted_note(["php", "react", "code review"])
+        self.assertIn("code review", note)
+        self.assertIn("belongs in another application", note)
+        self.assertEqual(assistant.wanted_note([]), "")
+
+        _, fields = assistant.prompt_parts("cover", {"name": "Joel", "paragraphs": ["x"]},
+                                           "A posting", wanted=note)
+        self.assertIn("code review", fields)
+        self.assertLess(fields.index("code review"), fields.index("Before you answer"))
+
+    def test_a_claim_has_to_answer_this_posting(self):
+        rules, _ = assistant.prompt_parts("cover", {"name": "Joel", "paragraphs": ["x"]})
+        self.assertIn("Every claim has to answer something this posting asks for", rules)
+        self.assertIn("not belong here", rules)   # wrapped in the source
+
+    def test_a_round_may_propose_dropping_the_last_posting_left_behind(self):
+        task = assistant.tailor_rules("wording")
+        self.assertIn("a previous posting left behind", task)
+        self.assertIn("a removal is a card like any other", task)
+
+    def test_the_requirement_list_is_asked_for_and_validated(self):
+        rules = assistant.keywords_prompt()
+        self.assertIn("something a person", rules)       # has done or has not done
+        self.assertIn("not the names of", rules)          # other people's jobs
+        self.assertIn("not its products", rules)
+
+        got = assistant.parse_keywords(
+            '{"keywords": ["PHP", "React", "php", "  TypeScript  ", ""]}')
+        self.assertEqual(got, ["php", "react", "typescript"])   # trimmed, deduped
+        with self.assertRaises(assistant.ImportFailed):
+            assistant.parse_keywords("I had a look and it wants PHP")
+        with self.assertRaises(assistant.ImportFailed):
+            assistant.parse_keywords('{"keywords": []}')
+
+    def test_the_prompt_says_what_day_it_is(self):
+        """A model has no clock. Given "July 2024 - May 2026" and nothing else
+        it read a finished MBA as still in progress and reported it as a gap,
+        twice, and a fit reading is kept until something re-rates it, so the
+        phrase stayed on screen."""
+        from datetime import date
+
+        note = assistant.today_note(date(2026, 10, 22))
+        self.assertIn("Today is 2026-10-22", note)
+        self.assertIn("already passed is finished", note)
+
+        rules, fields = assistant.prompt_parts("cv", self.cv)
+        self.assertIn("Today is", fields)
+        # Not in the cached half: it would change the prefix every day for no
+        # other reason.
+        self.assertNotIn("Today is", rules)
+
+        asked = assistant.fit_request("cv", self.cv, "A posting.")
+        self.assertTrue(asked.startswith("Today is"))
+        self.assertIn("has passed is finished", assistant.fit_prompt())
+
+    def test_a_tailoring_round_asks_for_proposals_then_gaps(self):
+        """The posting is the instruction. The round does the work the user
+        would otherwise have had to type."""
+        task = assistant.tailor_rules("wording")
+        rules, fields = assistant.prompt_parts("cv", self.cv, "A posting", task=task)
+        # The task sits after the document and before the hard rules, which are
+        # what the model reads last and what it has broken before.
+        self.assertLess(fields.index("without being asked"), fields.index("Before you answer"))
+        self.assertIn("ask block", fields)            # a missing keyword is asked about
+        self.assertIn("```ask", rules)                   # the block's shape is a protocol rule
+        self.assertIn("Do not write a cover letter", rules)
+
+    def test_every_step_offers_one_thing_and_asks(self):
+        """The round is a conversation, not a form. A page of cards at once was
+        work done before the user had agreed to any of it, and a decision taken
+        early changes what should be offered next."""
+        for phase in assistant.PHASES:
+            with self.subTest(phase=phase):
+                task = assistant.tailor_rules(phase)
+                self.assertIn("Offer exactly one thing", task)
+                self.assertIn("ending in a question", task)
+                self.assertIn("never offer two", task)
+                # How a step ends: nothing left to say, and no card.
+                self.assertIn("write no card", task)
+
+    def test_the_first_step_chooses_the_roles_and_writes_nothing(self):
+        """Tailoring the wording of a role that is about to come off the page
+        is work thrown away, so the cast is settled first."""
+        cast = assistant.tailor_rules("cast")
+        self.assertIn("which roles belong on this CV", cast)
+        self.assertIn("show proposal", cast)
+        self.assertIn("Change no wording in this step", cast)
+
+    def test_the_wording_stage_follows_the_list(self):
+        """It used to decide for itself what to change. Now it answers the
+        posting's missing keywords, in order, from the map."""
+        w = assistant.tailor_rules("wording")
+        self.assertIn("missing keywords in the order listed", w.replace("\n", " "))
+        self.assertIn("experience underneath", w)       # not "do you have <word>"
+        self.assertIn("declined", w)                    # a no is never asked again
+        self.assertIn("```ask", assistant.system_prompt("cv", self.cv))
+
+    def test_a_question_is_a_card_the_transcript_can_collapse(self):
+        self.assertIn("ask", assistant._CARD.pattern)
+
+    def test_the_wording_step_leaves_the_roles_that_are_off_alone(self):
+        wording = assistant.tailor_rules("wording")
+        self.assertIn("Never write for a role that is off", wording)
+        self.assertIn("From", wording)          # where the change came from
+
+    def test_the_last_step_measures_and_then_lets_go(self):
+        """The page either fits or it does not, so this step is the one that
+        can insist. It still stops rather than arguing."""
+        fit = assistant.tailor_rules("fit")
+        self.assertIn("not an estimate", fit)
+        self.assertIn("Keep every fact and", fit)
+        self.assertIn("Do not argue and do not suggest again", fit)
+
+    def test_trimming_does_not_cut_the_posting_out_of_the_cv(self):
+        """Fitting one page and matching the posting's language pull against
+        each other, and the trim has no way of knowing which words were doing
+        work. The coverage note already said to keep them, and lost: this step
+        sits nearer to where the model writes, and it used to say that a word
+        carrying no fact and no number was there to drop."""
+        fit = assistant.tailor_rules("fit")
+        self.assertIn("They are not padding", fit)
+        self.assertIn("Shorten around them", fit)
+        self.assertIn("is not a trim at all", fit)
+        self.assertNotIn("Drop the words that carry none", fit)
+        # And the list it is pointing at is the one the coverage note names.
+        self.assertIn("shorten around them rather than through them",
+                      assistant.coverage_note([], ["supply chain"]))
+
+    def test_a_no_is_not_asked_again(self):
+        task = assistant.tailor_rules("cast", declined=["sections.1.entries.3"])
+        self.assertIn("already said no", task)
+        self.assertIn("`sections.1.entries.3`", task)
+        self.assertIn("in any wording", task)
+        self.assertEqual(assistant.declined_note([]), "")
+
+    def test_a_later_round_is_told_what_the_user_already_settled(self):
+        """A resolved proposal reaches the model as a marker, so it can see
+        that a field was changed and not what it was changed to. Without the
+        list it rewrote settled fields again, differently, every round."""
+        plain = assistant.tailor_rules("wording")
+        named = assistant.tailor_rules("wording", settled=["sections.0.text"])
+        self.assertNotIn("Leave them as they are", plain)   # nothing to leave alone yet
+        self.assertIn("`sections.0.text`", named)
+        self.assertIn("Leave them as they are", named)
+        # The first round has nothing to leave alone yet.
+        self.assertEqual(assistant.settled_note([]), "")
+
+    def test_a_later_round_works_from_the_answer_just_given(self):
+        first, again = assistant.tailor_rules("cast"), assistant.tailor_rules("again")
+        self.assertIn("pasted the posting", first)
+        self.assertIn("just answered one of the gaps", again)
+        self.assertIn("nothing that is already in the", again)
+
+    def test_a_gaps_block_is_a_card_for_numbering(self):
+        """The editor numbers cards to remember which were resolved. A gaps
+        block takes a number there, so the server has to count it the same way
+        or a later proposal's verdict lands on the wrong block."""
+        content = ('```gaps\nDo you have X\n```\n'
+                   '```proposal\n{"path": "a", "text": "b"}\n```')
+        self.assertEqual(assistant._strip_resolved(content, {"1": "accepted"}),
+                         '```gaps\nDo you have X\n```\n(proposal already applied)')
+        self.assertEqual(assistant._strip_resolved(content, {"0": "accepted"}), content)
 
     def test_missing_terms_reach_the_model_with_a_guard(self):
         note = assistant.coverage_note(["product management", "roadmap"])

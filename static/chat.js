@@ -12,7 +12,7 @@
  * schedule(), documentMode.
  */
 
-const BLOCK = /```(proposal|answer|notes|voice)\s*([\s\S]*?)```/g;
+const BLOCK = /```(proposal|answer|notes|voice|gaps|ask)\s*([\s\S]*?)```/g;
 // One conversation per application, covering both documents.
 let chat = null;
 let chatController = null;
@@ -43,28 +43,56 @@ function canSet(doc, path) {
   if (Array.isArray(parent)) {
     if (typeof last !== "number") return false;
     if (last < parent.length) return typeof parent[last] === "string";
-    return last === parent.length && parts[parts.length - 1] === "bullets";
+    // Appending is for a list of plain lines: a bullet, or a letter paragraph.
+    // Only bullets used to qualify, so a letter could never gain a paragraph:
+    // the model had one writable paragraph and an opening rule it could not
+    // break, so it gave up and offered the whole letter to copy by hand.
+    // A list of objects (contact) stays closed; a string there malforms it.
+    if (last !== parent.length) return false;
+    return parent.every((line) => typeof line === "string")
+      && ["bullets", "paragraphs"].includes(parts[parts.length - 1]);
   }
   return typeof last === "string" && (typeof parent[last] === "string" || parent[last] === undefined);
 }
 
+// The CV carries every role the user has and prints the ones that are on, so a
+// proposal can offer to put one on the page or take one off. It is the entry
+// itself that moves, so the path has to name an entry in an entries list and
+// nothing else: a bullet or a heading has no such state.
+function canShow(doc, path) {
+  const parts = pathParts(path);
+  const last = parts.pop();
+  if (typeof last !== "number" || parts[parts.length - 1] !== "entries") return false;
+  const parent = parts.reduce((node, key) => (node == null ? undefined : node[key]), doc);
+  if (!Array.isArray(parent) || last >= parent.length) return false;
+  const entry = parent[last];
+  return Boolean(entry) && typeof entry === "object" && !Array.isArray(entry);
+}
+
+function setShown(doc, path, show) {
+  const entry = getPath(doc, path);
+  if (show) delete entry.off;
+  else entry.off = true;
+}
+
 // Removing is a different write from setting: a bullet has to leave the list,
-// not become an empty line in it.
+// not become an empty line in it. So only something that sits in a list can be
+// removed. Deleting a field of an object instead left the object missing a key
+// the document requires, and every preview, save and export after it failed
+// with "cv.sections[2].items[1].text: expected a string, got NoneType" — a
+// labelled skills line with its text deleted out from under it.
 function canRemove(doc, path) {
   const parts = pathParts(path);
   const last = parts.pop();
   const parent = parts.reduce((node, key) => (node == null ? undefined : node[key]), doc);
-  if (parent == null) return false;
-  if (Array.isArray(parent)) return typeof last === "number" && last < parent.length;
-  return typeof last === "string" && parent[last] !== undefined;
+  if (!Array.isArray(parent)) return false;
+  return typeof last === "number" && last < parent.length;
 }
 
 function removePath(doc, path) {
   const parts = pathParts(path);
   const last = parts.pop();
-  const parent = parts.reduce((node, key) => node[key], doc);
-  if (Array.isArray(parent)) parent.splice(last, 1);
-  else delete parent[last];
+  parts.reduce((node, key) => node[key], doc).splice(last, 1);
 }
 
 function setPath(doc, path, text) {
@@ -130,9 +158,12 @@ function docFor(kind) {
   return kind === "cover" ? cover : cv;
 }
 
-function applyText(path, text, kind = documentMode, { remove = false } = {}) {
+function applyText(path, text, kind = documentMode, { remove = false, show = null } = {}) {
   const doc = docFor(kind);
-  if (remove) {
+  if (show !== null) {
+    if (!canShow(doc, path)) throw new Error(`"${path}" is not an entry on that document`);
+    setShown(doc, path, show);
+  } else if (remove) {
     if (!canRemove(doc, path)) throw new Error(`"${path}" is not there to remove`);
     removePath(doc, path);
   } else {
@@ -149,15 +180,21 @@ function applyText(path, text, kind = documentMode, { remove = false } = {}) {
   refreshLabels();
 }
 
-function proposalCard(path, text, { state, onResolve, kind = documentMode, remove = false }) {
+function proposalCard(path, text, { state, onResolve, kind = documentMode, remove = false, show = null }) {
   const doc = docFor(kind);
   const before = getPath(doc, path);
+  if (show !== null) return showCard(path, show, { state, onResolve, kind });
   const valid = remove ? canRemove(doc, path) : canSet(doc, path);
   const card = el("div", { class: `chat-card ${state || ""}` });
   const where = kind === documentMode ? "" : ` · ${kind === "cover" ? "cover letter" : "CV"}`;
   const head = remove ? `Remove ${fieldLabel(path, kind)}` : fieldLabel(path, kind) + where;
-  card.append(el("div", { class: "chat-card-head",
-    text: valid ? head : `Unknown field: ${path}` }));
+  // A removal can be refused for either reason, and the two need different
+  // words: an invented path is unknown, while a real field that is not a list
+  // item cannot be taken out at all.
+  const refused = remove && getPath(doc, path) !== undefined
+    ? `Cannot be removed, ${fieldLabel(path, kind)} is a field rather than an item in a list`
+    : `Unknown field: ${path}`;
+  card.append(el("div", { class: "chat-card-head", text: valid ? head : refused }));
   card.append(diffView(typeof before === "string" ? before : "", remove ? "" : text));
   if (state) {
     card.append(el("div", { class: "chat-card-state", text: state === "accepted" ? "Applied" : "Dismissed" }));
@@ -165,14 +202,49 @@ function proposalCard(path, text, { state, onResolve, kind = documentMode, remov
   }
   const actions = el("div", { class: "chat-card-actions" });
   if (valid) {
-    actions.append(el("button", { class: "tiny", text: remove ? "Remove" : "Accept", onclick: () => {
+    actions.append(el("button", { class: "tiny", text: "Use this", onclick: () => {
       try { applyText(path, text, kind, { remove }); onResolve("accepted"); }
       catch (error) { setStatus(error.message, true); }
     } }));
   }
   actions.append(el("button", { class: "tiny secondary", text: "Copy",
     onclick: (e) => copyText(text, e.target) }));
-  actions.append(el("button", { class: "tiny secondary", text: "Dismiss", onclick: () => onResolve("dismissed") }));
+  actions.append(el("button", { class: "tiny secondary", text: "Skip", onclick: () => onResolve("dismissed") }));
+  card.append(actions);
+  return card;
+}
+
+// A role joining the page or leaving it. One page means the two usually come in
+// pairs, but they are separate cards on purpose: the user decides each.
+function showCard(path, show, { state, onResolve, kind }) {
+  const doc = docFor(kind);
+  const valid = canShow(doc, path);
+  const entry = valid ? getPath(doc, path) : null;
+  const name = entry ? String(entry.left || "").split(",")[0] : path;
+  const card = el("div", { class: `chat-card ${state || ""}` });
+  const where = kind === documentMode ? "" : ` · ${kind === "cover" ? "cover letter" : "CV"}`;
+  card.append(el("div", { class: "chat-card-head",
+    text: valid ? `${show ? "Put" : "Take"} ${name} ${show ? "on" : "off"} the CV${where}`
+                : `Not an entry on this document: ${path}` }));
+  if (valid && Boolean(entry.off) !== !show) {
+    card.append(el("p", { class: "chat-answer-text",
+      text: show ? "Already on the CV." : "Already off the CV." }));
+  }
+  if (state) {
+    card.append(el("div", { class: "chat-card-state",
+      text: state === "accepted" ? (show ? "Put on the CV" : "Taken off the CV") : "Dismissed" }));
+    return card;
+  }
+  const actions = el("div", { class: "chat-card-actions" });
+  if (valid) {
+    actions.append(el("button", { class: "tiny", text: "Use this",
+      onclick: () => {
+        try { applyText(path, "", kind, { show }); onResolve("accepted"); }
+        catch (error) { setStatus(error.message, true); }
+      } }));
+  }
+  actions.append(el("button", { class: "tiny secondary", text: "Skip",
+    onclick: () => onResolve("dismissed") }));
   card.append(actions);
   return card;
 }
@@ -181,18 +253,34 @@ function proposalCard(path, text, { state, onResolve, kind = documentMode, remov
 // bank. Notes feed every future application, so this is the one thing the chat
 // writes outside the open document, and only once the user has accepted it.
 function notesCard(text, { state, onResolve }) {
-  const card = el("div", { class: `chat-card ${state || ""}` });
-  card.append(el("div", { class: "chat-card-head", text: "For your notes" }));
+  const card = el("div", { class: `chat-card notes ${state || ""}` });
+  // Says it is pending, because a card sitting in a column of applied
+  // proposals looked applied. The model used to claim it had saved the fact,
+  // the button went unpressed, and the fact never reached the file.
+  card.append(el("div", { class: "chat-card-head",
+    text: state ? "For your notes" : "For your notes · not saved yet" }));
   for (const para of text.split(/\n{2,}/)) {
     if (para.trim()) card.append(el("p", { class: "chat-answer-text", text: para.trim() }));
   }
   if (state) {
     card.append(el("div", { class: "chat-card-state",
       text: state === "accepted" ? "Added to Notes" : "Dismissed" }));
+    // The fact is in the notes; whether to spend a round on it is a decision,
+    // not a consequence. It used to run by itself on any accepted note, which
+    // meant saving something in an ordinary conversation set the whole pass
+    // going and rewrote work that was already settled.
+    if (state === "accepted" && typeof tailorReady === "function" && tailorReady()) {
+      card.append(el("div", { class: "chat-card-actions" }, [
+        el("button", { class: "tiny", text: "Tailor again with this", onclick: (e) => {
+          e.target.disabled = true;
+          runTailor({ again: true });
+        } }),
+      ]));
+    }
     return card;
   }
   card.append(el("div", { class: "chat-card-actions" }, [
-    el("button", { class: "tiny", text: "Add to Notes", onclick: async (e) => {
+    el("button", { class: "tiny", text: "Keep this", onclick: async (e) => {
       e.target.disabled = true;
       try {
         await api("/api/setup/notes", { append: text });
@@ -205,7 +293,7 @@ function notesCard(text, { state, onResolve }) {
     } }),
     el("button", { class: "tiny secondary", text: "Copy",
       onclick: (e) => copyText(text, e.target) }),
-    el("button", { class: "tiny secondary", text: "Dismiss",
+    el("button", { class: "tiny secondary", text: "Skip",
       onclick: () => onResolve("dismissed") }),
   ]));
   return card;
@@ -215,8 +303,9 @@ function notesCard(text, { state, onResolve }) {
 // Voice file (assistant.md). It is not a fact about their work — that is Notes —
 // so it is written as an instruction, and only once accepted.
 function voiceCard(text, { state, onResolve }) {
-  const card = el("div", { class: `chat-card ${state || ""}` });
-  card.append(el("div", { class: "chat-card-head", text: "For your voice" }));
+  const card = el("div", { class: `chat-card notes ${state || ""}` });
+  card.append(el("div", { class: "chat-card-head",
+    text: state ? "For your voice" : "For your voice · not saved yet" }));
   for (const para of text.split(/\n{2,}/)) {
     if (para.trim()) card.append(el("p", { class: "chat-answer-text", text: para.trim() }));
   }
@@ -226,7 +315,7 @@ function voiceCard(text, { state, onResolve }) {
     return card;
   }
   card.append(el("div", { class: "chat-card-actions" }, [
-    el("button", { class: "tiny", text: "Add to Voice", onclick: async (e) => {
+    el("button", { class: "tiny", text: "Keep this", onclick: async (e) => {
       e.target.disabled = true;
       try {
         await api("/api/setup/voice", { append: text });
@@ -239,7 +328,135 @@ function voiceCard(text, { state, onResolve }) {
     } }),
     el("button", { class: "tiny secondary", text: "Copy",
       onclick: (e) => copyText(text, e.target) }),
-    el("button", { class: "tiny secondary", text: "Dismiss",
+    el("button", { class: "tiny secondary", text: "Skip",
+      onclick: () => onResolve("dismissed") }),
+  ]));
+  return card;
+}
+
+// What the posting wants that the notes cannot support. Each line is a
+// question, and answering one is the only typing this flow asks of the user:
+// the answer goes into the chat, becomes a notes block, and once accepted
+// starts another round that proposes what it now earns.
+// "Do you have experience building with Drupal?" -> "I do not have experience
+// building with Drupal." A no is a fact, and until it was written down the
+// same question came back on every posting, because nothing in the notes said
+// the answer.
+function negative(question) {
+  const asked = question.trim().replace(/[?.]+$/, "");
+  for (const [pattern, opening] of [
+    [/^do you have\b/i, "I do not have"],
+    [/^do you\b/i, "I do not"],
+    [/^have you ever\b/i, "I have never"],
+    [/^have you\b/i, "I have not"],
+    [/^are you\b/i, "I am not"],
+    [/^can you\b/i, "I cannot"],
+    [/^did you\b/i, "I did not"],
+    [/^any\b/i, "I have no"],
+  ]) {
+    if (pattern.test(asked)) return `${opening}${asked.replace(pattern, "")}.`;
+  }
+  return `Not mine. ${asked}.`;
+}
+
+// One keyword from the posting's list that the notes do not answer, asked about
+// the experience underneath it. "I have…" takes one sentence, written to the
+// notes as typed; "I haven't" writes a plain no, so it is never asked again on
+// any posting. Either way the keyword's line in the map is updated.
+function askCard(keyword, question, { state, onResolve }) {
+  const card = el("div", { class: `chat-card notes ${state || ""}` });
+  card.append(el("div", { class: "chat-card-head", text: keyword }));
+  card.append(el("p", { class: "chat-answer-text", text: question }));
+  if (state) {
+    card.append(el("div", { class: "chat-card-state",
+      text: state === "accepted" ? "Added to your notes" : "Noted as a no" }));
+    return card;
+  }
+  const actions = el("div", { class: "chat-card-actions" });
+  const answer = el("textarea", { rows: 2, placeholder: "What you did, in a sentence" });
+  answer.hidden = true;
+  const send = async (action, extra, button) => {
+    const agent = agentModel();
+    button.disabled = true;
+    try {
+      keywordState = await api("/api/keywords", {
+        action, keyword, app: APP, ...extra,
+        ...(agent ? { provider: agent.provider, model: agent.model } : {}),
+      }).then((r) => r.json());
+      if (typeof updateScore === "function") updateScore();
+      onResolve(action === "answer" ? "accepted" : "dismissed");
+    } catch (error) {
+      setStatus(error.message, true);
+      button.disabled = false;
+    }
+  };
+  const keep = el("button", { class: "tiny", text: "Keep this", onclick: (e) => {
+    const sentence = answer.value.trim();
+    if (sentence) send("answer", { sentence }, e.target);
+  } });
+  keep.hidden = true;
+  actions.append(
+    el("button", { class: "tiny", text: "I have…", onclick: (e) => {
+      answer.hidden = false;
+      keep.hidden = false;
+      e.target.hidden = true;
+      answer.focus();
+    } }),
+    el("button", { class: "tiny secondary", text: "I haven't", onclick: (e) =>
+      send("decline", { line: declineLine(question) }, e.target) }),
+    keep,
+  );
+  card.append(answer, actions);
+  return card;
+}
+
+// The no that goes into the notes: the question's own answer, without the
+// keyword the card leads with.
+function declineLine(question) {
+  return negative(String(question).replace(/^[^.?:]*[.:]\s+(?=\S)/, ""));
+}
+
+function gapsCard(text, { state, onResolve }) {
+  const questions = text.split("\n").map((line) => line.replace(/^[-*\d.\s]+/, "").trim())
+    .filter(Boolean);
+  const card = el("div", { class: `chat-card ${state || ""}` });
+  card.append(el("div", { class: "chat-card-head", text: "Gaps against this posting" }));
+  if (state) {
+    for (const question of questions) {
+      card.append(el("p", { class: "chat-answer-text", text: question }));
+    }
+    card.append(el("div", { class: "chat-card-state", text: "Dismissed" }));
+    return card;
+  }
+  for (const question of questions) {
+    const row = el("div", { class: "chat-gap" }, [
+      el("span", { class: "chat-gap-q", text: question }),
+      el("button", { class: "tiny secondary", text: "I have this", onclick: () => {
+        const input = $("chat-input");
+        input.value = joinText(input.value, question);
+        input.focus();
+      } }),
+      el("button", { class: "tiny secondary", text: "I haven't", onclick: async (e) => {
+        const line = negative(question);
+        e.target.disabled = true;
+        try {
+          await api("/api/setup/notes", { append: line });
+          row.textContent = "";
+          row.append(el("span", { class: "chat-gap-q", text: line }),
+                     el("span", { class: "chat-card-state", text: "In your notes" }));
+          setStatus("Added to your notes");
+        } catch (error) {
+          e.target.disabled = false;
+          setStatus(`Could not add to notes: ${error.message}`, true);
+        }
+      } }),
+    ]);
+    card.append(row);
+  }
+  card.append(el("div", { class: "chat-card-actions" }, [
+    el("button", { class: "tiny secondary", text: "Copy",
+      onclick: (e) => copyText(questions.join("\n"), e.target) }),
+    el("button", { class: "tiny secondary", text: "Skip",
       onclick: () => onResolve("dismissed") }),
   ]));
   return card;
@@ -398,7 +615,16 @@ function plainText(text) {
 
 // A user turn. An attached file is shown as a chip, its text hidden from the
 // bubble but kept in the message so the model reads it.
-function renderUser(message) {
+function renderUser(message, index) {
+  // A tailoring round is a turn the user did not type. Showing it as their own
+  // message would read as words put in their mouth, so it shows as a note that
+  // the round ran. Once per round: every suggestion is its own request, and a
+  // note before each one read as the posting being read again after every yes.
+  if (message.pipeline) {
+    const previous = chat && chat.messages[index - 1];
+    if (previous && previous.pipeline) return el("div", { hidden: true });
+    return el("div", { class: "chat-round", text: "Working from the posting" });
+  }
   const box = el("div", { class: "chat-msg user" });
   const { name, text } = userParts(message.content);
   if (name) box.append(el("div", { class: "chat-attachment-chip", text: `Attached: ${name}` }));
@@ -424,9 +650,28 @@ function renderAssistant(message, index, streaming) {
       box.append(answerCard(match[2].trim()));
       continue;
     }
-    if (match[1] === "notes" || match[1] === "voice") {
+    if (match[1] === "ask") {
       const key = String(n++);
-      const card = match[1] === "notes" ? notesCard : voiceCard;
+      let asked = null;
+      try { asked = JSON.parse(match[2]); } catch { /* shown as text below */ }
+      if (!asked || typeof asked.keyword !== "string" || typeof asked.question !== "string") {
+        addText(match[2]);
+        continue;
+      }
+      box.append(askCard(asked.keyword, asked.question, {
+        state: message.resolved && message.resolved[key],
+        onResolve: (result) => {
+          message.resolved = { ...(message.resolved || {}), [key]: result };
+          saveHistory();
+          renderChat();
+          if (index === chat.messages.length - 1) cardResolved(result, asked.keyword);
+        },
+      }));
+      continue;
+    }
+    if (match[1] === "notes" || match[1] === "voice" || match[1] === "gaps") {
+      const key = String(n++);
+      const card = { notes: notesCard, voice: voiceCard, gaps: gapsCard }[match[1]];
       box.append(card(match[2].trim(), {
         state: message.resolved && message.resolved[key],
         onResolve: (result) => {
@@ -441,17 +686,20 @@ function renderAssistant(message, index, streaming) {
     let parsed = null;
     try { parsed = JSON.parse(match[2]); } catch { /* shown as text below */ }
     const wantsRemoval = Boolean(parsed && parsed.remove) && typeof parsed.path === "string";
+    const wantsShown = parsed && typeof parsed.show === "boolean" ? parsed.show : null;
     if (parsed && typeof parsed.path === "string"
-        && (wantsRemoval || typeof parsed.text === "string")) {
+        && (wantsRemoval || wantsShown !== null || typeof parsed.text === "string")) {
       const state = message.resolved && message.resolved[key];
       box.append(proposalCard(parsed.path, parsed.text || "", {
         state,
         kind,
         remove: wantsRemoval,
+        show: wantsShown,
         onResolve: (result) => {
           message.resolved = { ...(message.resolved || {}), [key]: result };
           saveHistory();
           renderChat();
+          if (index === chat.messages.length - 1) cardResolved(result, parsed.path);
         },
       }));
     } else {
@@ -459,9 +707,20 @@ function renderAssistant(message, index, streaming) {
     }
   }
   const tail = content.slice(last);
-  const open = tail.search(/```(proposal|answer|notes|voice)/);
+  const open = tail.search(/```(proposal|answer|notes|voice|gaps)/);
   addText(open === -1 ? tail : tail.slice(0, open));
-  if (open !== -1) box.append(el("div", { class: "chat-pending", text: "Writing a proposal…" }));
+  if (open !== -1 && streaming) {
+    box.append(el("div", { class: "chat-pending", text: "Writing a proposal…" }));
+  } else if (open !== -1) {
+    const cut = el("div", { class: "chat-card" });
+    cut.append(el("div", { class: "chat-card-head", text: "This reply was cut off" }));
+    cut.append(el("p", { class: "chat-answer-text",
+      text: "It stopped in the middle of a card, so there is nothing to apply." }));
+    cut.append(el("div", { class: "chat-card-actions" }, [
+      el("button", { class: "tiny", text: "Try again", onclick: () => retryTurn(index) }),
+    ]));
+    box.append(cut);
+  }
   if (streaming && !content) box.append(el("div", { class: "chat-pending", text: "Thinking…" }));
   // One action for the message, not one per paragraph: a paragraph is usually
   // the model thinking out loud, and there is nowhere to put it. Text that
@@ -479,7 +738,7 @@ function renderAssistant(message, index, streaming) {
 // blocks, which are machinery rather than something to paste anywhere.
 function messageText(content) {
   return content
-    .replace(/```(?:proposal|notes|voice)\s*[\s\S]*?```/g, "")
+    .replace(/```(?:proposal|notes|voice|gaps)\s*[\s\S]*?```/g, "")
     .replace(/```answer\s*([\s\S]*?)```/g, "$1")
     .split(/\n{2,}/)
     .map((para) => plainText(para.trim()))
@@ -517,6 +776,25 @@ function emptyState() {
   return box;
 }
 
+// Ask again for whatever that turn was, having dropped what arrived of it. A
+// round's turn is one nobody typed, so retrying it means running the round
+// again rather than resending a question the user never asked.
+async function retryTurn(index) {
+  if (!chat || chatController) return;
+  const message = chat.messages[index];
+  if (!message) return;
+  const wasRound = Boolean(message.pipeline);
+  const asked = chat.messages[index - 1];
+  chat.messages.splice(index - 1, 2);
+  renderChat();
+  saveHistory();
+  if (wasRound) { runTailor(); return; }
+  if (asked && asked.role === "user") {
+    $("chat-input").value = userParts(asked.content).text || "";
+    sendMessage();
+  }
+}
+
 function renderChat({ streaming = false } = {}) {
   const host = $("chat-log");
   const state = chat;
@@ -525,7 +803,7 @@ function renderChat({ streaming = false } = {}) {
   if (!state.messages.length) host.append(emptyState());
   state.messages.forEach((m, i) => {
     const isLast = i === state.messages.length - 1;
-    host.append(m.role === "user" ? renderUser(m) : renderAssistant(m, i, streaming && isLast));
+    host.append(m.role === "user" ? renderUser(m, i) : renderAssistant(m, i, streaming && isLast));
   });
   host.scrollTop = host.scrollHeight;
 }
@@ -747,6 +1025,18 @@ function insertTranscript(text) {
   input.focus();
 }
 
+// Sending retires dictation. The local recorder rewrites the whole box on
+// every pass, so left running it puts the sent words straight back into the
+// box the send just cleared, again every pass until the mic is clicked off.
+function cancelDictation() {
+  if (listener) listener.stop();
+  listener = null;
+  if (recorder) {
+    recorder.cancelled = true;
+    stopRecording();
+  }
+}
+
 function toggleDictation() {
   if (transcribeReady) { recorder ? stopRecording() : startRecording(); return; }
   if (listener) { listener.stop(); return; }
@@ -758,6 +1048,7 @@ function toggleDictation() {
     for (let i = event.resultIndex; i < event.results.length; i += 1) {
       if (event.results[i].isFinal) heard += event.results[i][0].transcript;
     }
+    if (listener !== speech) return;   // retired by a send
     if (heard.trim()) insertTranscript(heard.trim());
   };
   speech.onerror = (event) => {
@@ -814,6 +1105,7 @@ async function transcribeChunk(rec) {
   const wav = encodeWav(downsample(samples, rec.rate, 16000), 16000);
   const data = await api("/api/transcribe", { audio: bytesToBase64(wav) }).then((r) => r.json());
   const text = String(data.text || "").trim();
+  if (rec.cancelled) return;   // sent while this pass was in flight
   const input = $("chat-input");
   input.value = text ? joinText(rec.base, text) : rec.base;
 }
@@ -839,7 +1131,7 @@ async function stopRecording() {
   clearInterval(rec.timer);
   let failed = false;
   try {
-    await transcribeChunk(rec);   // a last pass over the full utterance
+    if (!rec.cancelled) await transcribeChunk(rec);   // a last pass over the full utterance
   } catch (error) {
     failed = true;
     setStatus(`Could not transcribe: ${error.message}`, true);
@@ -916,7 +1208,67 @@ function bytesToBase64(bytes) {
   return btoa(binary);
 }
 
+// What every turn sends. The tailoring rounds differ from a typed message by
+// one field, so they share this rather than keeping a second copy in step.
+function chatBody(state, agent, extra = {}) {
+  return {
+    document: documentMode,
+    provider: agent.provider,
+    model: agent.model,
+    doc: header(),
+    job_description: state.job_description,
+    // What the preview measured, so the model knows the shape of the page.
+    pages: typeof previewPages === "number" ? previewPages : 0,
+    overflowing: typeof overflowing !== "undefined" ? overflowing : [],
+    over_budget: typeof overBudget !== "undefined"
+      ? overBudget.map((o) => `${o.label} bullet ${o.bullet} runs ${o.lines} lines, allowed ${o.allowed}`)
+      : [],
+    // What this posting requires, if it has been read. Without it the model
+    // works from the notes alone, and the notes hold work done for every
+    // other posting too.
+    wanted: keywordList() || [],
+    // resolved rides along so the server can drop already-applied proposals
+    // from the transcript it sends on; undefined is omitted by stringify.
+    messages: state.messages.slice(0, -1)
+      .map(({ role, content, resolved }) => ({ role, content, resolved })),
+    ...extra,
+  };
+}
+
+// Stream a reply into `reply.content`, redrawing as it arrives. Throws on a
+// refused request; a failure mid-stream arrives as text and is shown as such.
+async function streamReply(reply, body) {
+  const response = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    signal: chatController.signal,
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(detail.error || "chat failed");
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    reply.content += decoder.decode(value, { stream: true });
+    const cut = reply.content.indexOf(STREAM_ERROR);
+    if (cut !== -1) {
+      setStatus(reply.content.slice(cut + 1), true);
+      reply.content = reply.content.slice(0, cut);
+      break;
+    }
+    renderChat({ streaming: true });
+  }
+}
+
 async function sendMessage() {
+  cancelDictation();
+  // The round is waiting on a card and the user has typed instead. That is an
+  // answer of its own: they have taken over, so the round stops here.
+  if (awaitingCard) cardResolved("stopped");
   const input = $("chat-input");
   const typed = input.value.trim();
   const state = chat;
@@ -945,44 +1297,8 @@ async function sendMessage() {
     setStatus(message, true);
   };
   try {
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: chatController.signal,
-      body: JSON.stringify({
-        document: documentMode,
-        provider: agent.provider,
-        model: agent.model,
-        doc: header(),
-        job_description: state.job_description,
-        // What the preview measured, so the model knows the shape of the page.
-        pages: typeof previewPages === "number" ? previewPages : 0,
-        overflowing: typeof overflowing !== "undefined" ? overflowing : [],
-        // resolved rides along so the server can drop already-applied proposals
-        // from the transcript it sends on; undefined is omitted by stringify.
-        messages: state.messages.slice(0, -1).map(({ role, content, resolved }) => ({ role, content, resolved })),
-      }),
-    });
-    if (!response.ok) {
-      const detail = await response.json().catch(() => ({ error: response.statusText }));
-      failed(detail.error || "chat failed");
-    } else {
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        reply.content += decoder.decode(value, { stream: true });
-        const cut = reply.content.indexOf(STREAM_ERROR);
-        if (cut !== -1) {
-          setStatus(reply.content.slice(cut + 1), true);
-          reply.content = reply.content.slice(0, cut);
-          break;
-        }
-        renderChat({ streaming: true });
-      }
-      if (!reply.content.trim()) state.messages.splice(-2, 2);
-    }
+    await streamReply(reply, chatBody(state, agent));
+    if (!reply.content.trim()) state.messages.splice(-2, 2);
   } catch (error) {
     if (error.name === "AbortError") {
       if (!reply.content.trim()) state.messages.splice(-2, 2);
@@ -999,6 +1315,176 @@ async function sendMessage() {
   }
 }
 
+/* ----------------------------------------------------------- tailoring
+
+   Pasting the posting is the instruction, so the round runs on its own. It is
+   a conversation of one suggestion at a time, in three steps: which roles
+   belong on this CV, then the wording of the ones that stayed, then making it
+   fit the page. Each step asks for one card, waits for the yes or no, and asks
+   again with that answer in hand. A page of cards at once was work done before
+   the user had agreed to any of it, and a no has to change what comes next. */
+
+// What the chat shows as the reason the round ran. Short on purpose: it is
+// stored in the transcript and resent with every later turn.
+const TAILOR_ASK = "Tailor this CV to the posting.";
+// The steps, in order. "again" is not one of them: it runs on its own when a
+// note is accepted while a gap is open.
+const TAILOR_STEPS = ["cast", "wording", "fit"];
+// Suggestions one step may make before it is cut off. A step normally ends by
+// having nothing left to say; this is for the case where it never stops.
+const MAX_STEP_CARDS = 8;
+// Survives the reload that naming a new application performs.
+const TAILOR_PENDING = "resume-maker.tailor-pending";
+// Paths and entries the user has turned down in this round. A no is an answer,
+// and the same suggestion two cards later makes the round a form.
+let tailorDeclined = [];
+let tailorRunning = false;
+// Resolves when the user answers the card the round is waiting on.
+let awaitingCard = null;
+
+const tailorReady = () => Boolean(
+  chat && (chat.job_description || "").trim() && documentMode !== "cover"
+  && !chatController && agentModel() && !tailorRunning);
+
+const STEP_STATUS = {
+  cast: "reading the posting against your experience…",
+  wording: "working on the wording…",
+  fit: "making it fit the page…",
+  again: "working from what you just told me…",
+};
+
+// A card the round is waiting on calls this when the user answers it.
+function cardResolved(result, what) {
+  if (result === "dismissed" && what) {
+    tailorDeclined.push(what);
+    // Kept with the posting, so the next round does not offer it again.
+    api("/api/keywords", { action: "skip", path: what, app: APP })
+      .then((r) => r.json()).then((state) => { keywordState = state; })
+      .catch(() => { /* this round still remembers it */ });
+  }
+  const waiting = awaitingCard;
+  awaitingCard = null;
+  if (waiting) waiting(result);
+}
+
+// Whether the reply that just arrived offered anything. A step that offers no
+// card has nothing left to say, which is how it ends.
+function offeredCard(content) {
+  for (const match of String(content || "").matchAll(BLOCK)) {
+    if (match[1] === "proposal" || match[1] === "gaps" || match[1] === "ask") return match[1];
+  }
+  return null;
+}
+
+async function askStep(phase) {
+  const state = chat;
+  const agent = agentModel();
+  state.messages.push({ role: "user", content: TAILOR_ASK,
+                        document: documentMode, pipeline: true });
+  const reply = { role: "assistant", content: "", document: documentMode,
+                  pipeline: true };
+  state.messages.push(reply);
+  renderChat({ streaming: true });
+  setBusy(true);
+  setStatus(STEP_STATUS[phase] || STEP_STATUS.wording);
+  chatController = new AbortController();
+  try {
+    await streamReply(reply, chatBody(state, agent, {
+      task: "tailor", phase,
+      settled: settledPaths(),
+      declined: tailorDeclined,
+    }));
+    if (!reply.content.trim()) {
+      state.messages.splice(-2, 2);
+      return "empty";
+    }
+    return offeredCard(reply.content) || "empty";
+  } catch (error) {
+    if (error.name === "AbortError") {
+      state.messages.splice(-2, 2);
+      return "stopped";
+    }
+    // The turn stays, carrying why it failed. Removing it left the user with
+    // an empty panel and a toast the next step overwrote.
+    reply.content = reply.content.trim()
+      ? `${reply.content}\n\nThis step stopped here. ${error.message}`
+      : `This step could not run. ${error.message}`;
+    reply.failed = true;
+    setStatus(error.message, true);
+    return "failed";
+  } finally {
+    chatController = null;
+    setBusy(false);
+    if ($("toast").dataset.state === "busy") showProgress(null);
+    renderChat();
+    refreshLabels();
+    saveHistory();
+  }
+}
+
+// One step: suggest, wait, suggest again, until it has nothing left to offer.
+async function runStep(phase) {
+  for (let card = 0; card < MAX_STEP_CARDS; card += 1) {
+    const kind = await askStep(phase);
+    if (kind === "stopped" || kind === "failed") return false;  // the round ends
+    if (kind === "empty") return true;   // nothing left to suggest: step done
+    if (kind === "gaps") return true;    // a question ends the step
+    const answered = await new Promise((resolve) => { awaitingCard = resolve; });
+    if (answered === "stopped") return false;
+  }
+  return true;
+}
+
+async function runTailor({ again = false } = {}) {
+  if (!tailorReady()) return;
+  tailorRunning = true;
+  showTailorButton();
+  if (!again) tailorDeclined = keywordState.current ? [...(keywordState.skipped || [])] : [];
+  try {
+    for (const phase of (again ? ["again"] : TAILOR_STEPS)) {
+      const finished = await runStep(phase);
+      if (!finished) break;
+    }
+  } finally {
+    tailorRunning = false;
+    awaitingCard = null;
+    showTailorButton();
+  }
+}
+
+// Every field the user has decided on in this conversation, by path. The
+// transcript cannot show this: a resolved proposal is replaced by a marker
+// before it is sent, so the model can see that something was applied there and
+// not what. Without the list it rewrote settled fields differently each round.
+function settledPaths() {
+  const paths = new Set();
+  for (const message of (chat && chat.messages) || []) {
+    if (message.role !== "assistant") continue;
+    const resolved = message.resolved || {};
+    let n = 0;
+    for (const match of String(message.content || "").matchAll(BLOCK)) {
+      if (match[1] === "answer") continue;
+      const key = String(n++);
+      if (match[1] !== "proposal" || resolved[key] !== "accepted") continue;
+      try {
+        const parsed = JSON.parse(match[2]);
+        if (parsed && typeof parsed.path === "string") paths.add(parsed.path);
+      } catch { /* shown as text in the transcript; not a field */ }
+    }
+  }
+  return [...paths];
+}
+
+// Naming a new application reloads the page at its real slug, so the round
+// cannot start before the reload. The flag carries the intent across it.
+function tailorAfterReload() {
+  try {
+    if (sessionStorage.getItem(TAILOR_PENDING) !== "1") return;
+    sessionStorage.removeItem(TAILOR_PENDING);
+  } catch { return; }
+  runTailor();
+}
+
 /* ------------------------------------------------------ job description */
 
 function drawJobTile() {
@@ -1013,39 +1499,67 @@ function drawJobTile() {
     const lines = text.split("\n").length;
     $("jd-meta").textContent = `${lines} line${lines === 1 ? "" : "s"} · ${text.length.toLocaleString()} chars`;
   }
+  showTailorButton();
+}
+
+// Starts the round on the posting and keyword list already kept. A round used
+// to start only when a new posting was pasted, so a reload mid-round lost it
+// and pasting the same posting again did nothing.
+function showTailorButton() {
+  $("chat-tailor").hidden = !tailorReady();
 }
 
 function setJobDescription(text) {
+  const fresh = text.trim() && text.trim() !== (chat.job_description || "").trim();
   chat.job_description = text;
   drawJobTile();
   saveHistorySoon();
-  nameFromJob(text);
   if (typeof scoreSoon === "function") scoreSoon();
+  if (!fresh) return;
+  tailorDeclined = [];                    // a new posting, a clean slate of noes
+  // Naming happens first: it can re-seed the CV from the newest application of
+  // the same track, and tailoring a document about to be replaced is wasted.
+  // A named application gets a fresh keyword list for the new posting before
+  // the round, which works down that list. An unnamed one is read by naming.
+  nameFromJob(text).then(async (moved) => {
+    if (moved) return;
+    await readKeywords({ fresh: true });
+    runTailor();
+  });
 }
 
 // A new application has no name until a job description arrives: the posting
 // says who the company is and what the role is called, so the application,
 // the cover letter's address and the exported filenames all come from it.
 async function nameFromJob(text) {
-  if (!document.body.dataset.unnamed || !text.trim()) return;
+  if (!document.body.dataset.unnamed || !text.trim()) return false;
   const agent = agentModel();
   if (!agent) { setStatus("Connect an agent to name this application", true); return; }
   delete document.body.dataset.unnamed;  // one attempt, not one per keystroke
   setStatus("Reading the job description…");
   try {
+    // Save first. Naming an application re-seeds the documents that still
+    // match the bytes they were created with, and an edit made before the
+    // posting arrived is exactly that case: it lived in the draft, the file
+    // was untouched, and the re-seed copied another application's CV over
+    // the top of it. Written to disk, it is no longer a candidate.
+    if (typeof saveNow === "function") {
+      try { await saveNow({ build: false }); } catch { /* re-seed may win; the draft still has it */ }
+    }
     const found = await api("/api/apps", {
       action: "identify", slug: APP, job_description: text,
       provider: agent.provider, model: agent.model,
     }).then((r) => r.json());
-    // The server may have swapped in a same-track CV/letter; drop this
-    // application's unsaved draft so it cannot restore over the fresh copy.
-    if (found.reseeded && typeof dropDraft === "function") dropDraft();
     await saveHistory();  // the chat follows the folder to its new name
+    // The round runs after the reload, on the document the re-seed left behind.
+    try { sessionStorage.setItem(TAILOR_PENDING, "1"); } catch { /* it just won't run */ }
     window.location.replace(`/${encodeURIComponent(found.application.slug)}${documentPath()}`);
+    return true;
   } catch (error) {
     document.body.dataset.unnamed = "1";
     setStatus(`Could not name this application: ${error.message}`, true);
   }
+  return false;
 }
 
 const documentPath = () => (documentMode === "cover" ? "/cover-letter" : "/resume");
@@ -1143,6 +1657,9 @@ async function chatModeChanged() {
   // The hub's model line links here with #agent: open the dialog on arrival
   // rather than making you find it again.
   if (window.location.hash === "#agent") openAgent();
+  // The list before the round: the round works down it.
+  await ensureKeywords();
+  tailorAfterReload();
 }
 
 // Proposal cards show field names ("Professional Summary"), not paths.
@@ -1151,6 +1668,7 @@ function refreshLabels() {
 }
 
 $("chat-send").addEventListener("click", sendMessage);
+$("chat-tailor").addEventListener("click", () => runTailor());
 // The mic is offered when either path works: a local engine (asked of the
 // server) or the browser's own recognition. Hidden only when neither is there.
 $("chat-mic").addEventListener("click", toggleDictation);
@@ -1158,7 +1676,13 @@ fetch("/api/transcribe").then((r) => r.json())
   .then((d) => { transcribeReady = Boolean(d.available); })
   .catch(() => { /* no endpoint: keep the browser path */ })
   .finally(() => { $("chat-mic").hidden = !(transcribeReady || Dictation); });
-$("chat-stop").addEventListener("click", () => chatController && chatController.abort());
+$("chat-stop").addEventListener("click", () => {
+  // Ends the round as well as the request in flight: the round is a sequence
+  // of requests, so aborting one of them alone just starts the next.
+  if (awaitingCard) cardResolved("stopped");
+  tailorRunning = false;
+  if (chatController) chatController.abort();
+});
 $("chat-input").addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendMessage(); }
 });

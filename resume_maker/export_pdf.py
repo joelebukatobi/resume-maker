@@ -9,6 +9,7 @@ afterwards.
 from __future__ import annotations
 
 import json
+from html import unescape
 import re
 import shutil
 import subprocess
@@ -26,7 +27,29 @@ _CANDIDATES = (
     "microsoft-edge",
 )
 
-_TITLE = re.compile(r"<title>OVERFLOW:(?P<payload>\[.*?\])</title>", re.S)
+_TITLE = re.compile(r"<title>OVERFLOW:(?P<payload>\{.*?\})</title>", re.S)
+
+
+@dataclass(frozen=True, slots=True)
+class OverBudget:
+    """One bullet that renders to more lines than its entry allows."""
+
+    label: str
+    bullet: int
+    lines: int
+    allowed: int
+
+    def __str__(self) -> str:
+        return (f"{self.label} bullet {self.bullet} runs {self.lines} lines, "
+                f"allowed {self.allowed}")
+
+
+@dataclass(frozen=True, slots=True)
+class Measurement:
+    """What the rendered page says about itself."""
+
+    overflowing: tuple[str, ...] = ()
+    over_budget: tuple[OverBudget, ...] = ()
 
 
 class BrowserNotFound(RuntimeError):
@@ -99,7 +122,13 @@ class Browser:
     def measure_overflow(
         self, html: str, *, timeout: int = DEFAULT_TIMEOUT
     ) -> tuple[str, ...]:
-        """Return the left-hand label of every two-column line that overflows."""
+        """The left-hand label of every two-column line that overflows."""
+        return self.measure(html, timeout=timeout).overflowing
+
+    def measure(
+        self, html: str, *, timeout: int = DEFAULT_TIMEOUT
+    ) -> "Measurement":
+        """Render the page and read back what it measured of itself."""
         with _workspace(html) as (profile, source):
             result = self._run(
                 [
@@ -123,7 +152,18 @@ class Browser:
             payload = json.loads(match.group("payload"))
         except json.JSONDecodeError as exc:
             raise ExportError("overflow report was not valid JSON") from exc
-        return tuple(str(item) for item in payload)
+        return Measurement(
+            overflowing=tuple(unescape(str(item)) for item in payload.get("offenders") or ()),
+            over_budget=tuple(
+                OverBudget(
+                    label=unescape(str(item.get("label", ""))),
+                    bullet=int(item.get("bullet", 0)),
+                    lines=int(item.get("lines", 0)),
+                    allowed=int(item.get("allowed", 0)),
+                )
+                for item in payload.get("over") or ()
+            ),
+        )
 
 
 class _workspace:

@@ -26,8 +26,9 @@ body:not(.chat-open) .chat { display: none; }
 .chat-list li { margin: 2px 0; overflow-wrap: anywhere; }
 .chat-heading { font-weight: 600; color: #fff; }
 .chat-group { display: flex; flex-direction: column; gap: 6px; }
-.chat-msg.user { align-self: flex-end; max-width: 88%; background: #2a2a2a; padding: 8px 10px; border-radius: 10px; }
-.chat-msg.assistant { display: flex; flex-direction: column; gap: 8px; }
+.chat-msg.user { align-self: flex-end; max-width: 88%; background: #f4f1ea; color: #111; padding: 8px 10px; border-radius: 10px; }
+.chat-msg.user strong { color: #111; }
+.chat-msg.assistant { display: flex; flex-direction: column; gap: 8px; background: #1e1e1e; padding: 10px 12px; border-radius: 10px; }
 .chat-para { position: relative; }
 /* One row under the whole reply, shown while the message is hovered. */
 .chat-msg-actions { display: flex; gap: 6px; margin-top: 6px; visibility: hidden; }
@@ -52,6 +53,19 @@ body:not(.chat-open) .chat { display: none; }
 .chat-answer-text { margin: 0 0 6px; white-space: pre-wrap; }
 .chat-card-state { font-size: 11px; color: var(--pico-muted-color); margin-top: 6px; }
 .chat-pending { font-size: 12px; color: var(--pico-muted-color); }
+/* A round the posting triggered, not a message the user typed. */
+.chat-round {
+  align-self: center; font-size: 11px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--pico-muted-color);
+}
+/* One gap per row: the question, and the way to answer it. */
+.chat-gap {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  padding: 5px 0; border-bottom: 1px solid var(--pico-muted-border-color);
+}
+.chat-gap:last-of-type { border-bottom: 0; }
+.chat-gap-q { flex: 1; }
+.chat-gap button { margin: 0; padding: 2px 8px; font-size: 11px; width: auto; flex: none; }
 .chat-head-actions { display: flex; gap: 12px; align-items: center; }
 .chat-link {
   width: auto; margin: 0; padding: 0; border: 0; background: none; box-shadow: none;
@@ -162,3 +176,8 @@ dialog article { width: min(460px, 92vw); padding: 20px; }
 .chat-link .ico { width: 16px; height: 16px; }
 .chat-icon .ico { width: 14px; height: 14px; }
 .tile-x .ico { width: 13px; height: 13px; }
+
+/* Anything headed for the notes, so a glance tells a change to the documents
+   from a change to what the tool knows about him. */
+.chat-card.notes { background: #eef5ee; color: #1b2a1e; }
+.chat-card.notes .chat-card-head, .chat-card.notes .chat-answer-text { color: #1b2a1e; }

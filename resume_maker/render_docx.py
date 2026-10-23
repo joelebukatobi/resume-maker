@@ -27,6 +27,7 @@ from .model import (
     LabeledSection,
     ParagraphSection,
     Section,
+    shown,
 )
 from .theme import RULE_COLOR, RULE_GAP_PT, RULE_WEIGHT_PT, Theme
 
@@ -94,7 +95,7 @@ class DocxRenderer:
         parts = [
             self._paragraph(
                 self._run(cv.name, bold=True, size_pt=theme.size_name_pt),
-                align="right",
+                align="center",
                 keep_next=True,
             ),
             self._contact_paragraph(header_items(cv.contact), links, rule=True),
@@ -114,7 +115,7 @@ class DocxRenderer:
                 keep_next=True,
             ),
             *(
-                self._contact_paragraph((item,), links)
+                self._contact_paragraph((item,), links, align="right")
                 for item in header_items(letter.contact)
             ),
             self._paragraph(
@@ -155,7 +156,7 @@ class DocxRenderer:
         if isinstance(section, EntrySection):
             return "".join(
                 self._entry(entry, first=(index == 0))
-                for index, entry in enumerate(section.entries)
+                for index, entry in enumerate(shown(section.entries))
             )
         if isinstance(section, LabeledSection):
             return "".join(
@@ -198,7 +199,8 @@ class DocxRenderer:
         )
 
     def _contact_paragraph(
-        self, contact: tuple[ContactItem, ...], links: list[str], *, rule: bool = False
+        self, contact: tuple[ContactItem, ...], links: list[str], *, rule: bool = False,
+        align: str = "center",
     ) -> str:
         theme = self._theme
         size = theme.size_contact_pt
@@ -207,7 +209,7 @@ class DocxRenderer:
             if index:
                 runs.append(self._run(" | ", bold=True, size_pt=size))
             runs.append(self._contact_run(item, links, bold=True, size_pt=size))
-        return self._paragraph("".join(runs), align="right", border_bottom=rule)
+        return self._paragraph("".join(runs), align=align, border_bottom=rule)
 
     def _contact_run(
         self, item: ContactItem, links: list[str], *, bold: bool, size_pt: float | None

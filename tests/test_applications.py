@@ -91,20 +91,48 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(json.loads(self.space.paths(fresh.slug)["cv"].read_text())["name"],
                          "Product CV")
 
-    def test_reseed_keeps_an_edited_document_but_pulls_the_other(self):
+    def test_reseed_leaves_an_edited_cv_alone(self):
         product = self.space.create("Meta — RPM")
         self.space.set_track(product.slug, "Product")
         self.space.paths(product.slug)["cv"].write_text(json.dumps({"name": "Product CV"}))
-        self.space.paths(product.slug)["cover"].write_text(json.dumps({"company": "ProductCo"}))
         fresh = self.space.create("Osmo — TPM")
         self.space.set_track(fresh.slug, "Product")
         self.space.paths(fresh.slug)["cv"].write_text(json.dumps({"name": "My own edit"}))
         self.space.reseed(fresh.slug, "Product")
-        # The edited CV is left alone; the untouched letter is pulled.
         self.assertEqual(json.loads(self.space.paths(fresh.slug)["cv"].read_text())["name"],
                          "My own edit")
-        self.assertEqual(json.loads(self.space.paths(fresh.slug)["cover"].read_text())["company"],
-                         "ProductCo")
+
+    def test_reseed_never_brings_another_postings_letter(self):
+        """What it used to do. Naming an application handed it the previous
+        application's finished letter with the company and role swapped in, so
+        a veterinary marketplace was pitched a letter about Figma and design
+        systems. A letter is written to one posting."""
+        product = self.space.create("Fizz — Design PM")
+        self.space.set_track(product.slug, "Product")
+        self.space.paths(product.slug)["cover"].write_text(
+            json.dumps({"company": "Fizz", "paragraphs": ["Design has been part of my work."]}))
+        fresh = self.space.create("Vetcove — APM")
+        self.space.set_track(fresh.slug, "Product")
+        self.space.reseed(fresh.slug, "Product")
+        letter = json.loads(self.space.paths(fresh.slug)["cover"].read_text())
+        self.assertNotIn("paragraphs", letter)           # the base letter's shape, not Fizz's
+
+    def test_a_plain_new_application_starts_the_letter_from_the_base(self):
+        first = self.space.create("Fizz — Design PM")
+        self.space.paths(first.slug)["cv"].write_text(json.dumps({"name": "Tailored CV"}))
+        self.space.paths(first.slug)["cover"].write_text(
+            json.dumps({"company": "Fizz", "role": "Design PM"}))
+        chained = self.space.create("Vetcove — APM", source=first.slug, keep_letter=False)
+        # The CV carries forward, because tailoring compounds ...
+        self.assertEqual(json.loads(self.space.paths(chained.slug)["cv"].read_text())["name"],
+                         "Tailored CV")
+        # ... the letter does not, because it argued another posting's case.
+        self.assertEqual(json.loads(self.space.paths(chained.slug)["cover"].read_text())["company"],
+                         "Meta")
+        # Duplicate asks for a source by name, and keeps the letter.
+        copy = self.space.create("Fizz — Design PM 2", source=first.slug)
+        self.assertEqual(json.loads(self.space.paths(copy.slug)["cover"].read_text())["company"],
+                         "Fizz")
 
     def test_reseed_does_nothing_without_a_same_track_source(self):
         solo = self.space.create("Meta — RPM")
@@ -149,6 +177,55 @@ class WorkspaceTests(unittest.TestCase):
         self.space.archive(app.slug)
         with self.assertRaises(ApplicationError):
             self.space.set_current(app.slug)
+
+    def test_deleting_the_open_application_falls_back_to_the_last_one_opened(self):
+        """``created`` is a date, so applications made the same day tie on it
+        and the slug broke the tie. Deleting the open application then fell
+        back to an alphabetical winner rather than the one last worked on."""
+        zulu = self.space.create("Zulu — PM")            # sorts first, reversed
+        alpha = self.space.create("Alpha — PM")
+        doomed = self.space.create("Doomed — PM")
+        self.space.set_current(alpha.slug)               # worked on ...
+        self.space.set_current(doomed.slug)              # ... then this one, now deleted
+        self.space.delete(doomed.slug)
+        self.assertEqual(self.space.current, alpha.slug)
+        self.assertNotEqual(self.space.current, zulu.slug)
+
+    def test_a_new_application_starts_from_the_one_opened_most_recently(self):
+        older = self.space.create("Zulu — PM")
+        self.space.paths(older.slug)["cv"].write_text(json.dumps({"name": "Older"}))
+        recent = self.space.create("Alpha — PM")
+        self.space.paths(recent.slug)["cv"].write_text(json.dumps({"name": "What I use now"}))
+        self.space.set_current(recent.slug)
+        self.space.delete(recent.slug)                   # the pointer goes with it
+        fresh = self.space.create("New — PM", source=self.space.current)
+        self.assertEqual(json.loads(self.space.paths(fresh.slug)["cv"].read_text())["name"],
+                         "Older")
+
+    def test_an_id_is_unique_and_survives_a_rename(self):
+        """The browser keys the unsaved draft and the fit reading on the id.
+        A slug is reused by the next application made from the same posting,
+        which would otherwise open with the deleted one's work in it."""
+        first = self.space.create("Meta — RPM")
+        self.assertTrue(first.id)
+        renamed = self.space.rename(first.slug, "Meta — Rotational PM", reslug=True)
+        self.assertEqual(renamed.id, first.id)
+        self.space.delete(renamed.slug)
+        again = self.space.create("Meta — Rotational PM")
+        self.assertEqual(again.slug, renamed.slug)       # the slug comes back ...
+        self.assertNotEqual(again.id, first.id)          # ... the identity does not
+
+    def test_applications_made_before_ids_get_one(self):
+        app = self.space.create("Meta — RPM")
+        folder = self.space.folder(app.slug)
+        meta = json.loads((folder / "app.json").read_text())
+        del meta["id"], meta["opened"]
+        (folder / "app.json").write_text(json.dumps(meta))
+        self.assertEqual(self.space.adopt_ids(), 1)
+        back = self.space.list()[0]
+        self.assertTrue(back.id)
+        self.assertGreater(back.opened, 0)               # from when the documents were written
+        self.assertEqual(self.space.adopt_ids(), 0)      # once, not on every start
 
     def test_identifying_an_unnamed_application_moves_it_to_a_real_slug(self):
         app = self.space.create("Untitled application")

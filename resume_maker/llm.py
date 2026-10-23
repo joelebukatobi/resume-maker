@@ -299,8 +299,14 @@ def stream_chat(
     messages: Sequence[Mapping[str, str]],
     cacheable: str = "",
     tail: str = "",
+    temperature: float | None = None,
 ) -> Iterator[str]:
     """Stream the reply as text chunks. Close the iterator to stop early.
+
+    ``temperature`` is left to the provider unless a caller sets it. A call
+    that writes wants the default; a call that measures does not. Reading the
+    same CV against the same posting twice returned 35 and then 42, because
+    nothing had pinned it and every reading was a fresh sample.
 
     ``cacheable`` is the part of the system prompt that repeats turn after
     turn. Providers bill a repeated prefix at a fraction of the usual rate:
@@ -327,17 +333,34 @@ def stream_chat(
             blocks = system
         body = {"model": model, "max_tokens": MAX_TOKENS, "system": blocks,
                 "messages": turns, "stream": True}
+        if temperature is not None:
+            body["temperature"] = temperature
     else:
         path = "/chat/completions"
         body = {"model": model, "stream": True,
                 "messages": [{"role": "system", "content": system}, *turns]}
-    response = _open(p, path, body)
+        if temperature is not None:
+            body["temperature"] = temperature
+    try:
+        response = _open(p, path, body)
+    except LLMError as exc:
+        # Newer models refuse the parameter outright ("`temperature` is
+        # deprecated for this model") while older ones and other providers
+        # take it. It is a preference, never worth a failed call, so a request
+        # turned away for it goes again without it.
+        if "temperature" not in body or "temperature" not in str(exc):
+            raise
+        body = {k: v for k, v in body.items() if k != "temperature"}
+        response = _open(p, path, body)
     try:
         yield from text_deltas(p.kind, sse_data(response))
     finally:
         response.close()
 
 
-def complete(provider_id: str, model: str, system: str, prompt: str) -> str:
-    """One-shot completion, used for import."""
-    return "".join(stream_chat(provider_id, model, system, [{"role": "user", "content": prompt}]))
+def complete(provider_id: str, model: str, system: str, prompt: str,
+             temperature: float | None = None) -> str:
+    """One-shot completion, used for import and for the readings."""
+    return "".join(stream_chat(provider_id, model, system,
+                               [{"role": "user", "content": prompt}],
+                               temperature=temperature))

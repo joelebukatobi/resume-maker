@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, Iterable
 
-from .model import PHONE_SHAPE, CV, CoverLetter, EntrySection, LabeledSection, ParagraphSection
+from .model import (PHONE_SHAPE, CV, CoverLetter, EntrySection, LabeledSection,
+                    ParagraphSection, shown)
 
 # Headings most applicant tracking systems map to a known section. Anything
 # else still exports; it simply lands in the parser's unclassified bucket.
@@ -98,7 +99,7 @@ def check_not_empty(cv: CV) -> Iterable[Issue]:
     for index, section in enumerate(cv.sections):
         empty = (
             (isinstance(section, ParagraphSection) and not section.text)
-            or (isinstance(section, EntrySection) and not section.entries)
+            or (isinstance(section, EntrySection) and not shown(section.entries))
             or (isinstance(section, LabeledSection) and not section.items)
         )
         if empty:

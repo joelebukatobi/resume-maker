@@ -26,6 +26,8 @@ from .model import (
     LabeledSection,
     ParagraphSection,
     Section,
+    Budget,
+    shown,
 )
 from .theme import RULE_COLOR, RULE_GAP_PT, RULE_WEIGHT_PT, Theme
 
@@ -151,10 +153,31 @@ _FIT_SCRIPT = """
 })();
 """
 
+# How many lines a bullet renders to. A range over the text reports one
+# rectangle per line fragment, so counting distinct tops counts lines at the
+# real font and column width. The list marker sits in ::before and has no text
+# node of its own, so it is not counted.
+_LINE_COUNT = """
+function lineCount(item) {
+  var range = document.createRange();
+  range.selectNodeContents(item);
+  var tops = {}, n = 0;
+  var rects = range.getClientRects();
+  for (var i = 0; i < rects.length; i += 1) {
+    if (rects[i].width === 0 && rects[i].height === 0) { continue; }
+    var top = Math.round(rects[i].top * 4) / 4;
+    if (!tops[top]) { tops[top] = true; n += 1; }
+  }
+  return n || 1;
+}
+"""
+
 _MEASURE_SCRIPT = """
 (function () {
+%s
 function measure() {
   var offenders = [];
+  var over = [];
   var scope = document.querySelector('.page') || document;
   scope.querySelectorAll('.row').forEach(function (row) {
     if (row.scrollWidth > row.clientWidth + 1) {
@@ -162,19 +185,33 @@ function measure() {
       offenders.push(row.getAttribute('data-label') || '');
     }
   });
+  scope.querySelectorAll('.entry').forEach(function (entry) {
+    var label = entry.getAttribute('data-label') || '';
+    entry.querySelectorAll('li').forEach(function (item, index) {
+      var allowed = Number(item.getAttribute('data-allowed'));
+      if (!isFinite(allowed) || allowed <= 0) { return; }
+      var lines = lineCount(item);
+      if (lines > allowed) {
+        item.classList.add('over-budget');
+        over.push({ label: label, bullet: index + 1, lines: lines, allowed: allowed });
+      }
+    });
+  });
+  var payload = { offenders: offenders, over: over };
   var report = document.getElementById('overflow-report');
   if (report) { report.textContent = JSON.stringify(offenders); }
-  document.title = 'OVERFLOW:' + JSON.stringify(offenders);
+  document.title = 'OVERFLOW:' + JSON.stringify(payload);
   // The preview runs in a sandboxed iframe with no same-origin access, so
   // the measurement is posted out rather than read back through the DOM.
   if (window.parent !== window) {
-    window.parent.postMessage({ type: 'resume-overflow', offenders: offenders }, '*');
+    window.parent.postMessage(
+      { type: 'resume-overflow', offenders: offenders, over: over }, '*');
   }
 }
 measure();
 if (document.fonts) { document.fonts.ready.then(measure); }
 })();
-"""
+""" % _LINE_COUNT
 
 
 class HtmlRenderer:
@@ -207,12 +244,13 @@ class HtmlRenderer:
                 ]
             )
         frame = "preview" if preview else "print"
+        page = "page letter" if letter else "page"
         return (
             "<!DOCTYPE html>"
             '<html lang="en"><head><meta charset="utf-8">'
             f"<title>{escape((letter.name if letter else cv.name))}</title>"
             f"<style>{self._css(preview=preview)}</style></head>"
-            f'<body class="{frame}"><main class="page">{body}</main>'
+            f'<body class="{frame}"><main class="{page}">{body}</main>'
             '<pre id="overflow-report" hidden></pre>'
             f"<script>{_MEASURE_SCRIPT}"
             + (_FIT_SCRIPT if preview else "")
@@ -258,7 +296,7 @@ class HtmlRenderer:
         if isinstance(section, ParagraphSection):
             return f'<p class="summary">{escape(section.text)}</p>'
         if isinstance(section, EntrySection):
-            return "".join(self._entry(entry) for entry in section.entries)
+            return "".join(self._entry(entry) for entry in shown(section.entries))
         if isinstance(section, LabeledSection):
             return "".join(
                 f'<p class="labeled"><strong>{escape(item.label)}:</strong> '
@@ -280,8 +318,9 @@ class HtmlRenderer:
         if entry.note:
             parts.append(f'<p class="note">{escape(entry.note)}</p>')
         if entry.bullets:
-            parts.append(self._bullets(entry.bullets))
-        return f'<section class="entry">{"".join(parts)}</section>'
+            parts.append(self._bullets(entry.bullets, entry.budget))
+        label = escape(entry.left, quote=True)
+        return f'<section class="entry" data-label="{label}">{"".join(parts)}</section>'
 
     def _row(self, left: str, right: str, *, italic_left: bool = False) -> str:
         left_class = "left italic" if italic_left else "left"
@@ -291,8 +330,12 @@ class HtmlRenderer:
             f'<span class="{left_class}">{escape(left)}</span>{right_html}</div>'
         )
 
-    def _bullets(self, bullets: Iterable[str]) -> str:
-        items = "".join(f"<li>{escape(text)}</li>" for text in bullets)
+    def _bullets(self, bullets: Iterable[str], budget: Budget | None = None) -> str:
+        budget = budget or Budget()
+        items = "".join(
+            f'<li data-allowed="{budget.allowance(n)}">{escape(text)}</li>'
+            for n, text in enumerate(bullets)
+        )
         return f"<ul>{items}</ul>"
 
     # -- styling --------------------------------------------------------
@@ -313,9 +356,10 @@ body{{font-family:{theme.font_stack};
   -webkit-font-smoothing:antialiased;}}
 .page{{width:{theme.text_width_in}in;}}
 h1,h2,p,ul{{margin:0;padding:0;font-size:inherit;font-weight:normal;}}
-.name{{font-size:{theme.size_name_pt}pt;font-weight:bold;text-align:right;
+.name{{font-size:{theme.size_name_pt}pt;font-weight:bold;text-align:center;
   letter-spacing:normal;font-kerning:normal;text-rendering:geometricPrecision;}}
-.contact{{font-size:{theme.size_contact_pt}pt;font-weight:bold;text-align:right;}}
+.contact{{font-size:{theme.size_contact_pt}pt;font-weight:bold;text-align:center;}}
+.letter .name,.letter .contact{{text-align:right;}}
 .contact.rule{{border-bottom:{RULE_WEIGHT_PT}pt solid #{RULE_COLOR};padding-bottom:{RULE_GAP_PT}pt;}}
 .contact a{{color:#{theme.link_color};text-decoration:{underline};}}
 .heading{{font-size:{theme.size_heading_pt}pt;font-weight:bold;text-transform:uppercase;

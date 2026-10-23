@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from resume_maker.build import export_name, safe_stem  # noqa: E402
-from resume_maker.model import CV, ContentError, CoverLetter, normalise_dates  # noqa: E402
+from resume_maker.model import CV, ContentError, CoverLetter, normalise_dates, shown  # noqa: E402
 from resume_maker.render_docx import DocxRenderer  # noqa: E402
 from resume_maker.render_html import HtmlRenderer  # noqa: E402
 from resume_maker.theme import Theme, ThemeError  # noqa: E402
@@ -116,13 +116,45 @@ class DocxStructureTests(unittest.TestCase):
             for name in names:
                 ElementTree.fromstring(archive.read(name))
 
+    def test_the_header_is_centred(self):
+        """The name and the contact line sit in the middle, in both outputs."""
+        cv, theme = load()
+        xml = docx_part(DocxRenderer(theme).render(cv), "word/document.xml")
+        html = HtmlRenderer(theme).render(cv, preview=False)
+        self.assertIn('<w:jc w:val="center"/>', xml)
+        self.assertNotIn('<w:jc w:val="right"/>', xml)   # the header was the only one
+        self.assertIn("text-align:center", html.split(".heading")[0])
+
+    def test_the_letter_header_stays_on_the_right(self):
+        """Only the CV moved. The letter's name and contact sit where they
+        were, above prose that is itself left aligned."""
+        cv, theme = load()
+        letter = CoverLetter.from_mapping({
+            "name": "Joel Onwuanaku",
+            "contact": [{"text": "you@example.com"}],
+            "role": "Rotational Development Program",
+            "company": "Flexport",
+            "greeting": "Dear [Company] Hiring Team,",
+            "paragraphs": ["I am applying for the [Role] at [Company]."],
+            "closing": "Thank you for your consideration.",
+            "signoff": "Sincerely,",
+        })
+        html = HtmlRenderer(theme).render(cv, preview=False, letter=letter)
+        self.assertIn('<main class="page letter">', html)
+        self.assertIn(".letter .name,.letter .contact{text-align:right;}", html)
+        xml = docx_part(DocxRenderer(theme).render(cv, letter), "word/document.xml")
+        self.assertIn('<w:jc w:val="right"/>', xml)
+        self.assertNotIn('<w:jc w:val="center"/>', xml)
+
     def test_bullets_use_the_list_numbering(self):
         cv, theme = load()
         xml = docx_part(DocxRenderer(theme).render(cv), "word/document.xml")
+        # What the page holds, not what the document holds: an entry that is
+        # off travels with the CV and prints nothing.
         bullets = sum(
             len(entry.bullets)
             for section in cv.sections
-            for entry in getattr(section, "entries", ())
+            for entry in shown(getattr(section, "entries", ()))
         )
         self.assertEqual(xml.count('<w:numId w:val="1"/>'), bullets)
 
@@ -494,6 +526,202 @@ class MatchTests(unittest.TestCase):
                                     "Requirements: experience. We offer benefits.")
         self.assertNotIn("responsibilities", result.missing)
         self.assertNotIn("benefits", result.missing)
+
+
+class RequirementTests(unittest.TestCase):
+    """Counting against a list of requirements rather than against repetition.
+
+    The posting's own repetitions cannot tell a requirement from the team's
+    org chart. On one engineering posting "marketplace makers" and "star
+    seller" weighed 6 each, because the posting names its team and its product
+    three times apiece, while "ruby" weighed 2 and was the only miss the
+    candidate could have done anything about.
+    """
+
+    CV = ["Built full-stack features in PHP and React with TypeScript.",
+          "Ran A/B experiments and shipped behind feature flags."]
+
+    def test_each_requirement_counts_once(self):
+        result = match.score_against(self.CV, ["php", "react", "typescript", "ruby"])
+        self.assertEqual(result.score, 75)
+        self.assertEqual(result.missing, ("ruby",))
+
+    def test_a_requirement_is_matched_on_its_stem(self):
+        result = match.score_against(["Ran experiments on the pipeline."],
+                                     ["a/b experiment", "pipelines"])
+        self.assertIn("pipelines", result.matched)
+
+    def test_an_empty_list_scores_zero_rather_than_everything(self):
+        self.assertEqual(match.score_against(self.CV, []).score, 0)
+
+    def test_the_weighting_that_made_this_necessary(self):
+        """Side by side, on the shape of the posting that prompted it."""
+        posting = ("Software Engineer, Marketplace Makers. Join the Marketplace "
+                   "Makers team. Marketplace Makers build the Star Seller program. "
+                   "The Star Seller dashboard and Star Seller status matter. "
+                   "You will write PHP. Ruby is a plus.\n")
+        counted = match.score(self.CV, posting)
+        self.assertTrue(any("marketplace makers" in term for term in counted.missing))
+        listed = match.score_against(self.CV, ["php", "ruby"])
+        self.assertEqual(listed.missing, ("ruby",))     # the only one worth knowing
+
+
+class JobTextTests(unittest.TestCase):
+    """The posting cut down to the part that describes the job.
+
+    Counted whole, a benefits table and an equal-opportunity paragraph beat the
+    requirements: one consulting posting's forty terms included "employees
+    spouses", "usd", "cost" and "qualified applicants", and the heaviest term
+    of all was the company's own acronym. None of it can honestly appear on a
+    CV, so the missing list was asking for words that could not help.
+    """
+
+    POSTING = (
+        "What You'll Do\n"
+        "You will own the product roadmap and run discovery with engineering.\n"
+        "Experience with data pipelines is required.\n"
+        "You will write the requirements, define the metrics and measure adoption.\n"
+        "You will work with data science on the pipeline design and the rollout.\n"
+        "You will run the launch, the handoff and the release notes.\n"
+        "Strong candidates have owned a roadmap and shipped a data pipeline.\n"
+        "\n"
+        "Additional info\n"
+        "The first year base compensation for this role is $120,000 USD.\n"
+        "Zero dollar health insurance premiums for employees, spouses and children.\n"
+        "Dental coverage, including up to $5,000 in orthodontia benefits.\n"
+        "Generous paid time off including vacation and holidays.\n"
+        "All qualified applicants will be considered for employment without "
+        "regard to sex, gender identity, age, or any other characteristic.\n"
+    )
+
+    def terms(self, text):
+        return [term for term, _ in match._terms(match.job_text(text))]
+
+    def test_the_benefits_and_the_law_are_not_requirements(self):
+        kept = " ".join(self.terms(self.POSTING))
+        for gone in ("spouses", "orthodontia", "usd", "qualified", "vacation",
+                     "characteristic", "premiums"):
+            self.assertNotIn(gone, kept)
+        for stays in ("roadmap", "pipeline", "discovery", "adoption"):
+            self.assertIn(stays, kept)
+
+    def test_a_perk_word_that_is_the_industry_survives(self):
+        """One benefits word on a line is the industry; several together are
+        the benefits table. A pensions company's postings are about retirement.
+
+        Note what this cannot rescue: "insurance" and "benefits" have been in
+        STOPWORDS since before any of this, so a reinsurance posting never
+        counted them in the first place.
+        """
+        kept = self.terms("We are a leading retirement platform.\n"
+                          "You will own the retirement pricing product.\n"
+                          "You will run discovery and own the roadmap.\n")
+        self.assertIn("retirement", " ".join(kept))
+
+    def test_a_marker_inside_a_longer_word_is_not_a_marker(self):
+        """"vested" matched "invested" and deleted the job description."""
+        line = "We want a developer who is invested in the craft of the web."
+        self.assertEqual(match.job_text(line), line)
+
+    def test_a_posting_pasted_as_one_wall_is_filtered_by_sentence(self):
+        wall = ("You will own the product roadmap and run discovery. "
+                "Salary starts at $90,000. "
+                "You will define the data pipeline with engineering. ") * 3
+        kept = match.job_text(wall)
+        self.assertNotIn("90,000", kept)
+        self.assertIn("product roadmap", kept)   # the sentence either side survives
+
+    def test_a_filter_that_eats_the_posting_is_abandoned(self):
+        """It has misfired rather than found an unusually legal posting, and a
+        posting counted against nothing scores zero, which is worse."""
+        mostly_pay = "Base salary $100,000 USD. 401(k). Dental. Paid time off."
+        self.assertEqual(match.job_text(mostly_pay), mostly_pay)
+
+    POSTING_WITH_SECTIONS = (
+        "Software Engineer I, Marketplace Makers\n"
+        "Continue Application\n"
+        "remote type\n"
+        "Partially Remote\n"
+        "locations\n"
+        "Brooklyn, New York\n"
+        "posted on\n"
+        "Posted Yesterday\n"
+        "job requisition id\n"
+        "JR6037\n"
+        "\n"
+        "Company Description\n"
+        "We are the global marketplace for unique and creative goods, and we "
+        "believe exceptional companies are built by exceptional teams who "
+        "believe in what they do.\n"
+        "\n"
+        "What You'll Do\n"
+        "You will own the product roadmap and run discovery with engineering, "
+        "and you will ship features behind feature flags.\n"
+        "Some experience building web applications, in languages such as PHP, "
+        "Python, Ruby, Java, or JavaScript/TypeScript.\n"
+        "\n"
+        "Compensation & Benefits\n"
+        "Etsy uses two geographic pay zones covering the New York City "
+        "metropolitan area and the San Francisco Bay Area, and salary ranges "
+        "for this role vary by zone.\n"
+        "We prioritize candidates within commutable distance of the office.\n"
+    )
+
+    def test_a_section_that_is_not_the_job_goes_whole(self):
+        kept = " ".join(self.terms(self.POSTING_WITH_SECTIONS))
+        for gone in ("unique", "exceptional", "believe",          # the blurb
+                     "geo", "metropolitan", "commutable",         # the pay zones
+                     "requisition", "posted", "brooklyn"):        # the job board
+            self.assertNotIn(gone, kept)
+        for stays in ("roadmap", "discovery", "php", "python"):
+            self.assertIn(stays, kept)
+
+    def test_a_slash_joined_pair_counts_as_both_sides(self):
+        """"React/TypeScript" was one term no CV could answer, because a CV
+        lists React and TypeScript in a skills line rather than side by side
+        in that order. Short pairs stay whole: "a/b" and "ci/cd" are words."""
+        terms = self.terms("You will work in React/TypeScript on the frontend. "
+                           "React/TypeScript every day, React/TypeScript always.")
+        self.assertIn("react", terms)
+        self.assertIn("typescript", terms)
+        self.assertNotIn("react/typescript", terms)
+        self.assertEqual(match._words("we run a/b tests with ci/cd"),
+                         ["we", "run", "a/b", "tests", "with", "ci/cd"])
+
+    def test_a_skill_named_once_in_a_list_still_counts(self):
+        """Ranked by frequency alone, the six languages a posting asks for
+        came 150th and never reached the count, while a culture paragraph's
+        third "believe" did."""
+        terms = self.terms(self.POSTING_WITH_SECTIONS)
+        for language in ("php", "python", "ruby", "java", "javascript", "typescript"):
+            self.assertIn(language, terms)
+
+    def test_a_list_needs_several_items_before_it_counts(self):
+        """The line has to look like a list. A sentence with a comma or two in
+        it is not one, and the limit is deliberately low: requiring most items
+        to be single words would have been tighter, and it threw away
+        "Proficiency in React, TypeScript, Node.js, and modern frontend and
+        backend frameworks", which is exactly the line worth reading.
+
+        The cost is that a long enough sentence still yields a fragment or
+        two. They are weighted the same as a real skill and show up in the
+        missing list, which is the known ceiling here.
+        """
+        self.assertEqual(match._listed("We work with product, design, and research.\n"), {})
+        listed = match._listed("Proficiency in React, TypeScript, Node.js, and "
+                               "modern frontend and backend frameworks.\n")
+        self.assertIn("react", listed)
+        self.assertIn("typescript", listed)
+        self.assertIn("node.js", listed)
+
+    def test_the_acronym_goes_with_the_company_name(self):
+        """It was the heaviest term on the posting, because the name it was
+        stripped by was spelled out in full."""
+        posting = ("BCG partners with leaders in business. BCG was the pioneer. "
+                   "At BCG you will own a strategy project. BCG hires associates.")
+        result = match.score(["A strategy project owner."], posting,
+                             company="Boston Consulting Group")
+        self.assertNotIn("bcg", " ".join(result.missing))
 
 
 class LetterCheckTests(unittest.TestCase):
