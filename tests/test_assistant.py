@@ -119,6 +119,10 @@ class ProviderTests(unittest.TestCase):
         with self.assertRaisesRegex(llm.LLMError, "invalid key"):
             list(llm.stream_chat("openai", "bad", "sys", [{"role": "user", "content": "hi"}]))
 
+    def test_mask_key_keeps_ends_only(self):
+        self.assertEqual(llm.mask_key("sk-abcdefghijklmnop"), "sk-abcd••••••••mnop")
+        self.assertEqual(llm.mask_key("short"), "••••••••••••")
+
     def test_provider_without_key_is_refused(self):
         with self.assertRaisesRegex(llm.LLMError, "not connected"):
             llm.provider("deepseek")

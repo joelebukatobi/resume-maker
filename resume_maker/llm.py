@@ -8,7 +8,8 @@ Two wire formats cover every provider we support:
 
 Keys come from an environment variable, or from a key the user saved through
 the editor (``~/.config/resume-maker/keys.json``, mode 0600, outside the repo).
-Either way they stay on the server; nothing sends a key back to the browser.
+Either way they stay on the server; the browser only ever sees a masked hint
+(first four and last four characters).
 Each provider's base URL can be overridden with ``<ID>_BASE_URL`` (for
 example ``MOONSHOT_BASE_URL=https://api.moonshot.cn/v1``). Adding a provider
 that speaks one of these formats is one entry in :data:`PROVIDERS`.
@@ -112,6 +113,14 @@ def saved_keys() -> dict[str, str]:
     except (OSError, ValueError):
         return {}
     return {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, str)}
+
+
+def mask_key(key: str) -> str:
+    """Show a short prefix and the last four characters; hide the middle."""
+    text = (key or "").strip()
+    if len(text) < 12:
+        return "••••••••••••"
+    return f"{text[:7]}••••••••{text[-4:]}"
 
 
 def save_key(provider_id: str, key: str) -> None:
