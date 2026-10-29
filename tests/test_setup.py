@@ -301,6 +301,18 @@ class SetupApiTests(unittest.TestCase):
             self.assertIn(action, apps)
         self.assertIn("window.confirm", apps)                  # delete asks first
 
+    def test_summary_and_skills_steps_use_the_rounds_own_endpoints(self):
+        page = self.fetch("/static/ui/write-page.js")
+        self.assertIn('"/api/save"', page)                     # the document is saved whole
+        self.assertIn("build: false", page)                    # files are built at Review
+        self.assertIn('task: "tailor"', page)                  # a new version is one section turn
+        summary = self.fetch("/static/ui/step-summary.js")
+        self.assertIn('phase: "summary"', summary)
+        self.assertIn('action: "slot"', summary)               # past versions, as the model sees them
+        skills = self.fetch("/static/ui/step-skills.js")
+        self.assertIn('phase: "skills"', skills)
+        self.assertIn('"/api/setup/notes", { skill:', skills)  # an added tool joins his list
+
     def test_redesigned_modules_never_assign_html(self):
         """Nodes, never HTML: file text and model replies cannot inject markup."""
         for path in sorted(server.UI_ROOT.glob("*.js")):

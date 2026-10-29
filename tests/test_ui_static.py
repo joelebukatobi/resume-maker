@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import http.client
 import json
+import shutil
+import subprocess
 import sys
 import threading
 import unittest
@@ -134,6 +136,47 @@ class ShippedUiTests(unittest.TestCase):
         for path in server.UI_ROOT.iterdir():
             with self.subTest(name=path.name):
                 self.assertIsNotNone(server._UI_NAME.fullmatch(path.name))
+
+
+
+@unittest.skipUnless(shutil.which("node"), "node is not installed")
+class SkillsLineTests(unittest.TestCase):
+    """A CV skills line read against his skills list, the way the Skills step does."""
+
+    def run_node(self, body):
+        module = (server.UI_ROOT / "step-skills.js").as_uri()
+        script = f"import {{ splitTools, readLine }} from {json.dumps(module)};\n{body}"
+        result = subprocess.run(["node", "--input-type=module", "-e", script],
+                                capture_output=True, text=True, timeout=20, check=True)
+        return json.loads(result.stdout)
+
+    def test_commas_inside_brackets_do_not_split_a_tool(self):
+        got = self.run_node('console.log(JSON.stringify(splitTools('
+                            '"JavaScript (Node, React, Next), SQL, CI/CD & Linux")))')
+        self.assertEqual(got, ["JavaScript (Node, React, Next)", "SQL", "CI/CD & Linux"])
+
+    def test_an_and_pair_of_listed_tools_is_both_of_them(self):
+        got = self.run_node('console.log(JSON.stringify(readLine('
+                            '"Scrum, Jira and Confluence, CI/CD and Linux, Figma",'
+                            ' ["Scrum", "Jira", "Confluence", "CI/CD & Linux"])))')
+        self.assertEqual(got["named"], ["Scrum", "Jira", "Confluence", "CI/CD & Linux"])
+        self.assertEqual(got["extra"], ["Figma"])
+
+    def test_his_real_lines_read_without_broken_brackets(self):
+        from resume_maker import setup
+        cv = json.loads((ROOT / "cv.json").read_text(encoding="utf-8"))
+        notes = (ROOT / "notes.md").read_text(encoding="utf-8") if (ROOT / "notes.md").is_file() else ""
+        listed = setup.skills(notes)
+        items = next(s for s in cv["sections"] if "SKILL" in s["heading"].upper())["items"]
+        cases = [{"text": i.get("text", ""), "list": next(
+            (v for k, v in listed.items() if k.lower() == i.get("label", "").lower()), [])}
+            for i in items]
+        got = self.run_node(f"const cases = {json.dumps(cases)};\n"
+                            "console.log(JSON.stringify(cases.map((c) => readLine(c.text, c.list))));")
+        for case, out in zip(cases, got):
+            with self.subTest(line=case["text"][:40]):
+                for token in out["named"] + out["extra"]:
+                    self.assertEqual(token.count("("), token.count(")"), token)
 
 
 if __name__ == "__main__":

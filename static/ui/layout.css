@@ -445,3 +445,46 @@ app-nav {
 }
 
 .posting-text { font-size: 15px; line-height: 24px; white-space: pre-wrap; }
+
+/* Choices: one card per option, the border carries the state. */
+
+.options { display: flex; flex-direction: column; gap: var(--space-xs); }
+
+.option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  color: var(--text);
+}
+
+.option:hover { border-color: var(--hairline-strong); }
+.option[aria-pressed="true"]:hover { border-color: var(--action-text); }
+
+.option-text { display: block; font-size: 16px; line-height: 24px; margin-bottom: var(--space-xs); }
+
+.option-tools { margin: var(--space-sm) 0 var(--space-xl); }
+
+/* Labelled groups of chips. */
+
+.groups { display: flex; flex-direction: column; gap: var(--space-sm); }
+
+.group {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+}
+
+.group-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-xs) var(--space-md);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.group-name { font-weight: 500; }
+
+.chips { display: flex; flex-wrap: wrap; gap: var(--space-xs); padding: var(--space-md) var(--space-md) var(--space-sm); }
+
+.group-add { padding: 0 var(--space-md) var(--space-md); }
+.group-add .input { min-width: 180px; }

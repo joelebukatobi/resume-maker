@@ -10,6 +10,8 @@
 
 import { agent, APP, withApp } from "./agent.js";
 import { api, el, toast } from "./dom.js";
+import { drawSkills } from "./step-skills.js";
+import { drawSummary } from "./step-summary.js";
 
 const STEPS = [
   ["posting", "Posting"],
@@ -26,6 +28,7 @@ const unnamed = () => Boolean(document.body.dataset.unnamed);
 let history = { messages: [], job_description: "" };
 let terms = null;   // the /api/keywords state, once known
 let setup = null;   // /api/setup status
+let documents = null; // /api/document: the cv, the letter and both themes
 
 const posting = () => (history.job_description || "").trim();
 const editor = () => `/${encodeURIComponent(APP)}/resume`;
@@ -155,6 +158,58 @@ async function begin(text, button) {
   }
 }
 
+/* ------------------------------------------------- what the steps share */
+
+// Saving writes the JSON only; the files are built at Review.
+async function saveCv() {
+  await api("/api/save", { ...documents, document: "cv", app: APP, build: false });
+}
+
+// One section turn of the editor's round, waited for in full. Returns the
+// proposals it made: [{ path, text, show }].
+const PROPOSAL = /```proposal\s*([\s\S]*?)```/g;
+
+async function askSection(phase, extra = {}) {
+  const model = await agent().catch(() => null);
+  if (!model) throw new Error("Connect a model first.");
+  const response = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      document: "cv", doc: documents.cv, app: APP,
+      provider: model.provider, model: model.model,
+      job_description: history.job_description,
+      wanted: terms && terms.current ? terms.keywords : [],
+      task: "tailor", phase, settled: [], declined: [], ...extra,
+      messages: [{ role: "user", content: "Tailor this CV to the posting." }],
+    }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || response.statusText);
+  }
+  const [reply, failed] = (await response.text()).split(String.fromCharCode(0));
+  if (failed) throw new Error(failed);
+  const found = [];
+  for (const match of reply.matchAll(PROPOSAL)) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      if (parsed && typeof parsed.path === "string") found.push(parsed);
+    } catch (e) { /* not a proposal */ }
+  }
+  return found;
+}
+
+const sectionIndex = (word) => (documents.cv.sections || []).findIndex(
+  (s) => String(s.heading || "").toUpperCase().includes(word));
+
+function context() {
+  return {
+    app: APP, documents, history, terms, saveCv, askSection, sectionIndex,
+    host: $("step"), next: (id) => { location.hash = `#${id}`; },
+  };
+}
+
 /* ---------------------------------------------------- steps still to come */
 
 function drawPending(id) {
@@ -176,17 +231,22 @@ function route() {
   paintRail();
   if (here === "posting") drawPosting(false);
   else if (!posting()) { location.replace("#posting"); }
+  else if (!documents) drawPending(here);
+  else if (here === "summary") drawSummary(context());
+  else if (here === "skills") drawSkills(context());
   else drawPending(here);
   window.scrollTo(0, 0);
 }
 
 async function start() {
-  const [loaded, kept, status, apps] = await Promise.all([
+  const [loaded, kept, status, apps, docs] = await Promise.all([
     api(withApp("/api/chat/history")).catch(() => ({})),
     api("/api/keywords", { action: "get", app: APP }).catch(() => null),
     api("/api/setup").catch(() => null),
     api("/api/apps").catch(() => ({ applications: [] })),
+    api(withApp("/api/document")).catch(() => null),
   ]);
+  documents = docs;
   history = {
     messages: Array.isArray(loaded.messages) ? loaded.messages : [],
     job_description: typeof loaded.job_description === "string" ? loaded.job_description : "",
