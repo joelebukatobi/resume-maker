@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings · Resume Maker</title>
+<script src="/static/ui/theme.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300..500&family=Geist+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="/static/ui/tokens.css">
+<link rel="stylesheet" href="/static/ui/reset.css">
+<link rel="stylesheet" href="/static/ui/atoms.css">
+<link rel="stylesheet" href="/static/ui/layout.css">
+<script type="module" src="/static/ui/app-nav.js"></script>
+<script type="module" src="/static/ui/settings-page.js"></script>
+</head>
+<body data-page="">
+<div class="shell">
+  <app-nav current="settings"></app-nav>
+
+  <div class="page">
+    <main class="main">
+      <div class="measure" id="settings">
+        <header class="page-head">
+          <h1 class="title">Settings</h1>
+          <p class="lead">Your name, contact details, and the paper the CV and letter print on.</p>
+        </header>
+        <p class="meta" id="status">Loading…</p>
+      </div>
+    </main>
+  </div>
+</div>
+</body>
+</html>

@@ -3,13 +3,15 @@
 // Light DOM, so the shared atoms style it. Children marked data-slot="middle"
 // sit centred (a page's search); every other child is an action on the right.
 // The theme button sits last and remembers the choice in this browser.
+// Models opens the provider/model dialog next to My Experience.
 
 import { el, icon } from "./dom.js";
+import { openModels } from "./models.js";
 
 const LINKS = [
   ["applications", "/", "Applications"],
-  ["voice", "/voice", "Voice"],
-  ["notes", "/notes", "Notes"],
+  ["voice", "/voice", "Tone"],
+  ["notes", "/notes", "My Experience"],
 ];
 
 function currentTheme() {
@@ -28,10 +30,13 @@ class AppNav extends HTMLElement {
     this.setAttribute("aria-label", "Main");
 
     const links = el("div", { class: "nav-links" }, [
-      el("a", { class: "wordmark", href: "/", text: "Resume Maker" }),
       ...LINKS.map(([id, href, label]) => el("a", {
         class: "nav-link", href, text: label, "aria-current": id === here ? "page" : null,
       })),
+      el("button", {
+        class: "nav-link", type: "button", text: "Models",
+        onclick: () => openModels(),
+      }),
     ]);
 
     this.toggle = el("button", {
@@ -39,10 +44,19 @@ class AppNav extends HTMLElement {
     });
     this.paintToggle();
 
+    const profile = el("a", {
+      class: "nav-profile",
+      href: "/settings",
+      text: "JO",
+      title: "Settings",
+      "aria-label": "Settings",
+      "aria-current": here === "settings" ? "page" : null,
+    });
+
     this.replaceChildren(
       links,
       el("div", { class: "nav-middle" }, middle),
-      el("div", { class: "nav-actions" }, [...actions, this.toggle]),
+      el("div", { class: "nav-actions" }, [...actions, this.toggle, profile]),
     );
   }
 
@@ -58,7 +72,7 @@ class AppNav extends HTMLElement {
     const label = dark ? "Switch to light mode" : "Switch to dark mode";
     this.toggle.setAttribute("aria-label", label);
     this.toggle.title = label;
-    this.toggle.replaceChildren(icon(dark ? "sun" : "moon"));
+    this.toggle.replaceChildren(icon(dark ? "sun" : "moon", 14));
   }
 }
 
