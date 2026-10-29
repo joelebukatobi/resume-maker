@@ -47,7 +47,7 @@ export function mountChat({ host, placeholder, cards, onSaved }) {
     const spec = cards[kind];
     const node = el("div", { class: "card chat-card" }, [
       el("p", { class: "eyebrow", text: spec.label }),
-      el("p", { class: "chat-card-text", text: text.trim() }),
+      el("p", { class: "chat-card-text", text: spec.show ? spec.show(text.trim()) : text.trim() }),
     ]);
     const actions = el("div", { class: "chat-card-actions" });
     const done = (word) => actions.replaceChildren(el("span", { class: "meta", text: word }));

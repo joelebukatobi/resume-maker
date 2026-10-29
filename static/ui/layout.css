@@ -306,3 +306,90 @@ app-nav {
 
 .chat-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-xs); }
 .chat-send { color: var(--action-text); }
+
+.nav-search { width: 100%; max-width: 320px; }
+.search-note { margin-bottom: var(--space-sm); }
+
+/* A full-width table of rows. */
+
+.table { width: 100%; }
+
+.table th {
+  text-align: left;
+  padding: var(--space-xs) var(--space-sm) var(--space-xs) 0;
+  border-bottom: 1px solid var(--hairline-strong);
+}
+
+.table td {
+  padding: var(--space-md) var(--space-sm) var(--space-md) 0;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.table tbody tr:hover td { background: var(--hover-overlay); }
+.table .group-row td { padding-top: var(--space-xl); border-bottom: 0; background: none; }
+.table .is-archived td { color: var(--text-muted); }
+.table .empty-row { padding: var(--space-xl) 0; }
+
+.col-track { width: 160px; }
+.col-date { width: 160px; }
+.col-link { width: 120px; }
+.col-actions { width: 120px; }
+
+.app-name { font-size: 16px; color: var(--text); text-decoration: none; }
+.app-name:hover { color: var(--action-text); }
+.is-archived .app-name { color: var(--text-muted); }
+.app-current { margin-left: var(--space-sm); }
+
+.row-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+}
+
+/* A menu that floats over the page. */
+
+.menu {
+  position: absolute;
+  top: 32px;
+  right: 0;
+  z-index: var(--layer-menu);
+  min-width: 200px;
+  padding: var(--space-xxs);
+  background: var(--raised);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-control);
+}
+
+.menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control);
+}
+
+.menu-item:hover, .menu-item:focus-visible { background: var(--hover-overlay); }
+
+.menu-danger {
+  margin-top: var(--space-xxs);
+  padding-top: 8px;
+  border-top: 1px solid var(--hairline);
+  border-radius: 0 0 var(--radius-control) var(--radius-control);
+}
+
+.nudge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+}
+
+.model-line { margin-top: var(--space-xl); }

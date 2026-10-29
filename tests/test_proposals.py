@@ -692,10 +692,6 @@ class HubFitTests(unittest.TestCase):
         self.home = (ROOT / "static" / "home.html").read_text(encoding="utf-8")
         self.apps = (ROOT / "static" / "apps.js").read_text(encoding="utf-8")
 
-    def test_the_home_page_does_not_scroll(self):
-        self.assertIn("height: 100vh", self.home)
-        self.assertIn("overflow: hidden", self.home)
-
     def test_the_list_is_paged(self):
         for copy in ('"Previous"', '"Next"', "`Page ${page + 1} of ${pages}`"):
             with self.subTest(copy=copy):

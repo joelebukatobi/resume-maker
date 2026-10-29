@@ -1,105 +1,83 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Notes · resume-maker</title>
+<title>Notes · Resume Maker</title>
+<script src="/static/ui/theme.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-<link rel="stylesheet" href="/static/base.css">
-<link rel="stylesheet" href="/static/chat.css">
-<link rel="stylesheet" href="/static/setup.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300..500&family=Geist+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="/static/ui/tokens.css">
+<link rel="stylesheet" href="/static/ui/reset.css">
+<link rel="stylesheet" href="/static/ui/atoms.css">
+<link rel="stylesheet" href="/static/ui/layout.css">
+<script type="module" src="/static/ui/app-nav.js"></script>
+<script type="module" src="/static/ui/notes-page.js"></script>
 </head>
 <body data-page="">
-<!-- Icons: Iconoir (MIT, https://iconoir.com). -->
-<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
-  <symbol id="i-code" viewBox="0 0 24 24" fill="none" stroke-width="1.5">
-    <path d="M13.5 6L10 18.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M6.5 8.5L3 12L6.5 15.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M17.5 8.5L21 12L17.5 15.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>
-  </symbol>
-  <symbol id="i-text" viewBox="0 0 24 24" fill="none" stroke-width="1.5">
-    <path d="M19 7V5L5 5V7" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M12 5L12 19M12 19H10M12 19H14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>
-  </symbol>
-  <symbol id="i-sidebar-collapse" viewBox="0 0 24 24" fill="none">
-    <path d="M19 21L5 21C3.89543 21 3 20.1046 3 19L3 5C3 3.89543 3.89543 3 5 3L19 3C20.1046 3 21 3.89543 21 5L21 19C21 20.1046 20.1046 21 19 21Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M7.25 10L5.5 12L7.25 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M9.5 21V3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-  </symbol>
-  <symbol id="i-sidebar-expand" viewBox="0 0 24 24" fill="none">
-    <path d="M19 21L5 21C3.89543 21 3 20.1046 3 19L3 5C3 3.89543 3.89543 3 5 3L19 3C20.1046 3 21 3.89543 21 5L21 19C21 20.1046 20.1046 21 19 21Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M9.5 21V3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M5.5 10L7.25 12L5.5 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-  </symbol>
-  <symbol id="i-microphone" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M12 15C10.3431 15 9 13.6569 9 12V6C9 4.34315 10.3431 3 12 3C13.6569 3 15 4.34315 15 6V12C15 13.6569 13.6569 15 12 15Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/> <path d="M19 12C19 15.866 15.866 19 12 19M12 19C8.13401 19 5 15.866 5 12M12 19V22M12 22H9M12 22H15" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-  <symbol id="i-send-diagonal" viewBox="0 0 24 24" fill="none">
-    <path d="M22.1525 3.55321L11.1772 21.0044L9.50686 12.4078L2.00002 7.89795L22.1525 3.55321Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M9.45557 12.4436L22.1524 3.55321" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-  </symbol>
-  <symbol id="i-square" viewBox="0 0 24 24" fill="none">
-    <path d="M21 3.6V20.4C21 20.7314 20.7314 21 20.4 21H3.6C3.26863 21 3 20.7314 3 20.4V3.6C3 3.26863 3.26863 3 3.6 3H20.4C20.7314 3 21 3.26863 21 3.6Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-  </symbol>
-  <symbol id="i-xmark" viewBox="0 0 24 24" fill="none">
-    <path d="M6.75827 17.2426L12.0009 12M17.2435 6.75736L12.0009 12M12.0009 12L6.75827 6.75736M12.0009 12L17.2435 17.2426" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-  </symbol>
-</svg>
-<header class="topbar">
-  <!-- site-nav -->
-  <span class="spacer"></span>
-  <button type="button" class="btn secondary" id="save">Save</button>
-  <button type="button" id="chat-toggle" class="btn secondary chat-toggle" aria-pressed="true"
-          aria-label="Hide chat" title="Hide chat"><svg class="ico" aria-hidden="true"><use href="#i-sidebar-collapse"/></svg></button>
-</header>
-<div id="toast" class="toast" role="status" aria-live="polite"><span class="toast-text"></span></div>
-
-<div class="workspace">
-<main>
-  <div class="page-head">
-    <h1>What you have actually done</h1>
-    <p class="lead">
-      Saved as <code>notes.md</code> and shared by the CV and the cover letter. Write
-      freely: projects, numbers, decisions, the messy parts. The model matches a job
-      description against this instead of inventing something that sounds right.
-    </p>
-  </div>
-
-  <div class="content">
-    <div class="view-switch" aria-label="View">
-      <button type="button" class="view-btn active" id="view-edit"
-              aria-pressed="true" aria-label="Edit markdown" title="Edit">
-        <svg class="ico" aria-hidden="true"><use href="#i-code"/></svg>
-      </button>
-      <button type="button" class="view-btn" id="view-preview"
-              aria-pressed="false" aria-label="Preview markdown" title="Preview">
-        <svg class="ico" aria-hidden="true"><use href="#i-text"/></svg>
-      </button>
+<div class="shell">
+  <app-nav current="notes">
+    <div data-slot="middle" class="nav-search">
+      <label class="visually-hidden" for="search">Search notes</label>
+      <input class="input input-sm" id="search" type="search" placeholder="Search notes">
     </div>
-    <textarea class="editor" id="editor" spellcheck="false"
-              placeholder="## Amazon — Customer eXperience Impressions&#10;Ran weekly triage across the impressions dataset…"></textarea>
-    <div class="preview" id="preview" hidden></div>
-  </div>
+    <button class="btn btn-sm" type="button" id="download">Download</button>
+    <button class="btn btn-sm btn-primary" type="button" id="save">Save</button>
+  </app-nav>
 
-  <div class="actions">
-    <span class="state" id="state"><span class="dot"></span><span class="label">…</span></span>
-    <span class="count" id="count"></span>
-    <span class="spacer"></span>
-    <span class="note" id="note"></span>
+  <div class="page">
+    <main class="main">
+      <div class="measure">
+        <header class="page-head">
+          <h1 class="title">Notes</h1>
+          <p class="lead">What you have done, in your words.</p>
+        </header>
+
+        <p class="meta search-note" id="search-note" hidden></p>
+
+        <section class="doc" aria-label="notes.md">
+          <div class="doc-bar">
+            <span class="mono doc-name">notes.md</span>
+            <div class="segment" role="group" aria-label="View">
+              <button type="button" data-mode="preview" aria-pressed="true">Preview</button>
+              <button type="button" data-mode="markdown" aria-pressed="false">Markdown</button>
+            </div>
+          </div>
+          <div class="doc-body md" id="preview"></div>
+          <label class="visually-hidden" for="source">notes.md as markdown</label>
+          <textarea class="doc-body doc-source" id="source" spellcheck="false" hidden></textarea>
+        </section>
+
+        <section class="chat" id="chat" aria-label="Ask the assistant"></section>
+      </div>
+    </main>
+
+    <aside class="rail" aria-label="File">
+      <section class="rail-block">
+        <p class="eyebrow">File</p>
+        <div class="rows">
+          <div><span>State</span><span class="meta" id="fact-state">…</span></div>
+          <div><span>Size</span><span class="meta tnum" id="fact-size">…</span></div>
+          <div><span>Changes</span><span class="meta" id="fact-saved">…</span></div>
+        </div>
+      </section>
+
+      <section class="rail-block">
+        <p class="eyebrow">Used by</p>
+        <div class="rows">
+          <div>Every chat</div>
+          <div>Line checks</div>
+          <div>Gap questions</div>
+        </div>
+      </section>
+
+      <section class="rail-block">
+        <p class="eyebrow">Lines</p>
+        <a class="btn btn-sm" href="/review">Review your lines</a>
+      </section>
+    </aside>
   </div>
-</main>
-<!-- site-chat -->
 </div>
-
-<script src="/static/setup.js"></script>
-<script>
-"use strict";
-setupPage({ kind: "notes", statusKey: "notes" });
-</script>
-<script src="/static/setup-chat.js"></script>
-<script src="/static/chat.js"></script>
-<script>bootSetupChat();</script>
-<script src="/static/apps.js"></script>
 </body>
 </html>

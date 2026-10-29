@@ -250,59 +250,63 @@ class SetupApiTests(unittest.TestCase):
                     self.assertEqual(response.status, 200)
                     self.assertIn("text/html", response.headers["Content-Type"])
 
-    def test_hub_offers_style_notes_and_the_applications(self):
-        """The hub is the shared material plus the list of jobs — no documents.
+    def fetch(self, path):
+        with urllib.request.urlopen(f"{self.base}{path}", timeout=10) as response:
+            return response.read().decode()
 
-        A CV belongs to an application, so it is reached by opening one.
-        """
-        with urllib.request.urlopen(f"{self.base}/", timeout=10) as response:
-            page = response.read().decode()
-        for pillar in ("Voice", "Notes", "Applications"):
-            self.assertIn(f">{pillar}</h2>", page)
-        for href in ('href="/voice"', 'href="/notes"'):
-            self.assertIn(href, page)
-        self.assertNotIn('id="tile-docs"', page)
-        self.assertIn('id="app-list"', page)
-        self.assertIn("/api/setup", page)          # paints readiness
-        self.assertIn("/api/llm/providers", page)  # model strip
-
-    def test_voice_page_is_built_on_the_redesign(self):
-        """Voice loads the redesign's files and keeps its old endpoints."""
-        with urllib.request.urlopen(f"{self.base}/style", timeout=10) as response:
-            page = response.read().decode()
-        self.assertIn('<app-nav current="voice">', page)
+    def assert_redesigned(self, path, current, module):
+        """A page built on the redesign: its own files, no Pico, no old nav."""
+        page = self.fetch(path)
+        self.assertIn(f'<app-nav current="{current}">', page)
         for asset in ("/static/ui/theme.js", "/static/ui/tokens.css", "/static/ui/reset.css",
                       "/static/ui/atoms.css", "/static/ui/layout.css",
-                      "/static/ui/app-nav.js", "/static/ui/voice-page.js"):
+                      "/static/ui/app-nav.js", f"/static/ui/{module}"):
             self.assertIn(asset, page)
         self.assertNotIn("pico", page.lower())
         self.assertNotIn("/static/base.css", page)
-        with urllib.request.urlopen(f"{self.base}/static/ui/voice-page.js", timeout=10) as response:
-            script = response.read().decode()
-        self.assertIn('"/api/setup"', script)
-        self.assertIn('"/api/setup/voice"', script)          # saves to voice.md
-        self.assertIn('"/api/setup/templates"', script)      # role starters
-        for name in ("voice-page.js", "doc-chat.js", "markdown.js", "dom.js"):
-            with urllib.request.urlopen(f"{self.base}/static/ui/{name}", timeout=10) as response:
-                # Nodes, never HTML: file text and replies cannot inject markup.
-                self.assertNotRegex(response.read().decode(),
-                                    r"(inner|outer)HTML\s*=|insertAdjacentHTML|document\.write", name)
-        with urllib.request.urlopen(f"{self.base}/static/ui/doc-chat.js", timeout=10) as response:
-            chat = response.read().decode()
-        self.assertIn('"/api/chat"', chat)                   # the same chat endpoint
-        self.assertIn('{ append: rule }', script)            # a kept rule is appended
+        self.assertNotIn('class="site-nav"', page)
+        return page
 
-    def test_notes_page_is_wired_to_save(self):
-        with urllib.request.urlopen(f"{self.base}/notes", timeout=10) as response:
-            page = response.read().decode()
-        self.assertIn('kind: "notes"', page)
-        self.assertIn("/static/setup.js", page)
-        self.assertIn('id="editor"', page)
-        self.assertIn('id="view-edit"', page)
-        self.assertIn('id="view-preview"', page)
-        self.assertIn('id="preview"', page)
-        self.assertNotIn("data-heading", page)  # no section stubs
-        self.assertNotIn("/api/setup/extract", page)  # no file upload UI
+    def test_voice_page_is_built_on_the_redesign(self):
+        self.assert_redesigned("/style", "voice", "voice-page.js")
+        voice = self.fetch("/static/ui/voice-page.js")
+        self.assertIn('kind: "voice"', voice)
+        self.assertIn("starters: true", voice)                 # role starters
+        self.assertIn("{ append: rule }", voice)               # a kept rule is appended
+        doc = self.fetch("/static/ui/doc-page.js")
+        self.assertIn('"/api/setup"', doc)
+        self.assertIn("`/api/setup/${kind}`", doc)             # saves to its own file
+        self.assertIn('"/api/setup/templates"', doc)
+        self.assertIn('"/api/chat"', self.fetch("/static/ui/doc-chat.js"))
+
+    def test_notes_page_is_built_on_the_redesign(self):
+        page = self.assert_redesigned("/notes", "notes", "notes-page.js")
+        self.assertIn('id="search"', page)                     # search in the nav
+        self.assertIn('href="/review"', page)                  # the line review stays reachable
+        notes = self.fetch("/static/ui/notes-page.js")
+        self.assertIn('kind: "notes"', notes)
+        self.assertIn("{ append: note }", notes)               # a kept note is appended
+        self.assertIn("{ skill: { label: s.label, tool: s.tool } }", notes)
+
+    def test_applications_page_is_built_on_the_redesign(self):
+        """The hub is the list of jobs; Voice and Notes are in the nav."""
+        page = self.assert_redesigned("/", "applications", "apps-page.js")
+        self.assertIn('id="app-rows"', page)
+        self.assertIn('id="app-new"', page)
+        apps = self.fetch("/static/ui/apps-page.js")
+        self.assertIn('"/api/apps"', apps)
+        self.assertIn('"/api/setup"', apps)                    # nudges an empty file
+        self.assertIn('"/api/llm/providers"', apps)
+        for action in ('"rename"', '"create"', '"track"', '"archive"', '"restore"', '"delete"'):
+            self.assertIn(action, apps)
+        self.assertIn("window.confirm", apps)                  # delete asks first
+
+    def test_redesigned_modules_never_assign_html(self):
+        """Nodes, never HTML: file text and model replies cannot inject markup."""
+        for path in sorted(server.UI_ROOT.glob("*.js")):
+            with self.subTest(name=path.name):
+                self.assertNotRegex(path.read_text(encoding="utf-8"),
+                                    r"(inner|outer)HTML\s*=|insertAdjacentHTML|document\.write")
 
     def test_setup_script_renders_markdown_for_preview(self):
         with urllib.request.urlopen(f"{self.base}/static/setup.js", timeout=10) as response:
@@ -351,7 +355,6 @@ class SetupApiTests(unittest.TestCase):
         # The hub is the entry point and carries no nav of its own. The
         # documents hang off the application they belong to.
         pages = {
-            "/notes": "notes",
             f"/{slug}": "resume",
             f"/{slug}/resume": "resume",
             f"/{slug}/cover-letter": "cover",
@@ -385,8 +388,8 @@ class SetupApiTests(unittest.TestCase):
 
     def test_every_page_shares_one_set_of_design_tokens(self):
         """One base.css for all pages, so sizes and colours cannot drift."""
-        # Voice has moved to the redesign; the rest follow slice by slice.
-        for path in ("/", "/resume", "/cover-letter", "/notes"):
+        # Voice, Notes and the hub have moved to the redesign; the editor follows.
+        for path in ("/resume", "/cover-letter"):
             with self.subTest(path=path):
                 with urllib.request.urlopen(f"{self.base}{path}", timeout=10) as response:
                     page = response.read().decode()
