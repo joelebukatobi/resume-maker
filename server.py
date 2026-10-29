@@ -1126,14 +1126,22 @@ class EditorHandler(BaseHTTPRequestHandler):
     def _section_note(self, phase: str, payload: dict[str, Any]) -> str:
         """His past lines for the section being written, only those his notes
         back, ranked against the posting's frozen keyword list."""
-        _, notes = self._voice_and_notes()
         if phase == "skills":
-            # His skills list, not old lines: a line is a list of tools, and
-            # no one paragraph of his notes ever backed a whole one.
-            posting = str(payload.get("job_description") or "").casefold()
-            listed = {label: sorted(tools, key=lambda t: t.casefold() not in posting)
-                      for label, tools in setup.skills(notes).items()}
-            return assistant.skills_note(listed)
+            return assistant.skills_note(self._skills_listed(payload))
+        shown, room, where = self._section_lines(phase, payload)
+        return assistant.section_note(shown, room=room, where=where)
+
+    def _skills_listed(self, payload: dict[str, Any]) -> dict[str, list[str]]:
+        """His skills list, not old lines: a line is a list of tools, and no
+        one paragraph of his notes ever backed a whole one. Posting first."""
+        _, notes = self._voice_and_notes()
+        posting = str(payload.get("job_description") or "").casefold()
+        return {label: sorted(tools, key=lambda t: t.casefold() not in posting)
+                for label, tools in setup.skills(notes).items()}
+
+    def _section_lines(self, phase: str, payload: dict[str, Any]) -> tuple[list[str], int, str]:
+        """The ranked lines a section turn is shown, its room, and which job."""
+        _, notes = self._voice_and_notes()
         base, lines, decisions = self._history()
         terms = keywords.load(self._paths(str(payload.get("app") or ""))["keywords"])["keywords"]
         limit = self._SECTION_LINES[phase]
@@ -1173,7 +1181,7 @@ class EditorHandler(BaseHTTPRequestHandler):
                       if verdicts.get(line.text) == "pass"
                       and decisions.labels.get(line.text) != "self_description"]
             shown.extend(prefix + line.text for line in ranked[:limit])
-        return assistant.section_note(shown, room=room, where=where)
+        return shown, room, where
 
     @staticmethod
     def _label_additional(lines: list[library.Line], decisions: library.Decisions) -> None:
@@ -1208,11 +1216,28 @@ class EditorHandler(BaseHTTPRequestHandler):
         text = " ".join(str(payload.get("text") or "").split())
         if action in ("check", "review"):
             return self._review(action)
+        if action == "slot":
+            return self._slot(payload)
         with _LIBRARY_LOCK:
             decisions = library.Decisions.load(self._library_path)
             self._decide(action, payload, text, decisions)
             decisions.save(self._library_path)
         self._json(HTTPStatus.OK, {"ok": True})
+
+    def _slot(self, payload: dict[str, Any]) -> None:
+        """The lines a section turn would be shown, for the page to offer.
+
+        Read through the same ranking the prompt uses, so what he picks from
+        is what the model sees. It may run the support check the turn would
+        run anyway; the result is cached, so the turn does not pay twice.
+        """
+        phase = str(payload.get("phase") or "")
+        if phase == "skills":
+            return self._json(HTTPStatus.OK, {"phase": phase, "skills": self._skills_listed(payload)})
+        if phase not in self._SECTION_LINES:
+            raise ValueError(f"no lines for {phase!r}")
+        shown, room, where = self._section_lines(phase, payload)
+        self._json(HTTPStatus.OK, {"phase": phase, "lines": shown, "room": room, "where": where})
 
     def _decide(self, action: Any, payload: dict[str, Any], text: str,
                 decisions: library.Decisions) -> None:

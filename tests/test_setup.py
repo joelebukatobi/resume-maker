@@ -1132,6 +1132,45 @@ class LibraryApiTests(unittest.TestCase):
         self.assertIn("- AI: SQL, Claude", system)
         self.assertIn("never a tool that is not in his skills list", system.lower())
 
+    def slot(self, phase, slug, **extra):
+        return self.post("/api/library", {"action": "slot", "phase": phase, "app": slug,
+                                          "job_description": POSTING, **extra})
+
+    def test_a_slot_lists_the_lines_its_section_turn_is_shown(self):
+        """The page shows the same ranked lines the model is given."""
+        slug = self.new()
+        got = self.slot("summary", slug)
+        self.assertEqual(got["phase"], "summary")
+        self.assertIn(CV["sections"][0]["text"], got["lines"])
+        system = self.section_prompt("summary")
+        for line in got["lines"]:
+            self.assertIn(line, system)
+
+    def test_a_job_slot_says_its_room_and_lists_that_job_only(self):
+        slug = self.new()
+        got = self.slot("bullets", slug, entry="sections.3.entries.0")
+        self.assertEqual(got["room"], 3)
+        self.assertEqual(got["where"], "sections.3.entries.0")
+        self.assertIn(CV["sections"][3]["entries"][0]["bullets"][0], got["lines"])
+        other = CV["sections"][3]["entries"][1]["bullets"][0]
+        self.assertNotIn(other, got["lines"])
+
+    def test_the_skills_slot_is_his_list_posting_first(self):
+        (self.root / "notes.md").write_text(
+            "## Skills\n\n- Product: Jira, Account Management, Odoo\n- AI: Claude, SQL\n")
+        got = self.slot("skills", self.new())
+        self.assertEqual(set(got["skills"]), {"Product", "AI"})
+        self.assertEqual(sorted(got["skills"]["AI"]), ["Claude", "SQL"])
+
+    def test_a_slot_refuses_what_it_cannot_answer(self):
+        slug = self.new()
+        for payload in ({"phase": "fit"}, {"phase": "bullets"},
+                        {"phase": "bullets", "entry": "sections.9.entries.9"}):
+            with self.subTest(payload=payload):
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    self.post("/api/library", {"action": "slot", "app": slug, **payload})
+                self.assertEqual(caught.exception.code, 400)
+
     def test_gaps_are_checked_against_notes_and_past_cvs(self):
         line = self.past_line("Mentored 3 software engineering interns at MKEL.")
         (self.root / "notes.md").write_text("## MKEL\n\nWe added Redis caching after launch.\n")
