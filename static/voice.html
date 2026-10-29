@@ -27,26 +27,29 @@
       <div class="measure">
         <header class="page-head">
           <h1 class="title">Voice</h1>
-          <p class="lead">How your CV and letters sound. Write it as instructions to someone drafting on your behalf. It goes with every turn the assistant takes.</p>
+          <p class="lead">How the assistant writes for you.</p>
         </header>
 
-        <div class="tabs" role="tablist" aria-label="View">
-          <button class="tab" type="button" role="tab" data-view="parts" aria-selected="true">In parts</button>
-          <button class="tab" type="button" role="tab" data-view="whole" aria-selected="false">The whole file</button>
-        </div>
+        <section class="doc" aria-label="voice.md">
+          <div class="doc-bar">
+            <span class="mono doc-name">voice.md</span>
+            <div class="segment" role="group" aria-label="View">
+              <button type="button" data-mode="preview" aria-pressed="true">Preview</button>
+              <button type="button" data-mode="markdown" aria-pressed="false">Markdown</button>
+            </div>
+          </div>
+          <div class="doc-body md" id="preview"></div>
+          <label class="visually-hidden" for="source">voice.md as markdown</label>
+          <textarea class="doc-body doc-source" id="source" spellcheck="false" hidden></textarea>
+        </section>
 
-        <div id="parts"></div>
-
-        <div id="whole-wrap" hidden>
-          <label class="visually-hidden" for="whole">voice.md</label>
-          <textarea class="input input-code" id="whole" rows="28" spellcheck="false"></textarea>
-        </div>
+        <section class="chat" id="chat" aria-label="Ask the assistant"></section>
       </div>
     </main>
 
-    <aside class="rail" aria-label="About this file">
+    <aside class="rail" aria-label="File">
       <section class="rail-block">
-        <p class="eyebrow">This file</p>
+        <p class="eyebrow">File</p>
         <div class="rows">
           <div><span>State</span><span class="meta" id="fact-state">…</span></div>
           <div><span>Size</span><span class="meta tnum" id="fact-size">…</span></div>
@@ -55,23 +58,21 @@
       </section>
 
       <section class="rail-block">
-        <p class="eyebrow">Where it applies</p>
+        <p class="eyebrow">Used by</p>
         <div class="rows">
-          <div>Every line the assistant proposes</div>
-          <div>The summary versions you pick from</div>
-          <div>Every paragraph of a letter</div>
-          <div class="meta">Not lines you wrote yourself</div>
+          <div>Proposed lines</div>
+          <div>Summaries</div>
+          <div>Letters</div>
         </div>
       </section>
 
       <section class="rail-block">
-        <p class="eyebrow">Start from a role</p>
+        <p class="eyebrow">Starter</p>
         <div class="inline-form">
-          <label class="visually-hidden" for="starter">Role</label>
+          <label class="visually-hidden" for="starter">Starter</label>
           <select class="input input-sm" id="starter"></select>
-          <button class="btn btn-sm" type="button" id="use-starter">Use it</button>
+          <button class="btn btn-sm" type="button" id="use-starter">Use</button>
         </div>
-        <p class="meta" style="margin-top: var(--space-xs)">Replaces what you have, after asking.</p>
       </section>
     </aside>
   </div>

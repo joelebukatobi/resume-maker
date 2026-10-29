@@ -282,7 +282,15 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn('"/api/setup"', script)
         self.assertIn('"/api/setup/voice"', script)          # saves to voice.md
         self.assertIn('"/api/setup/templates"', script)      # role starters
-        self.assertNotIn("innerHTML", script)                # nodes, never HTML
+        for name in ("voice-page.js", "doc-chat.js", "markdown.js", "dom.js"):
+            with urllib.request.urlopen(f"{self.base}/static/ui/{name}", timeout=10) as response:
+                # Nodes, never HTML: file text and replies cannot inject markup.
+                self.assertNotRegex(response.read().decode(),
+                                    r"(inner|outer)HTML\s*=|insertAdjacentHTML|document\.write", name)
+        with urllib.request.urlopen(f"{self.base}/static/ui/doc-chat.js", timeout=10) as response:
+            chat = response.read().decode()
+        self.assertIn('"/api/chat"', chat)                   # the same chat endpoint
+        self.assertIn('{ append: rule }', script)            # a kept rule is appended
 
     def test_notes_page_is_wired_to_save(self):
         with urllib.request.urlopen(f"{self.base}/notes", timeout=10) as response:
