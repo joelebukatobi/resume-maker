@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import http.client
 import json
+import shutil
+import subprocess
 import sys
 import threading
 import unittest
@@ -138,3 +140,40 @@ class ShippedUiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(shutil.which("node"), "node is not installed")
+class SectionsTests(unittest.TestCase):
+    """voice.md split into its sections and joined back loses nothing."""
+
+    def run_node(self, texts):
+        module = (server.UI_ROOT / "sections.js").as_uri()
+        script = (
+            f"import {{ split, join, label }} from {json.dumps(module)};\n"
+            f"const texts = {json.dumps(texts)};\n"
+            "console.log(JSON.stringify(texts.map((t) => ({\n"
+            "  same: join(split(t)) === t,\n"
+            "  labels: split(t).map(label),\n"
+            "}))));\n"
+        )
+        result = subprocess.run(["node", "--input-type=module", "-e", script],
+                                capture_output=True, text=True, timeout=20, check=True)
+        return json.loads(result.stdout)
+
+    def test_round_trip_is_exact(self):
+        texts = [
+            (ROOT / "voice.md").read_text(encoding="utf-8"),
+            "",
+            "## Only a heading",
+            "Preamble only\nno headings",
+            "# Title\n\nintro\n\n## A\nbody a\n### deeper\nstill a\n\n## B\n",
+            "\n\n## Leading blank lines\n\n",
+            "text\r\n## windows line endings\r\nbody\r\n",
+        ]
+        for text, out in zip(texts, self.run_node(texts)):
+            with self.subTest(text=text[:30]):
+                self.assertTrue(out["same"])
+
+    def test_labels_come_from_level_two_headings(self):
+        out = self.run_node(["# T\nintro\n## Method\nx\n### Not a part\ny\n## Never\nz"])[0]
+        self.assertEqual(out["labels"], ["Opening", "Method", "Never"])

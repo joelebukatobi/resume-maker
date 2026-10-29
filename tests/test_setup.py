@@ -266,20 +266,23 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn("/api/setup", page)          # paints readiness
         self.assertIn("/api/llm/providers", page)  # model strip
 
-    def test_style_page_is_wired_to_templates_and_save(self):
+    def test_voice_page_is_built_on_the_redesign(self):
+        """Voice loads the redesign's files and keeps its old endpoints."""
         with urllib.request.urlopen(f"{self.base}/style", timeout=10) as response:
             page = response.read().decode()
-        self.assertIn("/api/setup/templates", page)   # role chips
-        self.assertIn('kind: "voice"', page)          # saves to voice.md
-        self.assertIn("/static/setup.js", page)       # shared load/save
-        self.assertIn("/static/setup.css", page)
-        self.assertIn('id="view-edit"', page)
-        self.assertIn('id="view-preview"', page)
-        self.assertIn('id="preview"', page)
-        for asset, kind in (("/static/setup.js", "javascript"), ("/static/setup.css", "css")):
-            with urllib.request.urlopen(f"{self.base}{asset}", timeout=10) as response:
-                self.assertEqual(response.status, 200)
-                self.assertIn(kind, response.headers["Content-Type"])
+        self.assertIn('<app-nav current="voice">', page)
+        for asset in ("/static/ui/theme.js", "/static/ui/tokens.css", "/static/ui/reset.css",
+                      "/static/ui/atoms.css", "/static/ui/layout.css",
+                      "/static/ui/app-nav.js", "/static/ui/voice-page.js"):
+            self.assertIn(asset, page)
+        self.assertNotIn("pico", page.lower())
+        self.assertNotIn("/static/base.css", page)
+        with urllib.request.urlopen(f"{self.base}/static/ui/voice-page.js", timeout=10) as response:
+            script = response.read().decode()
+        self.assertIn('"/api/setup"', script)
+        self.assertIn('"/api/setup/voice"', script)          # saves to voice.md
+        self.assertIn('"/api/setup/templates"', script)      # role starters
+        self.assertNotIn("innerHTML", script)                # nodes, never HTML
 
     def test_notes_page_is_wired_to_save(self):
         with urllib.request.urlopen(f"{self.base}/notes", timeout=10) as response:
@@ -340,7 +343,6 @@ class SetupApiTests(unittest.TestCase):
         # The hub is the entry point and carries no nav of its own. The
         # documents hang off the application they belong to.
         pages = {
-            "/voice": "voice",
             "/notes": "notes",
             f"/{slug}": "resume",
             f"/{slug}/resume": "resume",
@@ -375,7 +377,8 @@ class SetupApiTests(unittest.TestCase):
 
     def test_every_page_shares_one_set_of_design_tokens(self):
         """One base.css for all pages, so sizes and colours cannot drift."""
-        for path in ("/", "/resume", "/cover-letter", "/voice", "/notes"):
+        # Voice has moved to the redesign; the rest follow slice by slice.
+        for path in ("/", "/resume", "/cover-letter", "/notes"):
             with self.subTest(path=path):
                 with urllib.request.urlopen(f"{self.base}{path}", timeout=10) as response:
                     page = response.read().decode()
