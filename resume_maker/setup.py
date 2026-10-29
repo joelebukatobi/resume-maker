@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 # A file past this is substantial enough to call "ready"; below it the user
 # has begun but the model still has little to work with.
@@ -148,6 +148,42 @@ def skills(notes: str) -> dict[str, list[str]]:
         elif inside and line.startswith("- ") and ":" in line:
             label, _, tools = line[2:].partition(":")
             out[label.strip()] = [t.strip() for t in _TOOL_SPLIT.split(tools) if t.strip()]
+    return out
+
+
+def tools_from_line(text: str) -> list[str]:
+    """Split one skills line into tools the way the notes list is written."""
+    out: list[str] = []
+    for part in _TOOL_SPLIT.split(str(text or "")):
+        tool = re.sub(r"^(?:and|&)\s+", "", part.strip().rstrip("."), flags=re.I).strip()
+        if tool:
+            out.append(tool)
+    return out
+
+
+def enrich_skills(
+    listed: Mapping[str, list[str]],
+    past_lines: Mapping[str, Sequence[str]],
+) -> dict[str, list[str]]:
+    """Union the notes list with every tool that appeared on a past CV.
+
+    ``past_lines`` is label (casefolded) → skill-line texts from history.
+    Labels that only exist on past CVs are ignored: the page is driven by
+    the labels on this CV. New tools keep the spelling they had on a CV.
+    """
+    out = {label: list(tools) for label, tools in listed.items()}
+    known = {label: {t.casefold() for t in tools} for label, tools in out.items()}
+    canon = {label.casefold(): label for label in out}
+    for key, lines in past_lines.items():
+        label = canon.get(str(key).casefold())
+        if label is None:
+            continue
+        for line in lines:
+            for tool in tools_from_line(line):
+                if tool.casefold() in known[label]:
+                    continue
+                out[label].append(tool)
+                known[label].add(tool.casefold())
     return out
 
 

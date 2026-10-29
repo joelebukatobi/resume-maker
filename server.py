@@ -47,12 +47,18 @@ PAGES = {
     "/": ("home.html", "hub"),
     "/voice": ("voice.html", "voice"),
     "/notes": ("notes.html", "notes"),
+    "/settings": ("settings.html", "settings"),
     "/review": ("review.html", "review"),
 }
-# The documents hang off the application they belong to:
-# /meta-rotational-product-manager/resume. The slug on its own opens the CV.
-DOCUMENT_PAGES = {"": "resume", "resume": "resume", "cover-letter": "cover", "write": "write"}
-# The redesigned workbench has its own page; the rest still open the editor.
+# The documents hang off the application they belong to.
+# The CV path is the Write workbench. Cover letter still uses the old editor
+# (last Pico consumer) until that page is rebuilt.
+DOCUMENT_PAGES = {
+    "": "write",
+    "resume": "write",
+    "write": "write",
+    "cover-letter": "cover",
+}
 DOCUMENT_FILES = {"write": "write.html"}
 
 MAX_BODY = 1 << 20  # 1 MiB is far more than any CV needs.
@@ -250,10 +256,14 @@ class EditorHandler(BaseHTTPRequestHandler):
         # The Voice page was called Style until the file was renamed.
         if route == "/style":
             return self._redirect("/voice")
-        if route in ("/resume", "/cover-letter", "/index.html"):
-            tail = "resume" if route != "/cover-letter" else "cover-letter"
+        if route in ("/resume", "/index.html"):
             try:
-                return self._redirect(f"/{self._workspace.current}/{tail}")
+                return self._redirect(f"/{self._workspace.current}/write")
+            except ApplicationError as exc:
+                return self._error(HTTPStatus.NOT_FOUND, str(exc))
+        if route == "/cover-letter":
+            try:
+                return self._redirect(f"/{self._workspace.current}/cover-letter")
             except ApplicationError as exc:
                 return self._error(HTTPStatus.NOT_FOUND, str(exc))
         document_page = self._document_page(route)
@@ -290,7 +300,8 @@ class EditorHandler(BaseHTTPRequestHandler):
         if route == "/api/llm/providers":
             return self._json(HTTPStatus.OK, [
                 {"id": p.id, "label": p.label, "available": p.available,
-                 "key_env": p.key_env, "source": p.key_source}
+                 "key_env": p.key_env, "source": p.key_source,
+                 "hint": llm.mask_key(p.key) if p.key else None}
                 for p in llm.PROVIDERS.values()
             ])
         if route == "/api/llm/models":
@@ -1135,12 +1146,26 @@ class EditorHandler(BaseHTTPRequestHandler):
         return assistant.section_note(shown, room=room, where=where)
 
     def _skills_listed(self, payload: dict[str, Any]) -> dict[str, list[str]]:
-        """His skills list, not old lines: a line is a list of tools, and no
-        one paragraph of his notes ever backed a whole one. Posting first."""
+        """His skills list for the page and the skills turn.
+
+        Notes are the base. Past CV skill lines under the same label are
+        folded in so every tool he has used is offered; the posting only
+        decides which ones light up first."""
         _, notes = self._voice_and_notes()
         posting = str(payload.get("job_description") or "").casefold()
+        listed = setup.skills(notes)
+        try:
+            _, lines, _ = self._history()
+        except Exception:
+            lines = []
+        past: dict[str, list[str]] = {}
+        for line in lines:
+            if line.slot[0] != "skills" or not line.text:
+                continue
+            past.setdefault(line.slot[1], []).append(line.text)
+        listed = setup.enrich_skills(listed, past)
         return {label: sorted(tools, key=lambda t: t.casefold() not in posting)
-                for label, tools in setup.skills(notes).items()}
+                for label, tools in listed.items()}
 
     def _section_lines(self, phase: str, payload: dict[str, Any]) -> tuple[list[str], int, str]:
         """The ranked lines a section turn is shown, its room, and which job."""
