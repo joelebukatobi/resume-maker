@@ -26,6 +26,8 @@
   --open-text: #FDB022;
   --open-tint: #1E1E1E;
   --open-tint-text: #FEDF89;
+  --risk: #D92D20;
+  --risk-text: #F97066;
   --hover-overlay: rgba(214, 214, 221, 0.06);
   --pressed-overlay: rgba(214, 214, 221, 0.10);
 
@@ -52,11 +54,13 @@
   --radius-control: 4px;
   --radius-full: 9999px;
 
-  --nav-height: 56px;
+  --nav-height: 64px;
   --rail-width: 340px;
+  --rail-chat: 420px;
   --rail-min: 260px;
   --measure-prose: 720px;
-  --measure-list: 800px;
+  /* Skills and Bullets run wider than Posting / Summary (+20%). */
+  --measure-list: 960px;
 
   --layer-base: 0;
   --layer-rail: 10;
@@ -90,6 +94,8 @@
   --open-text: #B54708;
   --open-tint: #FEF0E0;
   --open-tint-text: #B54708;
+  --risk: #D92D20;
+  --risk-text: #D92D20;
   --hover-overlay: rgba(24, 24, 27, 0.04);
   --pressed-overlay: rgba(24, 24, 27, 0.08);
 }
@@ -118,6 +124,8 @@
     --open-text: #B54708;
     --open-tint: #FEF0E0;
     --open-tint-text: #B54708;
+    --risk: #D92D20;
+    --risk-text: #D92D20;
     --hover-overlay: rgba(24, 24, 27, 0.04);
     --pressed-overlay: rgba(24, 24, 27, 0.08);
   }

@@ -6,7 +6,7 @@
 // swapped-out line stays in the list so it can be swapped back. Nothing is
 // saved until Next, and then the whole CV is saved once.
 
-import { api, el, icon, toast } from "./dom.js";
+import { api, el, icon, stepAction, toast } from "./dom.js";
 
 // Which of the posting's frozen terms a line carries, for the line under it.
 export function covers(text, terms) {
@@ -14,12 +14,21 @@ export function covers(text, terms) {
   return (terms || []).filter((t) => t && line.includes(String(t).toLowerCase()));
 }
 
-function meta(text, terms, origin) {
+function coverageMeta(text, terms, origin) {
   const hit = covers(text, terms);
-  const parts = [];
-  if (origin) parts.push(origin);
-  parts.push(hit.length ? `covers ${hit.slice(0, 3).join(", ")}` : "covers nothing in the posting");
-  return parts.join(" · ");
+  const kids = [];
+  if (origin) kids.push(el("span", { class: "meta", text: origin }));
+  if (hit.length) {
+    kids.push(el("span", { class: "meta", text: `covers ${hit.slice(0, 3).join(", ")}` }));
+  } else {
+    kids.push(el("span", {
+      class: "meta is-gap",
+      text: "covers nothing in the posting",
+    }));
+  }
+  return el("p", { class: "bullet-meta" }, kids.flatMap((node, i) => (
+    i ? [el("span", { class: "meta", text: "·" }), node] : [node]
+  )));
 }
 
 export async function drawBullets(ctx) {
@@ -27,13 +36,13 @@ export async function drawBullets(ctx) {
   const at = ctx.sectionIndex("EXPERIENCE");
   const terms = ctx.terms && ctx.terms.current ? ctx.terms.keywords : [];
   const foot = (extra) => el("div", { class: "step-foot" }, [
-    el("a", { class: "btn", href: "#skills", text: "Back" }), ...extra,
+    stepAction("a", { href: "#skills", "aria-label": "Back" }, "left"), ...extra,
   ]);
   if (at < 0) {
     host.replaceChildren(el("div", { class: "measure-list" }, [
       el("h1", { class: "title", text: "Bullets" }),
       el("p", { class: "lead", text: "This CV has no experience section." }),
-      foot([el("a", { class: "btn btn-primary", href: "#additional", text: "Next" })]),
+      foot([stepAction("a", { href: "#additional", "aria-label": "Next" }, "right")]),
     ]));
     return;
   }
@@ -58,7 +67,7 @@ export async function drawBullets(ctx) {
   // The frame's own fields: sub_left is the title, left the employer,
   // sub_right the dates, right the place.
   function title(entry) {
-    return [entry.sub_left, entry.left].filter(Boolean).join(" — ") || "Role";
+    return [entry.sub_left, entry.left].filter(Boolean).join(" - ") || "Role";
   }
 
   function when(entry) {
@@ -74,31 +83,69 @@ export async function drawBullets(ctx) {
     paint();
   }
 
+  function addBullet(role, r) {
+    role.lines.push("");
+    dirty = true;
+    open = `${r}:${role.lines.length - 1}`;
+    paint();
+  }
+
+  function moveBullet(role, r, bullet, dir) {
+    const to = bullet + dir;
+    if (to < 0 || to >= role.lines.length) return;
+    const lines = role.lines;
+    const held = lines[bullet];
+    lines[bullet] = lines[to];
+    lines[to] = held;
+    dirty = true;
+    if (open === `${r}:${bullet}`) open = `${r}:${to}`;
+    else if (open === `${r}:${to}`) open = `${r}:${bullet}`;
+    paint();
+  }
+
   function row(role, r, bullet) {
     const key = `${r}:${bullet}`;
     const text = role.lines[bullet] || "";
     const isOpen = open === key;
     const toggle = el("button", {
-      class: "icon-btn", type: "button",
+      class: "icon-btn icon-btn-round", type: "button",
       "aria-label": isOpen ? "Close this bullet" : "Edit or swap this bullet",
       "aria-expanded": String(isOpen),
       onclick: () => { open = isOpen ? null : key; paint(); },
-    }, [icon(isOpen ? "up" : "down")]);
+    }, [icon(isOpen ? "up" : "down", 18)]);
+
+    const actions = el("div", { class: "bullet-actions" }, [
+      el("button", {
+        class: "icon-btn icon-btn-round", type: "button", "aria-label": "Move bullet up",
+        disabled: bullet === 0,
+        onclick: () => moveBullet(role, r, bullet, -1),
+      }, [icon("arrow-up", 13, 2)]),
+      el("button", {
+        class: "icon-btn icon-btn-round", type: "button", "aria-label": "Move bullet down",
+        disabled: bullet >= role.lines.length - 1,
+        onclick: () => moveBullet(role, r, bullet, 1),
+      }, [icon("arrow-down", 13, 2)]),
+      toggle,
+    ]);
 
     const head = el("div", { class: "bullet-row" }, [
       el("span", { class: text.trim() ? "marker" : "marker is-empty", "aria-hidden": "true" }),
       el("div", { class: "bullet-body" }, isOpen
         ? [(() => {
-          const box = el("textarea", { class: "input", rows: String(Math.min(8, Math.max(2, Math.ceil(text.length / 80) + 1))), "aria-label": "This bullet" });
+          const box = el("textarea", {
+            class: "input bullet-own",
+            rows: String(Math.min(8, Math.max(2, Math.ceil(text.length / 80) + 1))),
+            "aria-label": "This bullet",
+          });
           box.value = text;
           box.addEventListener("input", () => { role.lines[bullet] = box.value; dirty = true; });
           box.addEventListener("change", () => paint());
           return box;
-        })(), el("p", { class: "meta", text: meta(text, terms) })]
+        })(), coverageMeta(text, terms)]
         : text.trim()
-          ? [el("p", { class: "bullet-text", text }), el("p", { class: "meta", text: meta(text, terms) })]
+          ? [el("p", { class: "bullet-text", text }), coverageMeta(text, terms)]
           : [el("p", { class: "bullet-text is-empty", text: "Empty. Open it to pick a line or write one." })]),
-      toggle,
+      actions,
     ]);
     if (!isOpen) return el("div", { class: "bullet" }, [head]);
 
@@ -109,49 +156,75 @@ export async function drawBullets(ctx) {
         ? [el("p", { class: "meta", text: "Loading your past lines…" })]
         : choices.length
           ? choices.map((other) => el("div", { class: "alt" }, [
+            el("span", { class: "alt-gutter", "aria-hidden": "true" }),
             el("div", { class: "alt-body" }, [
               el("p", { class: "alt-text", text: other.text }),
-              el("p", { class: "meta", text: meta(other.text, terms, other.origin) }),
+              coverageMeta(other.text, terms, other.origin),
             ]),
-            el("button", {
-              class: "icon-btn", type: "button", "aria-label": "Use this line",
-              onclick: () => swap(role, bullet, other),
-            }, [icon("check")]),
+            el("div", { class: "alt-actions" }, [
+              el("button", {
+                class: "icon-btn icon-btn-round", type: "button",
+                "aria-label": "Use this line",
+                onclick: () => swap(role, bullet, other),
+              }, [icon("check", 18)]),
+            ]),
           ]))
           : [el("p", { class: "meta", text: "No other lines for this job yet." })]),
     ]);
     return el("div", { class: "bullet is-expanded" }, [head, list]);
   }
 
-  function roleBlock(role, r) {
-    const ask = el("button", { class: "btn btn-sm", type: "button", text: "Write new lines" });
-    ask.addEventListener("click", async () => {
-      ask.disabled = true;
-      ask.textContent = "Writing…";
-      try {
-        const found = (await ctx.askSection("bullets", { entry: role.path }))
-          .filter((p) => typeof p.text === "string" && p.text.trim()
-            && p.path.startsWith(`${role.path}.bullets.`));
-        if (!found.length) throw new Error("No new lines came back. Try again.");
-        for (const p of found) role.others.unshift({ text: p.text.trim(), origin: "New, from your notes" });
-        toast(`${found.length} new ${found.length === 1 ? "line" : "lines"} for this job.`);
-        paint();
-      } catch (error) {
-        toast(error.message, "error");
-        ask.disabled = false;
-        ask.textContent = "Write new lines";
+  function takeProposals(role, found, origin) {
+    let placed = 0;
+    for (const p of found) {
+      const text = String(p.text || "").trim();
+      if (!text || !p.path.startsWith(`${role.path}.bullets.`)) continue;
+      const index = Number(p.path.slice(`${role.path}.bullets.`.length));
+      if (Number.isInteger(index) && index >= 0) {
+        while (role.lines.length <= index) role.lines.push("");
+        if (!String(role.lines[index] || "").trim()) {
+          role.lines[index] = text;
+          placed += 1;
+          dirty = true;
+          continue;
+        }
       }
-    });
+      if (!role.lines.includes(text) && !role.others.some((o) => o.text === text)) {
+        role.others.unshift({ text, origin });
+      }
+    }
+    return placed;
+  }
+
+  async function proposeRole(role) {
+    try {
+      const found = await ctx.askSection("bullets", { entry: role.path });
+      const placed = takeProposals(role, found, "Recommended");
+      if (!found.length) throw new Error("No new lines came back. Try again.");
+      if (placed) toast(`${placed} ${placed === 1 ? "line" : "lines"} recommended for this job.`);
+      else toast(`${found.length} other ${found.length === 1 ? "line" : "lines"} for this job.`);
+      paint();
+    } catch (error) {
+      toast(error.message, "error");
+    }
+  }
+
+  function roleBlock(role, r) {
     const count = Math.max(role.room, role.lines.length);
     return el("section", { class: "role" }, [
       el("div", { class: "role-head" }, [
-        el("div", {}, [
+        el("div", { class: "role-title-row" }, [
           el("p", { class: "role-name", text: title(role.entry) }),
-          el("p", { class: "meta", text: [when(role.entry), `room for ${role.room}`].filter(Boolean).join(" · ") }),
+          el("button", {
+            class: "icon-btn icon-btn-round", type: "button", "aria-label": "Add a bullet",
+            onclick: () => addBullet(role, r),
+          }, [icon("plus", 18)]),
         ]),
-        ask,
+        el("p", { class: "meta", text: [when(role.entry), `room for ${role.room}`].filter(Boolean).join(" · ") }),
       ]),
-      el("div", { class: "bullets" }, Array.from({ length: count }, (_, b) => row(role, r, b))),
+      el("div", { class: "bullets" }, [
+        ...Array.from({ length: count }, (_, b) => row(role, r, b)),
+      ]),
     ]);
   }
 
@@ -159,7 +232,7 @@ export async function drawBullets(ctx) {
     body.replaceChildren(...roles.map(roleBlock));
   }
 
-  const nextButton = el("button", { class: "btn btn-primary", type: "button", text: "Next" });
+  const nextButton = stepAction("button", { type: "button", "aria-label": "Next" }, "right");
   nextButton.addEventListener("click", async () => {
     nextButton.disabled = true;
     try {
@@ -181,14 +254,18 @@ export async function drawBullets(ctx) {
   host.replaceChildren(el("div", { class: "measure-list" }, [
     el("header", { class: "page-head" }, [
       el("h1", { class: "title", text: "Bullets" }),
-      el("p", { class: "lead", text: "Open a line to edit it, or swap in another." }),
+      el("p", { class: "lead", text: "Recommended for this posting. Open a line to change it, or swap in another." }),
     ]),
     body,
-    foot([nextButton, el("a", { class: "btn", href: "#additional", text: "Skip" })]),
+    foot([
+      nextButton,
+      stepAction("a", { href: "#additional", "aria-label": "Skip" }, "skip"),
+    ]),
   ]));
   paint();
 
-  // His past lines for each job, one read per job, as the round would rank them.
+  // His past lines for each job, then the same bullets turn the chat ran on
+  // an empty role. Lines stay off the saved CV until Next.
   for (const role of roles) {
     try {
       const slot = await api("/api/library", {
@@ -200,7 +277,7 @@ export async function drawBullets(ctx) {
       for (const text of slot.lines || []) {
         const line = text.trim();
         if (line && !role.lines.includes(line) && !role.others.some((o) => o.text === line)) {
-          role.others.push({ text: line, origin: "From a past CV" });
+          role.others.push({ text: line, origin: "Past" });
         }
       }
     } catch (error) {
@@ -208,5 +285,6 @@ export async function drawBullets(ctx) {
     }
     role.loading = false;
     paint();
+    if (!role.lines.some((line) => String(line || "").trim())) await proposeRole(role);
   }
 }

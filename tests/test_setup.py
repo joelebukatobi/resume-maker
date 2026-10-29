@@ -168,6 +168,19 @@ class SetupApiTests(unittest.TestCase):
 
     NOTES_WITH_LOG = "# Me\n\nI fixed PCs.\n\n## From the chat\n\n### 2026-10-01\n\nDid X."
 
+    def test_past_cv_tools_join_his_skills_list(self):
+        listed = {"Programming": ["Rust", "SQL & Python"]}
+        past = {"programming": [
+            "HTML, CSS, TypeScript, React, Rust",
+            "SQL & Python, GraphQL",
+        ]}
+        got = setup.enrich_skills(listed, past)
+        self.assertEqual(got["Programming"][0], "Rust")
+        self.assertIn("HTML", got["Programming"])
+        self.assertIn("TypeScript", got["Programming"])
+        self.assertIn("GraphQL", got["Programming"])
+        self.assertEqual(len([t for t in got["Programming"] if t.casefold() == "rust"]), 1)
+
     def test_his_skills_list_is_read_by_label(self):
         notes = "## Skills\n\n- Product: Jira, Confluence\n- AI: Claude, RAG\n\n## Work\n\nStuff."
         self.assertEqual(setup.skills(notes), {"Product": ["Jira", "Confluence"],
@@ -268,54 +281,204 @@ class SetupApiTests(unittest.TestCase):
         return page
 
     def test_voice_page_is_built_on_the_redesign(self):
-        self.assert_redesigned("/style", "voice", "voice-page.js")
+        page = self.assert_redesigned("/style", "voice", "voice-page.js")
+        self.assertIn('id="search"', page)
+        self.assertIn('id="search-go"', page)
+        self.assertIn("apps-search", page)
+        self.assertIn('id="starters-trigger"', page)
+        self.assertIn('id="starters-menu"', page)
+        self.assertIn('id="save"', page)
+        self.assertIn("doc-action", page)                      # Save like Review Change/Create
+        self.assertNotIn('id="download"', page)
+        self.assertNotIn('class="rail"', page)
         voice = self.fetch("/static/ui/voice-page.js")
         self.assertIn('kind: "voice"', voice)
         self.assertIn("starters: true", voice)                 # role starters
+        self.assertIn("search: true", voice)
         self.assertIn("{ append: rule }", voice)               # a kept rule is appended
         doc = self.fetch("/static/ui/doc-page.js")
         self.assertIn('"/api/setup"', doc)
         self.assertIn("`/api/setup/${kind}`", doc)             # saves to its own file
         self.assertIn('"/api/setup/templates"', doc)
+        self.assertNotIn("download(", doc)
+        self.assertIn("moreIcon(", doc)
+        self.assertIn("select-menu", page)
         self.assertIn('"/api/chat"', self.fetch("/static/ui/doc-chat.js"))
+        nav = self.fetch("/static/ui/app-nav.js")
+        self.assertIn('text: "Models"', nav)
+        self.assertIn("openModels()", nav)
+        models = self.fetch("/static/ui/models.js")
+        self.assertIn('"/api/llm/providers"', models)
+        self.assertIn('"/api/llm/key"', models)
+        self.assertIn("rememberChoice(", models)
+        self.assertIn("maskKey(", self.fetch("/static/ui/agent.js"))
+        self.assertIn("select-trigger", models)
+        self.assertIn("keyHint(", models)
+        self.assertIn('text: "Model"', models)
+        self.assertIn("data-provider-trigger", models)
+        self.assertIn('text: "Key"', models)
+        self.assertIn("showModal()", models)
+        self.assertIn("event.target === dialog", models)  # click outside closes
+        self.assertNotIn("provider-mark", models)
+        providers = self.fetch("/api/llm/providers")
+        self.assertIn('"hint"', providers)
 
     def test_notes_page_is_built_on_the_redesign(self):
         page = self.assert_redesigned("/notes", "notes", "notes-page.js")
         self.assertIn('id="search"', page)                     # search in the nav
-        self.assertIn('href="/review"', page)                  # the line review stays reachable
+        self.assertIn('id="search-go"', page)
+        self.assertIn("apps-search", page)                     # same pill as applications
+        self.assertIn('id="save"', page)
+        self.assertNotIn('id="download"', page)
+        self.assertNotIn('class="rail"', page)
         notes = self.fetch("/static/ui/notes-page.js")
         self.assertIn('kind: "notes"', notes)
         self.assertIn("{ append: note }", notes)               # a kept note is appended
         self.assertIn("{ skill: { label: s.label, tool: s.tool } }", notes)
+
+    def test_settings_page_is_built_on_the_redesign(self):
+        """JO opens Settings: bio, contacts, paper theme, Models."""
+        page = self.assert_redesigned("/settings", "settings", "settings-page.js")
+        self.assertIn('id="settings"', page)
+        settings = self.fetch("/static/ui/settings-page.js")
+        self.assertIn('"/api/document"', settings)
+        self.assertIn('"/api/fonts"', settings)
+        self.assertIn('"/api/save"', settings)
+        self.assertIn("build: false", settings)
+        self.assertIn("openModels", settings)
+        self.assertIn('text: "Contacts"', settings)
+        self.assertIn("settings-rule", settings)
+        self.assertNotIn("Appearance", settings)
+        self.assertNotIn("font.note", settings)
+        self.assertIn('placeChip("CV"', settings)
+        self.assertIn('placeChip("Letter"', settings)
+        self.assertIn("coverMatch", settings)  # letter footer ticks come from cover.json
+        self.assertIn("Add contact item", settings)  # + in the Contacts head
+        self.assertIn("settings-foot", settings)     # one Save after Models
+        self.assertIn('class: "btn btn-primary"', settings)
+        self.assertIn('class: "chip"', settings)  # place toggles, not native checkboxes
+        self.assertNotIn('type: "checkbox"', settings)
+        self.assertIn("bespokeSelect", settings)  # Paper Size + Font, same as Models
+        self.assertIn("settings-grid-3", settings)
+        self.assertIn("./select.js", settings)
+        self.assertIn("Paper Size", settings)
+        self.assertNotIn("—", settings)  # no em dash in UI copy
+        design = (ROOT / "DESIGN.md").read_text(encoding="utf-8")
+        self.assertIn("No long hyphens", design)
+        self.assertIn("Title Case", design)
+        self.assertIn("bespoke select", design)
+        nav = self.fetch("/static/ui/app-nav.js")
+        self.assertIn('href: "/settings"', nav)
+        self.assertIn('"aria-label": "Settings"', nav)
 
     def test_applications_page_is_built_on_the_redesign(self):
         """The hub is the list of jobs; Voice and Notes are in the nav."""
         page = self.assert_redesigned("/", "applications", "apps-page.js")
         self.assertIn('id="app-rows"', page)
         self.assertIn('id="app-new"', page)
+        self.assertIn('id="apps-pager"', page)
+        self.assertIn(">Company<", page)
+        self.assertIn(">Application<", page)
         apps = self.fetch("/static/ui/apps-page.js")
         self.assertIn('"/api/apps"', apps)
         self.assertIn('"/api/setup"', apps)                    # nudges an empty file
-        self.assertIn('"/api/llm/providers"', apps)
-        for action in ('"rename"', '"create"', '"track"', '"archive"', '"restore"', '"delete"'):
+        self.assertNotIn('"/api/llm/providers"', apps)         # model keys line is gone
+        self.assertIn("pagePlan(", apps)
+        self.assertIn("PAGER_ROWS", apps)
+        for action in ('"rename"', '"create"', '"archive"', '"restore"', '"delete"'):
             self.assertIn(action, apps)
+        self.assertNotIn('action: "track"', apps)  # track stays a column; no row action
+        for name in ('"edit"', '"copy"', '"archive"', '"trash"'):
+            self.assertIn(name, apps)  # row icons, not a kebab menu
+        self.assertNotIn("kebab", apps)
         self.assertIn("window.confirm", apps)                  # delete asks first
+        # Hub opens land on the workbench; /resume is Write too.
+        self.assertIn("`/${encodeURIComponent(slug)}/write`", apps)
+        self.assertNotIn("window.location.href = `/${encodeURIComponent(slug)}`", apps)
+        # The name is the open path; no second Open/View control on the row.
+        self.assertNotIn('text: live ? "Open" : "View"', apps)
+        # Identify's "Company — Role" is two columns; a hyphen inside the role stays.
+        self.assertIn('text.indexOf(" — ")', apps)
+        self.assertIn("parts(app.name)", apps)
+
+    def test_write_page_has_no_side_rail(self):
+        """Steps 1–5 are the work alone; Review keeps its own checks beside the page."""
+        slug = self.get("/api/apps")["current"]
+        shell = self.fetch(f"/{slug}/write")
+        self.assertNotIn('id="rail"', shell)
+        write = self.fetch("/static/ui/write-page.js")
+        self.assertNotIn("Your Voice", write)
+        self.assertNotIn("Fixed Facts", write)
+        self.assertNotIn("paintRail", write)
 
     def test_summary_and_skills_steps_use_the_rounds_own_endpoints(self):
         page = self.fetch("/static/ui/write-page.js")
         self.assertIn('"/api/save"', page)                     # the document is saved whole
         self.assertIn("build: false", page)                    # files are built at Review
         self.assertIn('task: "tailor"', page)                  # a new version is one section turn
+        agent = self.fetch("/static/ui/agent.js")
+        self.assertIn("`/api/llm/models?provider=${encodeURIComponent(provider.id)}`", agent)
+        self.assertIn("localStorage.setItem(PREFS", agent)
         summary = self.fetch("/static/ui/step-summary.js")
         self.assertIn('phase: "summary"', summary)
         self.assertIn('action: "slot"', summary)               # past versions, as the model sees them
+        self.assertIn("if (!now) await propose()", summary)    # empty page runs the section turn
+        self.assertNotIn("Write a new one", summary)           # the own box is enough
+        self.assertIn("posting-line", summary)                 # same type as the posting read
+        self.assertIn('stepAction("a"', summary)               # icon Back / Skip like Posting
+        self.assertIn('"aria-label": "Next"', summary)
         skills = self.fetch("/static/ui/step-skills.js")
         self.assertIn('phase: "skills"', skills)
         self.assertIn('"/api/setup/notes", { skill:', skills)  # an added tool joins his list
+        self.assertIn('ctx.askSection("skills")', skills)      # empty skills run the section turn
         bullets = self.fetch("/static/ui/step-bullets.js")
         self.assertIn('phase: "bullets", entry: role.path', bullets)   # one read per job
         self.assertIn('ctx.askSection("bullets", { entry: role.path })', bullets)
         self.assertIn("ctx.saveCv()", bullets)
+        self.assertIn("await proposeRole(role)", bullets)      # empty role runs the section turn
+        self.assertIn("Others for this job", bullets)          # swap settled line
+        self.assertNotIn("Write new lines", bullets)
+        self.assertNotIn("applyPicks", bullets)                # no pick-cards substep
+        self.assertNotIn('class: "option"', bullets)
+        self.assertIn("Add a bullet", bullets)
+        self.assertIn("Move bullet up", bullets)
+        self.assertIn("--measure-list: 960px", self.fetch("/static/ui/tokens.css"))
+        additional = self.fetch("/static/ui/step-additional.js")
+        self.assertIn('phase: "additional"', additional)
+        self.assertIn('ctx.askSection("additional")', additional)
+        self.assertIn("if (!lines.some((line) => line.trim()))", additional)
+        self.assertNotIn("Write new lines", additional)
+        self.assertIn("ctx.setRefresh(propose)", additional)
+        self.assertIn('"/api/match"', page)                    # posting score on the step strip
+        self.assertIn('"/api/fit"', page)                      # model fit score on the step strip
+        self.assertIn("Click to refresh", page)                # each score circle re-rates itself
+        self.assertIn("sectionRefresh", page)                  # foot refresh re-runs the section
+        self.assertIn("setRefresh", page)
+        self.assertIn('scoreChip("fit", "Overall"', page)
+        self.assertIn('scoreChip("posting", "Language"', page)
+        self.assertIn("Save PDF and DOCX to this application", page)
+        self.assertIn("saveDocuments", page)
+        self.assertIn("build: true", page)                     # strip Save rebuilds out/
+        review = self.fetch("/static/ui/step-review.js")
+        self.assertIn("resume-zoom", review)
+        self.assertIn("Zoom in", review)
+        self.assertIn('icon("plus"', review)
+        self.assertIn('icon("minus"', review)
+        self.assertIn("resume-zoom-delta", review)
+        self.assertNotIn("Download PDF", review)
+        self.assertIn("of ${total} Terms", review)
+        self.assertIn('text: "Change"', review)
+        self.assertIn("applyProposal", review)
+        self.assertIn('"/api/chat"', review)
+        self.assertIn("attachDictate", review)
+        self.assertIn("Close chat", review)
+        self.assertNotIn("What you chose", review)
+        self.assertIn("\\u2010-\\u2015\\u2212", page)  # posting display shortens long dashes
+        for endpoint in ('"/api/preview"', '"/api/match"'):
+            self.assertIn(endpoint, review)
+        self.assertIn('sandbox: "allow-scripts"', review)      # the page runs in a sandbox
+        self.assertIn("ctx.saveCv()", review)                  # kept proposals write the CV
+        self.assertNotIn("ctx.setRefresh", review)             # section refresh is steps 1–5
 
     def test_redesigned_modules_never_assign_html(self):
         """Nodes, never HTML: file text and model replies cannot inject markup."""
@@ -351,15 +514,16 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn('body[data-page="cover"] :is(#nav-voice, #nav-notes, #nav-review)', css)
 
     def test_editor_links_back_to_the_setup_pages(self):
-        for path in ("/resume", "/cover-letter"):
-            with self.subTest(path=path):
-                with urllib.request.urlopen(f"{self.base}{path}", timeout=10) as response:
-                    page = response.read().decode()
-                for href in ('href="/"', 'href="/voice"', 'href="/notes"'):
-                    self.assertIn(href, page)
+        with urllib.request.urlopen(f"{self.base}/cover-letter", timeout=10) as response:
+            page = response.read().decode()
+        for href in ('href="/"', 'href="/voice"', 'href="/notes"'):
+            self.assertIn(href, page)
+        slug = self.get("/api/apps")["current"]
+        write = self.fetch(f"/{slug}/write")
+        self.assertIn('<app-nav', write)
 
     def test_every_page_serves_the_same_nav(self):
-        """One _nav.html fragment on every route; only data-page changes."""
+        """Cover letter still uses the old shared nav; CV paths are Write."""
         slug = self.get("/api/apps")["current"]
         expected = (
             ('href="/"', 'id="nav-hub"'),
@@ -368,24 +532,21 @@ class SetupApiTests(unittest.TestCase):
             (f'href="/{slug}/resume"', 'id="mode-cv"'),
             (f'href="/{slug}/cover-letter"', 'id="mode-cover"'),
         )
-        # The hub is the entry point and carries no nav of its own. The
-        # documents hang off the application they belong to.
-        pages = {
-            f"/{slug}": "resume",
-            f"/{slug}/resume": "resume",
-            f"/{slug}/cover-letter": "cover",
-        }
-        for path, page_id in pages.items():
+        with urllib.request.urlopen(f"{self.base}/{slug}/cover-letter", timeout=10) as response:
+            html = response.read().decode()
+        self.assertIn('data-page="cover"', html)
+        self.assertIn('class="site-nav"', html)
+        for href, chip_id in expected:
+            self.assertIn(href, html)
+            self.assertIn(chip_id, html)
+        self.assertNotIn("<!-- site-nav -->", html)
+        for path in (f"/{slug}", f"/{slug}/resume", f"/{slug}/write"):
             with self.subTest(path=path):
-                with urllib.request.urlopen(f"{self.base}{path}", timeout=10) as response:
-                    html = response.read().decode()
-                self.assertIn(f'data-page="{page_id}"', html)
-                self.assertIn('class="site-nav"', html)
-                for href, chip_id in expected:
-                    self.assertIn(href, html)
-                    self.assertIn(chip_id, html)
-                # Marker must be replaced, not left for the browser.
-                self.assertNotIn("<!-- site-nav -->", html)
+                page = self.fetch(path)
+                self.assertIn('data-page="write"', page)
+                self.assertIn("/static/ui/write-page.js", page)
+                self.assertNotIn("pico", page.lower())
+                self.assertNotIn('class="site-nav"', page)
 
     def test_chat_toggle_swaps_sidebar_icons(self):
         with urllib.request.urlopen(f"{self.base}/static/chat.js", timeout=10) as response:
@@ -403,21 +564,21 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn("function emptyState()", script)
 
     def test_every_page_shares_one_set_of_design_tokens(self):
-        """One base.css for all pages, so sizes and colours cannot drift."""
-        # Voice, Notes and the hub have moved to the redesign; the editor follows.
-        for path in ("/resume", "/cover-letter"):
-            with self.subTest(path=path):
-                with urllib.request.urlopen(f"{self.base}{path}", timeout=10) as response:
-                    page = response.read().decode()
-                self.assertIn("/static/base.css", page)
-                # Pages may read the tokens; only base.css defines them.
-                self.assertNotRegex(page, r"--pico-font-size\s*:")
-                self.assertNotRegex(page, r"--(green|accent)\s*:")
-                self.assertNotIn("&#8592;", page)           # buttons are text or icon, never both
+        """Cover letter still shares base.css; CV paths use the redesign tokens."""
+        with urllib.request.urlopen(f"{self.base}/cover-letter", timeout=10) as response:
+            page = response.read().decode()
+        self.assertIn("/static/base.css", page)
+        self.assertNotRegex(page, r"--pico-font-size\s*:")
+        self.assertNotRegex(page, r"--(green|accent)\s*:")
+        self.assertNotIn("&#8592;", page)
         with urllib.request.urlopen(f"{self.base}/static/base.css", timeout=10) as response:
             css = response.read().decode()
         self.assertIn("--pico-font-size: 15px", css)
         self.assertIn("--control-height", css)
+        slug = self.get("/api/apps")["current"]
+        write = self.fetch(f"/{slug}/write")
+        self.assertIn("/static/ui/tokens.css", write)
+        self.assertNotIn("/static/base.css", write)
 
     def test_voice_and_notes_paths_serve_their_own_page(self):
         """Routed now; each answers 200 as soon as its page lands (Tasks 5-6)."""
@@ -617,15 +778,12 @@ class ApplicationApiTests(unittest.TestCase):
         self.assertIsInstance(counted["score"], int)    # the same list, on the letter
         self.assertIn("missing", counted)
 
-        with urllib.request.urlopen(f"{self.base}/resume", timeout=10) as response:
-            page = response.read().decode()
-        # One row, two buttons: the model's reading of the document, and the
-        # keyword list, which is replaced only when asked for by name. On a
-        # letter the second button is the count, shown only on request.
-        self.assertIn("Count The Keywords", page)
-        self.assertIn("Read Afresh", page)
-        self.assertIn("function scoreActions(", page)
-        self.assertIn("countLanguage", page)
+        # Letter coverage UI still lives in the Pico editor (index.html).
+        editor = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("Count The Keywords", editor)
+        self.assertIn("Read Afresh", editor)
+        self.assertIn("function scoreActions(", editor)
+        self.assertIn("countLanguage", editor)
 
     def test_the_base_letter_names_no_company(self):
         """A plain New starts the letter from the base file, so the base must
@@ -656,10 +814,10 @@ class ApplicationApiTests(unittest.TestCase):
             self.post("/api/preview", {**document, "cv": broken, "document": "cv"})
         self.assertIn("text", json.loads(caught.exception.read())["error"])
 
-        with urllib.request.urlopen(f"{self.base}/resume", timeout=10) as response:
-            page = response.read().decode()
-        self.assertIn("unprovenDraft = true", page)          # armed on restore
-        self.assertIn("if (unprovenDraft) return discardDraft", page)   # and acted on
+        # Draft restore/drop still lives in the Pico editor (index.html).
+        editor = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("unprovenDraft = true", editor)
+        self.assertIn("if (unprovenDraft) return discardDraft", editor)
 
     def test_a_round_the_user_did_not_type_is_marked_as_such(self):
         """A tailoring round pushes a turn nobody typed. The flag is what stops
@@ -723,7 +881,7 @@ class ApplicationApiTests(unittest.TestCase):
 
     def test_the_old_document_paths_redirect_into_the_open_application(self):
         slug = self.get("/api/apps")["current"]
-        for path, tail in (("/resume", "resume"), ("/cover-letter", "cover-letter")):
+        for path, tail in (("/resume", "write"), ("/cover-letter", "cover-letter")):
             with self.subTest(path=path):
                 with urllib.request.urlopen(f"{self.base}{path}", timeout=10) as response:
                     self.assertEqual(response.url, f"{self.base}/{slug}/{tail}")
@@ -741,9 +899,15 @@ class ApplicationApiTests(unittest.TestCase):
         self.assertIn(f'data-app="{slug}"', page)
         self.assertIn("/static/ui/write-page.js", page)
         self.assertNotIn("pico", page.lower())
-        # The old editor is still where it was until the steps are complete.
+        # /resume is Write now; cover letter is the last Pico page.
         with urllib.request.urlopen(f"{self.base}/{slug}/resume", timeout=10) as response:
-            self.assertIn("/static/chat.js", response.read().decode())
+            resume = response.read().decode()
+        self.assertIn("/static/ui/write-page.js", resume)
+        self.assertNotIn("pico", resume.lower())
+        with urllib.request.urlopen(f"{self.base}/{slug}/cover-letter", timeout=10) as response:
+            cover = response.read().decode()
+        self.assertIn("pico", cover.lower())
+        self.assertIn("/static/chat.js", cover)
         with self.assertRaises(urllib.error.HTTPError) as caught:
             urllib.request.urlopen(f"{self.base}/no-such-application/write", timeout=10)
         self.assertEqual(caught.exception.code, 404)
@@ -1191,7 +1355,31 @@ class LibraryApiTests(unittest.TestCase):
             "## Skills\n\n- Product: Jira, Account Management, Odoo\n- AI: Claude, SQL\n")
         got = self.slot("skills", self.new())
         self.assertEqual(set(got["skills"]), {"Product", "AI"})
-        self.assertEqual(sorted(got["skills"]["AI"]), ["Claude", "SQL"])
+        # Notes tools stay; past / base CV lines under the same label are folded in.
+        self.assertIn("Claude", got["skills"]["AI"])
+        self.assertIn("SQL", got["skills"]["AI"])
+        self.assertGreaterEqual(len(got["skills"]["AI"]), 2)
+
+    def test_the_skills_slot_folds_in_tools_from_a_past_cv(self):
+        (self.root / "notes.md").write_text(
+            "## Skills\n\n- Programming: Rust\n")
+        self.past_line()  # seeds another application in the workspace
+        path = self.root / "applications" / "past" / "cv.json"
+        if not path.exists():
+            # past_line names the app "Past" → slug past
+            slug = next(p.name for p in (self.root / "applications").iterdir()
+                        if p.is_dir() and p.name != "untitled-application")
+            path = self.root / "applications" / slug / "cv.json"
+        cv = json.loads(path.read_text())
+        skills = next(s for s in cv["sections"] if s.get("type") == "skills"
+                      or "SKILL" in str(s.get("heading") or "").upper())
+        prog = next(i for i in skills["items"] if "program" in str(i.get("label") or "").lower())
+        prog["text"] = "HTML, CSS, TypeScript, Rust"
+        path.write_text(json.dumps(cv))
+        got = self.slot("skills", self.new())
+        self.assertIn("Rust", got["skills"]["Programming"])
+        self.assertIn("HTML", got["skills"]["Programming"])
+        self.assertIn("TypeScript", got["skills"]["Programming"])
 
     def test_a_slot_refuses_what_it_cannot_answer(self):
         slug = self.new()

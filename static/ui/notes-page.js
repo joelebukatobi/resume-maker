@@ -1,5 +1,5 @@
-// Notes: notes.md, searched from the nav, and what the chat offers for it:
-// a note, or a tool for the skills list.
+// My Experience: notes.md, searched from the nav, and what the chat offers:
+// a fact, or a tool for the skills list.
 
 import { api } from "./dom.js";
 import { mountDocPage } from "./doc-page.js";
@@ -15,10 +15,10 @@ function skill(text) {
 mountDocPage({
   kind: "notes",
   filename: "notes.md",
-  placeholder: "Tell it something you did",
+  placeholder: "Add something you've done",
   search: true,
   cards: {
-    notes: { label: "For your notes", save: (note) => api("/api/setup/notes", { append: note }) },
+    notes: { label: "For My Experience", save: (note) => api("/api/setup/notes", { append: note }) },
     skill: {
       label: "For your skills",
       show: (text) => { const s = skill(text); return s ? `${s.label}: ${s.tool}` : text; },

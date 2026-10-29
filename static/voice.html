@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Voice · Resume Maker</title>
+<title>Tone · Resume Maker</title>
 <script src="/static/ui/theme.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -18,63 +18,44 @@
 <body data-page="">
 <div class="shell">
   <app-nav current="voice">
-    <button class="btn btn-sm" type="button" id="download">Download</button>
-    <button class="btn btn-sm btn-primary" type="button" id="save">Save</button>
+    <div data-slot="middle" class="apps-search">
+      <label class="visually-hidden" for="search">Search Tone</label>
+      <input class="input input-sm" id="search" type="search" placeholder="Search Tone">
+      <button class="apps-search-go" type="button" id="search-go" aria-label="Search"></button>
+    </div>
   </app-nav>
 
   <div class="page">
     <main class="main">
       <div class="measure">
         <header class="page-head">
-          <h1 class="title">Voice</h1>
-          <p class="lead">How the assistant writes for you.</p>
+          <h1 class="title">Tone</h1>
+          <p class="lead">How every application should sound, taste, rules, and what to avoid.</p>
         </header>
 
-        <section class="doc" aria-label="voice.md">
+        <p class="meta search-note" id="search-note" hidden></p>
+
+        <section class="doc" aria-label="Tone">
           <div class="doc-bar">
-            <span class="mono doc-name">voice.md</span>
-            <div class="segment" role="group" aria-label="View">
-              <button type="button" data-mode="preview" aria-pressed="true">Preview</button>
-              <button type="button" data-mode="markdown" aria-pressed="false">Markdown</button>
+            <div class="doc-view" role="group" aria-label="View">
+              <button type="button" class="doc-view-btn" data-mode="preview" aria-pressed="true">Preview</button>
+              <button type="button" class="doc-view-btn" data-mode="markdown" aria-pressed="false">Markdown</button>
+            </div>
+            <div class="doc-bar-end">
+              <button class="doc-action" type="button" id="save">Save</button>
+              <button class="icon-btn doc-more" type="button" id="starters-trigger"
+                aria-label="Starters" aria-haspopup="listbox" aria-expanded="false"></button>
+              <div class="select-menu" role="listbox" popover="manual" id="starters-menu"></div>
             </div>
           </div>
-          <div class="doc-body md" id="preview"></div>
-          <label class="visually-hidden" for="source">voice.md as markdown</label>
-          <textarea class="doc-body doc-source" id="source" spellcheck="false" hidden></textarea>
+          <div class="doc-body md thin-scroll" id="preview"></div>
+          <label class="visually-hidden" for="source">Tone as markdown</label>
+          <textarea class="doc-body doc-source thin-scroll" id="source" spellcheck="false" hidden></textarea>
         </section>
 
-        <section class="chat" id="chat" aria-label="Ask the assistant"></section>
+        <section class="chat" id="chat" aria-label="Ask about your tone"></section>
       </div>
     </main>
-
-    <aside class="rail" aria-label="File">
-      <section class="rail-block">
-        <p class="eyebrow">File</p>
-        <div class="rows">
-          <div><span>State</span><span class="meta" id="fact-state">…</span></div>
-          <div><span>Size</span><span class="meta tnum" id="fact-size">…</span></div>
-          <div><span>Changes</span><span class="meta" id="fact-saved">…</span></div>
-        </div>
-      </section>
-
-      <section class="rail-block">
-        <p class="eyebrow">Used by</p>
-        <div class="rows">
-          <div>Proposed lines</div>
-          <div>Summaries</div>
-          <div>Letters</div>
-        </div>
-      </section>
-
-      <section class="rail-block">
-        <p class="eyebrow">Starter</p>
-        <div class="inline-form">
-          <label class="visually-hidden" for="starter">Starter</label>
-          <select class="input input-sm" id="starter"></select>
-          <button class="btn btn-sm" type="button" id="use-starter">Use</button>
-        </div>
-      </section>
-    </aside>
   </div>
 </div>
 </body>

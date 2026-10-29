@@ -18,24 +18,28 @@
 <body data-page="">
 <div class="shell">
   <app-nav current="applications">
-    <div data-slot="middle" class="nav-search">
-      <label class="visually-hidden" for="search">Search applications</label>
-      <input class="input input-sm" id="search" type="search" placeholder="Search applications">
+    <div data-slot="middle" class="apps-toolbar">
+      <button class="btn btn-sm btn-primary app-new" type="button" id="app-new" aria-label="Start Application">
+        <span class="app-new-icon" aria-hidden="true"></span>
+        <span class="app-new-label">Start Application</span>
+      </button>
+      <div class="apps-search">
+        <label class="visually-hidden" for="search">Search applications</label>
+        <input class="input input-sm" id="search" type="search" placeholder="Search applications">
+        <button class="apps-search-go" type="button" id="search-go" aria-label="Search"></button>
+      </div>
     </div>
-    <button class="btn btn-sm btn-primary" type="button" id="app-new">New application</button>
   </app-nav>
 
   <main class="main">
-    <header class="page-head">
-      <h1 class="title">Applications</h1>
-      <p class="lead">One per posting. Voice and Notes are shared.</p>
-    </header>
+    <h1 class="visually-hidden">Applications</h1>
 
     <div class="notice nudge" id="nudge" hidden></div>
 
     <table class="table">
       <thead>
         <tr>
+          <th scope="col" class="eyebrow">Company</th>
           <th scope="col" class="eyebrow">Application</th>
           <th scope="col" class="eyebrow col-track">Track</th>
           <th scope="col" class="eyebrow col-date">Created</th>
@@ -46,7 +50,11 @@
       <tbody id="app-rows"></tbody>
     </table>
 
-    <p class="meta model-line" id="model"></p>
+    <nav class="apps-pager" id="apps-pager" aria-label="Applications pages" hidden>
+      <button class="icon-btn apps-pager-btn" type="button" id="apps-prev" aria-label="Previous page"></button>
+      <span class="apps-pager-page" id="apps-page">1</span>
+      <button class="icon-btn apps-pager-btn" type="button" id="apps-next" aria-label="Next page"></button>
+    </nav>
   </main>
 </div>
 </body>

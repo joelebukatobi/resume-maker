@@ -1,4 +1,4 @@
-// A page that edits one markdown file: Voice or Notes.
+// A page that edits one markdown file: Tone or My Experience.
 //
 // The file is one document, read as a preview or edited as markdown, with a
 // small chat underneath whose cards append to it. Endpoints are the ones the
@@ -6,10 +6,8 @@
 // /api/chat.
 
 import { mountChat } from "./doc-chat.js";
-import { api, download, el, toast } from "./dom.js";
+import { api, el, icon, toast } from "./dom.js";
 import { renderMarkdown } from "./markdown.js";
-
-const STATES = { empty: "Empty", started: "Started", ready: "Ready" };
 
 const $ = (id) => document.getElementById(id);
 
@@ -18,15 +16,10 @@ export function mountDocPage({ kind, filename, placeholder, cards, starters = fa
   let saved = "";
   let mode = "preview";
   let query = "";
+  let starterOpen = false;
+  let roles = [];
 
   const dirty = () => text.trim() !== saved.trim();
-
-  function paintFacts(status) {
-    if (status) $("fact-state").textContent = STATES[status[kind]] || "—";
-    $("fact-size").textContent = `${text.trim().length.toLocaleString()} characters`;
-    $("fact-saved").textContent = dirty() ? "Not saved" : "Saved";
-    $("fact-saved").className = dirty() ? "meta is-open" : "meta";
-  }
 
   // Search shows only the paragraphs that mention the query, in the preview.
   function shown() {
@@ -42,6 +35,13 @@ export function mountDocPage({ kind, filename, placeholder, cards, starters = fa
     const found = shown().trim() ? shown().split(/\n{2,}/).length : 0;
     note.hidden = false;
     note.textContent = found ? `${found} ${found === 1 ? "match" : "matches"} for “${query}”` : `Nothing mentions “${query}”`;
+  }
+
+  function runSearch() {
+    const input = $("search");
+    if (!input) return;
+    query = input.value.trim();
+    setMode("preview");
   }
 
   function setMode(next) {
@@ -61,7 +61,6 @@ export function mountDocPage({ kind, filename, placeholder, cards, starters = fa
       const data = await api("/api/setup");
       saved = text = data[kind] || "";
       setMode(mode);
-      paintFacts(data.status);
     } catch (error) {
       toast(`Could not load ${filename}: ${error.message}`, "error");
     }
@@ -70,51 +69,130 @@ export function mountDocPage({ kind, filename, placeholder, cards, starters = fa
   async function save() {
     toast("Saving…", "busy");
     try {
-      const data = await api(`/api/setup/${kind}`, { text });
+      await api(`/api/setup/${kind}`, { text });
       saved = text;
-      paintFacts(data.status);
       toast("Saved.");
     } catch (error) {
       toast(error.message, "error");
     }
   }
 
+  function closeStarters() {
+    const menu = $("starters-menu");
+    const trigger = $("starters-trigger");
+    if (!menu || !trigger) return;
+    starterOpen = false;
+    trigger.setAttribute("aria-expanded", "false");
+    menu.classList.remove("opens-up");
+    menu.style.top = "";
+    menu.style.bottom = "";
+    menu.style.left = "";
+    menu.style.width = "";
+    if (typeof menu.hidePopover === "function" && menu.matches(":popover-open")) {
+      try { menu.hidePopover(); } catch (e) { /* already closed */ }
+    }
+  }
+
+  function placeStarters(menu, trigger) {
+    const rect = trigger.getBoundingClientRect();
+    const width = 220;
+    if (typeof menu.showPopover === "function") {
+      try { menu.showPopover(); } catch (e) { /* already open */ }
+    }
+    const need = Math.min(220, menu.scrollHeight || 220);
+    const roomBelow = window.innerHeight - rect.bottom - 12;
+    const roomAbove = rect.top - 12;
+    const openUp = roomBelow < need && roomAbove > roomBelow;
+    menu.classList.toggle("opens-up", openUp);
+    menu.style.width = `${width}px`;
+    menu.style.left = `${Math.round(Math.max(8, rect.right - width))}px`;
+    if (openUp) {
+      menu.style.top = "auto";
+      menu.style.bottom = `${Math.round(window.innerHeight - rect.top + 4)}px`;
+    } else {
+      menu.style.bottom = "auto";
+      menu.style.top = `${Math.round(rect.bottom + 4)}px`;
+    }
+  }
+
+  function paintStarters() {
+    const menu = $("starters-menu");
+    const trigger = $("starters-trigger");
+    if (!menu || !trigger) return;
+    menu.replaceChildren(...roles.map((role) => el("button", {
+      class: "menu-item", type: "button", role: "option",
+      onclick: () => {
+        closeStarters();
+        if (text.trim() && text.trim() !== role.text.trim()
+            && !confirm(`Replace ${filename} with the ${role.label} starter?`)) return;
+        text = role.text;
+        setMode(mode);
+        toast(`${role.label} loaded. Save to keep it.`);
+      },
+    }, [el("span", { text: role.label })])));
+    if (starterOpen) placeStarters(menu, trigger);
+  }
+
+  function moreIcon() {
+    const SVG = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(SVG, "svg");
+    svg.setAttribute("width", "16");
+    svg.setAttribute("height", "16");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    for (const y of ["5", "12", "19"]) {
+      const dot = document.createElementNS(SVG, "circle");
+      dot.setAttribute("cx", "12");
+      dot.setAttribute("cy", y);
+      dot.setAttribute("r", "1.5");
+      dot.setAttribute("fill", "currentColor");
+      svg.append(dot);
+    }
+    return svg;
+  }
+
   async function loadStarters() {
-    let roles = [];
+    const trigger = $("starters-trigger");
+    const menu = $("starters-menu");
+    if (!trigger || !menu) return;
+    trigger.replaceChildren(moreIcon());
     try {
       roles = await api("/api/setup/templates");
     } catch (error) {
       toast(`Could not load starters: ${error.message}`, "error");
       return;
     }
-    $("starter").append(...roles.map((role, index) => el("option", { value: String(index), text: role.label })));
-    $("use-starter").addEventListener("click", () => {
-      const role = roles[Number($("starter").value)];
-      if (!role) return;
-      if (text.trim() && text.trim() !== role.text.trim()
-          && !confirm(`Replace ${filename} with the ${role.label} starter?`)) return;
-      text = role.text;
-      setMode(mode);
-      paintFacts();
-      toast(`${role.label} loaded. Save to keep it.`);
+    paintStarters();
+    trigger.addEventListener("click", (event) => {
+      event.stopPropagation();
+      starterOpen = !starterOpen;
+      trigger.setAttribute("aria-expanded", String(starterOpen));
+      if (starterOpen) paintStarters();
+      else closeStarters();
+    });
+    document.addEventListener("click", (event) => {
+      if (!starterOpen) return;
+      if (trigger.contains(event.target) || menu.contains(event.target)) return;
+      closeStarters();
     });
   }
 
   $("source").addEventListener("input", (event) => {
     text = event.target.value;
-    paintFacts();
   });
   for (const button of document.querySelectorAll("[data-mode]")) {
     button.addEventListener("click", () => setMode(button.dataset.mode));
   }
   if (search) {
-    $("search").addEventListener("input", (event) => {
-      query = event.target.value.trim();
-      setMode("preview");
+    const go = $("search-go");
+    if (go) go.replaceChildren(icon("search", 16));
+    $("search").addEventListener("input", runSearch);
+    $("search").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); runSearch(); }
     });
+    if (go) go.addEventListener("click", runSearch);
   }
   $("save").addEventListener("click", save);
-  $("download").addEventListener("click", () => download(filename, text));
   document.addEventListener("keydown", (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "s") { event.preventDefault(); save(); }
   });

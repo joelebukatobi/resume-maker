@@ -77,9 +77,23 @@ a:hover {
   color: var(--text);
 }
 
+/* No focus ring outside the control — fields use a stronger border instead. */
+:focus,
 :focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--action-text) 50%, transparent);
-  outline-offset: 2px;
+  outline: none;
+}
+
+.input:focus,
+.input:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+select:focus,
+select:focus-visible,
+.select-trigger:focus,
+.select-trigger:focus-visible,
+.doc-source:focus,
+.doc-source:focus-visible {
+  border-color: var(--action-text);
 }
 
 /* Buttons: 40px on the page, 32px in bars and rows. */
@@ -132,6 +146,12 @@ a:hover {
   line-height: 16px;
 }
 
+.btn-icon {
+  width: 40px;
+  padding: 0;
+  justify-content: center;
+}
+
 .icon-btn {
   display: inline-flex;
   align-items: center;
@@ -148,6 +168,21 @@ a:hover {
 .icon-btn:hover {
   color: var(--text);
   background: var(--hover-overlay);
+}
+
+.icon-btn-round,
+.icon-btn-round:hover {
+  border-radius: var(--radius-full);
+}
+
+.icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.icon-btn:disabled:hover {
+  color: var(--text-secondary);
+  background: transparent;
 }
 
 /* Fields */
@@ -193,15 +228,15 @@ textarea.input {
 }
 
 .chip[aria-pressed="true"] {
-  color: var(--ground);
-  background: var(--text);
-  border: 1px solid var(--text);
+  color: var(--on-action);
+  background: var(--action-fill);
+  border: 1px solid var(--action-fill);
 }
 
 .chip[aria-pressed="false"] {
-  color: var(--text-muted);
+  color: var(--text-secondary);
   background: transparent;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--hairline-strong);
 }
 
 .chip-suggest {
@@ -239,8 +274,9 @@ textarea.input {
 
 .card[aria-pressed="true"],
 .card.is-selected {
-  background: var(--action-tint);
-  border-color: var(--action-text);
+  background: var(--surface);
+  border-color: var(--hairline-strong);
+  border-width: 2px;
 }
 
 .notice {

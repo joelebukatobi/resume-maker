@@ -2,11 +2,11 @@
 //
 // The tools come from his skills list in notes.md (POST /api/library slot,
 // the list the skills turn is given, posting first) plus whatever the CV
-// already names. On means on this CV. A fresh CV starts with the tools the
-// posting names. Adding a tool writes it to the skills list for every CV
-// after this one, through the same endpoint the chat's skill card uses.
+// already names. On means on this CV. An empty skills section runs the same
+// skills turn the chat ran after a paste; Next is his yes. Adding a tool
+// writes it to the skills list for every CV after this one.
 
-import { api, el, toast } from "./dom.js";
+import { api, el, stepAction, toast } from "./dom.js";
 
 // Names compared without case, spacing or "&" against "and".
 const norm = (name) => String(name).toLowerCase().replace(/&/g, "and").replace(/\s+/g, " ").trim();
@@ -45,22 +45,40 @@ export function readLine(text, listed) {
   return { named, extra };
 }
 
+function groupFrom(item, listed, { changed = false, fallbackOn = () => false } = {}) {
+  const key = Object.keys(listed).find((k) => same(k, item.label || ""));
+  const mine = key ? listed[key] : [];
+  const { named, extra } = readLine(item.text, mine);
+  const fresh = !splitTools(item.text).length;
+  return {
+    item,
+    label: item.label || "",
+    changed,
+    tools: [
+      ...mine.map((name) => ({
+        name, on: fresh ? fallbackOn(name) : named.includes(name),
+      })),
+      ...extra.map((name) => ({ name, on: true })),
+    ],
+  };
+}
+
 export async function drawSkills(ctx) {
   const at = ctx.sectionIndex("SKILL");
   const host = ctx.host;
   const foot = (extra = []) => el("div", { class: "step-foot" }, [
-    el("a", { class: "btn", href: "#summary", text: "Back" }), ...extra,
+    stepAction("a", { href: "#summary", "aria-label": "Back" }, "left"), ...extra,
   ]);
   if (at < 0) {
-    host.replaceChildren(el("div", { class: "measure" }, [
+    host.replaceChildren(el("div", { class: "measure-list" }, [
       el("h1", { class: "title", text: "Skills" }),
       el("p", { class: "lead", text: "This CV has no skills section." }),
-      foot([el("a", { class: "btn btn-primary", href: "#bullets", text: "Next" })]),
+      foot([stepAction("a", { href: "#bullets", "aria-label": "Next" }, "right")]),
     ]));
     return;
   }
 
-  host.replaceChildren(el("div", { class: "measure" }, [
+  host.replaceChildren(el("div", { class: "measure-list" }, [
     el("h1", { class: "title", text: "Skills" }),
     el("p", { class: "meta", text: "Loading your skills list…" }),
   ]));
@@ -77,51 +95,33 @@ export async function drawSkills(ctx) {
   const posting = String(ctx.history.job_description || "").toLowerCase();
   const section = ctx.documents.cv.sections[at];
   const items = section.items || [];
-
-  // One group per label on the CV: his list for that label first, then any
-  // tool the CV names that the list does not.
-  const groups = items.map((item) => {
-    const key = Object.keys(listed).find((k) => same(k, item.label || ""));
-    const mine = key ? listed[key] : [];
-    const { named, extra } = readLine(item.text, mine);
-    const fresh = !splitTools(item.text).length;
-    return {
-      item,
-      label: item.label || "",
-      // Untouched groups are saved exactly as they were written.
-      changed: false,
-      tools: [
-        ...mine.map((name) => ({
-          name, on: fresh ? posting.includes(name.toLowerCase()) : named.includes(name),
-        })),
-        ...extra.map((name) => ({ name, on: true })),
-      ],
-    };
-  });
-
+  const empty = items.every((item) => !splitTools(item.text).length);
+  const groups = items.map((item) => groupFrom(item, listed, {
+    fallbackOn: (name) => posting.includes(name.toLowerCase()),
+  }));
   const body = el("div", { class: "groups" });
 
   function paint() {
     body.replaceChildren(...groups.map((group, g) => {
-      const input = el("input", { class: "input input-sm", id: `add-${g}`, type: "text", placeholder: "Add a tool" });
+      const input = el("input", { class: "input input-sm", id: `add-${g}`, type: "text", placeholder: "Add a skill" });
       const add = el("button", { class: "btn btn-sm", type: "button", text: "Add" });
-      const addTool = async () => {
-        const tool = input.value.trim();
-        if (!tool) return;
+      const addSkill = async () => {
+        const skill = input.value.trim();
+        if (!skill) return;
         add.disabled = true;
         try {
-          await api("/api/setup/notes", { skill: { label: group.label, tool } });
-          if (!group.tools.some((t) => same(t.name, tool))) group.tools.push({ name: tool, on: true });
+          await api("/api/setup/notes", { skill: { label: group.label, tool: skill } });
+          if (!group.tools.some((t) => same(t.name, skill))) group.tools.push({ name: skill, on: true });
           group.changed = true;
-          toast(`${tool} added to your skills list.`);
+          toast(`${skill} added to your skills list.`);
           paint();
         } catch (error) {
           toast(error.message, "error");
           add.disabled = false;
         }
       };
-      add.addEventListener("click", addTool);
-      input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); addTool(); } });
+      add.addEventListener("click", addSkill);
+      input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); addSkill(); } });
       const on = group.tools.filter((t) => t.on).length;
       return el("section", { class: "group" }, [
         el("div", { class: "group-head" }, [
@@ -133,14 +133,42 @@ export async function drawSkills(ctx) {
           onclick: () => { tool.on = !tool.on; group.changed = true; paint(); },
         }))),
         el("div", { class: "group-add inline-form" }, [
-          el("label", { class: "visually-hidden", for: `add-${g}`, text: `Add a tool to ${group.label}` }),
+          el("label", { class: "visually-hidden", for: `add-${g}`, text: `Add a skill to ${group.label}` }),
           input, add,
         ]),
       ]);
     }));
   }
 
-  const nextButton = el("button", { class: "btn btn-primary", type: "button", text: "Next" });
+  async function propose() {
+    const found = (await ctx.askSection("skills"))
+      .filter((p) => typeof p.text === "string" && p.path.startsWith(`sections.${at}.items.`));
+    for (const p of found) {
+      const match = /^sections\.\d+\.items\.(\d+)\.text$/.exec(p.path);
+      if (!match) continue;
+      const index = Number(match[1]);
+      if (!items[index]) continue;
+      items[index].text = p.text.trim();
+      // Keep every skill in his list for this label; only the on/off
+      // state follows the recommendation.
+      groups[index] = groupFrom(items[index], listed, { changed: true });
+    }
+    if (!found.length) throw new Error("No skills recommendation came back. Pick skills by hand.");
+    if (body.isConnected) paint();
+  }
+
+  // Empty skills: the same turn the chat ran after a paste. Lines stay off
+  // the saved CV until Next.
+  if (empty) {
+    host.replaceChildren(el("div", { class: "measure-list" }, [
+      el("h1", { class: "title", text: "Skills" }),
+      el("p", { class: "meta", text: "Choosing skills for this posting…" }),
+    ]));
+    try { await propose(); }
+    catch (error) { toast(error.message, "error"); }
+  }
+
+  const nextButton = stepAction("button", { type: "button", "aria-label": "Next" }, "right");
   nextButton.addEventListener("click", async () => {
     nextButton.disabled = true;
     try {
@@ -158,13 +186,18 @@ export async function drawSkills(ctx) {
     }
   });
 
-  host.replaceChildren(el("div", { class: "measure" }, [
+  host.replaceChildren(el("div", { class: "measure-list" }, [
     el("header", { class: "page-head" }, [
       el("h1", { class: "title", text: "Skills" }),
-      el("p", { class: "lead", text: "Highlighted go on this CV. Tap to drop one." }),
+      el("p", { class: "lead", text: "Everything from your notes and past CVs. Blue ones are the match for this posting - tap to change." }),
     ]),
     body,
-    foot([nextButton, el("a", { class: "btn", href: "#bullets", text: "Skip" })]),
+    foot([
+      nextButton,
+      ctx.sectionRefresh(),
+      stepAction("a", { href: "#bullets", "aria-label": "Skip" }, "skip"),
+    ]),
   ]));
   paint();
+  ctx.setRefresh(propose);
 }

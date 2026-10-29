@@ -4,11 +4,13 @@
 *::before,
 *::after {
   box-sizing: border-box;
+  font-family: inherit; /* Geist from html; mono only where set below */
 }
 
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  font-family: var(--font);
 }
 
 body {
@@ -21,6 +23,15 @@ body {
   background: var(--ground);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+code,
+kbd,
+pre,
+.mono,
+textarea.input-code,
+.md code {
+  font-family: var(--font-mono);
 }
 
 h1, h2, h3, h4, p, ul, ol, figure, blockquote, dl, dd, pre {
@@ -38,6 +49,7 @@ svg {
 
 input, button, textarea, select {
   font: inherit;
+  font-family: inherit;
   color: inherit;
 }
 
@@ -55,6 +67,161 @@ table {
 
 [hidden] {
   display: none !important;
+}
+
+/* Scrollbars: 6px gray thumb, no arrows, no white track.
+   Do NOT set scrollbar-width/color on Chromium — that forces GTK arrows.
+   Thumb stays hidden until the surface is hovered or focused. */
+:where(
+  html,
+  body,
+  textarea,
+  .doc-body,
+  .doc-source,
+  .chat-log,
+  .main,
+  .measure,
+  .review-chat .chat-log,
+  .thin-scroll
+)::-webkit-scrollbar {
+  /* 6px thumb + more room from the right edge */
+  width: 16px;
+  height: 16px;
+  background: transparent;
+}
+
+:where(
+  html,
+  body,
+  textarea,
+  .doc-body,
+  .doc-source,
+  .chat-log,
+  .main,
+  .measure,
+  .review-chat .chat-log,
+  .thin-scroll
+)::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+}
+
+:where(
+  html,
+  body,
+  textarea,
+  .doc-body,
+  .doc-source,
+  .chat-log,
+  .main,
+  .measure,
+  .review-chat .chat-log,
+  .thin-scroll
+)::-webkit-scrollbar-track,
+:where(
+  html,
+  body,
+  textarea,
+  .doc-body,
+  .doc-source,
+  .chat-log,
+  .main,
+  .measure,
+  .review-chat .chat-log,
+  .thin-scroll
+)::-webkit-scrollbar-track-piece {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  margin-block: 8px;
+}
+
+:where(
+  html,
+  body,
+  textarea,
+  .doc-body,
+  .doc-source,
+  .chat-log,
+  .main,
+  .measure,
+  .review-chat .chat-log,
+  .thin-scroll
+)::-webkit-scrollbar-corner {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+:where(
+  html,
+  body,
+  textarea,
+  .doc-body,
+  .doc-source,
+  .chat-log,
+  .main,
+  .measure,
+  .review-chat .chat-log,
+  .thin-scroll
+)::-webkit-scrollbar-thumb {
+  background: transparent !important;
+  background-clip: padding-box !important;
+  /* ~5px clear of the right border; 6px visible thumb when shown */
+  border: 5px solid transparent !important;
+  border-radius: 8px;
+}
+
+:where(
+  html,
+  body,
+  textarea,
+  .doc-body,
+  .doc-source,
+  .chat-log,
+  .main,
+  .measure,
+  .review-chat .chat-log,
+  .thin-scroll
+):is(:hover, :focus, :focus-within)::-webkit-scrollbar-thumb {
+  background: var(--text-secondary) !important;
+  background-clip: padding-box !important;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  :where(
+    html,
+    body,
+    textarea,
+    .doc-body,
+    .doc-source,
+    .chat-log,
+    .main,
+    .measure,
+    .review-chat .chat-log,
+    .thin-scroll
+  ) {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+
+  :where(
+    html,
+    body,
+    textarea,
+    .doc-body,
+    .doc-source,
+    .chat-log,
+    .main,
+    .measure,
+    .review-chat .chat-log,
+    .thin-scroll
+  ):is(:hover, :focus, :focus-within) {
+    scrollbar-color: var(--text-secondary) transparent;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Notes · Resume Maker</title>
+<title>My Experience · Resume Maker</title>
 <script src="/static/ui/theme.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -18,65 +18,41 @@
 <body data-page="">
 <div class="shell">
   <app-nav current="notes">
-    <div data-slot="middle" class="nav-search">
-      <label class="visually-hidden" for="search">Search notes</label>
-      <input class="input input-sm" id="search" type="search" placeholder="Search notes">
+    <div data-slot="middle" class="apps-search">
+      <label class="visually-hidden" for="search">Search Experience</label>
+      <input class="input input-sm" id="search" type="search" placeholder="Search Experience">
+      <button class="apps-search-go" type="button" id="search-go" aria-label="Search"></button>
     </div>
-    <button class="btn btn-sm" type="button" id="download">Download</button>
-    <button class="btn btn-sm btn-primary" type="button" id="save">Save</button>
   </app-nav>
 
   <div class="page">
     <main class="main">
       <div class="measure">
         <header class="page-head">
-          <h1 class="title">Notes</h1>
-          <p class="lead">What you have done, in your words.</p>
+          <h1 class="title">My Experience</h1>
+          <p class="lead">What you have done, in your words, the evidence every application draws on.</p>
         </header>
 
         <p class="meta search-note" id="search-note" hidden></p>
 
-        <section class="doc" aria-label="notes.md">
+        <section class="doc" aria-label="My Experience">
           <div class="doc-bar">
-            <span class="mono doc-name">notes.md</span>
-            <div class="segment" role="group" aria-label="View">
-              <button type="button" data-mode="preview" aria-pressed="true">Preview</button>
-              <button type="button" data-mode="markdown" aria-pressed="false">Markdown</button>
+            <div class="doc-view" role="group" aria-label="View">
+              <button type="button" class="doc-view-btn" data-mode="preview" aria-pressed="true">Preview</button>
+              <button type="button" class="doc-view-btn" data-mode="markdown" aria-pressed="false">Markdown</button>
+            </div>
+            <div class="doc-bar-end">
+              <button class="doc-action" type="button" id="save">Save</button>
             </div>
           </div>
-          <div class="doc-body md" id="preview"></div>
-          <label class="visually-hidden" for="source">notes.md as markdown</label>
-          <textarea class="doc-body doc-source" id="source" spellcheck="false" hidden></textarea>
+          <div class="doc-body md thin-scroll" id="preview"></div>
+          <label class="visually-hidden" for="source">My Experience as markdown</label>
+          <textarea class="doc-body doc-source thin-scroll" id="source" spellcheck="false" hidden></textarea>
         </section>
 
-        <section class="chat" id="chat" aria-label="Ask the assistant"></section>
+        <section class="chat" id="chat" aria-label="Ask about My Experience"></section>
       </div>
     </main>
-
-    <aside class="rail" aria-label="File">
-      <section class="rail-block">
-        <p class="eyebrow">File</p>
-        <div class="rows">
-          <div><span>State</span><span class="meta" id="fact-state">…</span></div>
-          <div><span>Size</span><span class="meta tnum" id="fact-size">…</span></div>
-          <div><span>Changes</span><span class="meta" id="fact-saved">…</span></div>
-        </div>
-      </section>
-
-      <section class="rail-block">
-        <p class="eyebrow">Used by</p>
-        <div class="rows">
-          <div>Every chat</div>
-          <div>Line checks</div>
-          <div>Gap questions</div>
-        </div>
-      </section>
-
-      <section class="rail-block">
-        <p class="eyebrow">Lines</p>
-        <a class="btn btn-sm" href="/review">Review your lines</a>
-      </section>
-    </aside>
   </div>
 </div>
 </body>
