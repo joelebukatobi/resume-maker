@@ -18,14 +18,13 @@
 <body data-page="">
 <div class="shell">
   <app-nav current="applications">
-    <span class="meta app-title" id="app-title"></span>
+    <span data-slot="middle" class="meta app-title" id="app-title"></span>
   </app-nav>
 
   <nav class="steps" id="steps" aria-label="Steps"></nav>
 
   <div class="page">
     <main class="main" id="step"></main>
-    <aside class="rail" id="rail" aria-label="This application"></aside>
   </div>
 </div>
 </body>
