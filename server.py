@@ -15,7 +15,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import tempfile
+import threading
 import webbrowser
 from dataclasses import asdict
 from datetime import date
@@ -30,16 +32,22 @@ from urllib.parse import parse_qs, quote
 from resume_maker.applications import UNNAMED, ApplicationError, Workspace, as_json
 from resume_maker.build import FORMAT_ALIASES, Builder, export_name, safe_stem
 from resume_maker.export_pdf import BrowserNotFound, ExportError
-from resume_maker import assistant, keywords, llm, match, setup, transcribe
+from resume_maker import assistant, fill, jev, keywords, library, llm, match, setup, transcribe
 from resume_maker.fonts import catalogue, preview_face
 from resume_maker.model import CV, ContentError, CoverLetter
 from resume_maker.theme import Theme, ThemeError
 
 # route -> (file, page id). The page id selects the active nav chip.
+# library.json is read, changed and written back by several handlers, on a
+# threaded server. The check spends seconds in Jev between its read and its
+# write, so it never holds this: it merges what it learned into a fresh read.
+_LIBRARY_LOCK = threading.Lock()
+
 PAGES = {
     "/": ("home.html", "hub"),
     "/voice": ("voice.html", "voice"),
     "/notes": ("notes.html", "notes"),
+    "/review": ("review.html", "review"),
 }
 # The documents hang off the application they belong to:
 # /meta-rotational-product-manager/resume. The slug on its own opens the CV.
@@ -329,6 +337,8 @@ class EditorHandler(BaseHTTPRequestHandler):
             "/api/fit": self._fit,
             "/api/transcribe": self._transcribe,
             "/api/apps": self._apps_post,
+            "/api/library": self._library_post,
+            "/api/gaps": self._gaps,
         }
         handler = handlers.get(route)
         if handler is None:
@@ -628,12 +638,21 @@ class EditorHandler(BaseHTTPRequestHandler):
         """Save the Notes page, or add what the chat offered to the end of it.
 
         An "append" is the chat's only way into this file, and it only happens
-        because the user accepted the card, so the text arrives reviewed.
+        because the user accepted the card, so the text arrives reviewed. It
+        arrives in the assistant's words all the same, and is filed as such:
+        his own sentences come in through the keyword answer, never here, so
+        nothing a page sends can claim them.
         """
         if "append" in payload:
             current = assistant.load_text(self._notes_path)
             text = setup.append_text(current, payload.get("append"),
-                                     today=date.today().isoformat())
+                                     today=date.today().isoformat(), source="assistant")
+            payload = {"text": text}
+        elif isinstance(payload.get("skill"), dict):
+            # A tool he said yes to, filed in his skills list under its label.
+            skill = payload["skill"]
+            text = setup.add_skill(assistant.load_text(self._notes_path),
+                                   str(skill.get("label") or ""), str(skill.get("tool") or ""))
             payload = {"text": text}
         self._save_setup_file("notes", self._notes_path, payload)
 
@@ -725,7 +744,7 @@ class EditorHandler(BaseHTTPRequestHandler):
         if term not in stored["keywords"]:
             raise ValueError("that keyword is not on this posting's list")
         if action == "decline":
-            self._append_note(str(payload.get("line") or "").strip()[:400])
+            self._append_note(str(payload.get("line") or "").strip()[:400], source="no")
             stored["map"][term] = {"state": "declined", "from": "", "say": ""}
         elif action == "answer":
             sentence = str(payload.get("sentence") or "").strip()[:1000]
@@ -776,11 +795,14 @@ class EditorHandler(BaseHTTPRequestHandler):
             terms)
         keywords.save(path, posting=jd, terms=terms, entries=entries)
 
-    def _append_note(self, text: str) -> None:
+    def _append_note(self, text: str, source: str = "his") -> None:
+        """His answer, or his no, filed as his: he typed it or pressed it. A no
+        is filed as one, so it can never be read as backing what it denies."""
         if not text:
             raise ValueError("nothing to add to the notes")
         current = assistant.load_text(self._notes_path)
-        updated = setup.append_text(current, text, today=date.today().isoformat())
+        updated = setup.append_text(current, text, today=date.today().isoformat(),
+                                    source=source)
         _atomic_write(self._notes_path, updated.rstrip("\n"))
 
     def _fit(self, payload: dict[str, Any]) -> None:
@@ -857,11 +879,13 @@ class EditorHandler(BaseHTTPRequestHandler):
             # and asks for one suggestion at a time, so the step decides what
             # the model is being asked for.
             phase = str(payload.get("phase") or "wording")
-            if phase not in assistant.PHASES:
+            if phase not in assistant.PHASES and phase not in assistant.SECTIONS:
                 raise ValueError(f"unknown tailoring step: {phase}")
             raw_no = payload.get("declined")
             declined = [str(x)[:120] for x in raw_no][:20] if isinstance(raw_no, list) else []
             task = assistant.tailor_rules(phase, settled=settled, declined=declined)
+            if phase in assistant.SECTIONS:
+                task = f"{task}\n\n{self._section_note(phase, payload)}"
         # The requirement list the editor read off this posting, if it has one.
         # It is the only thing in the prompt that says what the posting asks
         # for rather than what the notes happen to hold.
@@ -958,19 +982,24 @@ class EditorHandler(BaseHTTPRequestHandler):
         action = payload.get("action")
         slug = str(payload.get("slug") or "")
         if action == "create":
-            # A new application starts from the one you were last on, so the
-            # work already done carries over; the base files seed the first.
-            # Duplicate names its source; a plain New follows on from the
-            # application you were last on. The letter travels only in the
-            # first case, because a letter argues one posting's case.
+            # A plain New starts from the base CV and letter. It used to follow
+            # on from the application last open, and a bullet written for one
+            # posting rode into every application after it. Duplicate names its source and copies it, letter
+            # and all: that is a choice he made.
             chosen = str(payload.get("source") or "")
-            source = chosen or self._last_opened()
             app = self._workspace.create(
                 str(payload.get("name") or "").strip() or UNNAMED,
                 job_url=str(payload.get("job_url") or ""),
-                source=source or None,
+                source=chosen or None,
                 keep_letter=bool(chosen),
             )
+            # A plain New opens on the empty frame; the chat writes the rest.
+            # A failure costs the frame, never the application.
+            if not chosen:
+                try:
+                    self._build_page(app.slug)
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[apps] frame not written for {app.slug}: {exc}", flush=True)
         elif action == "open":
             app = self._workspace.set_current(slug)
         elif action == "rename":
@@ -996,8 +1025,7 @@ class EditorHandler(BaseHTTPRequestHandler):
         application is called, what the cover letter is addressed to, and what
         the exported files are named after. Asking the model once here saves
         typing the same two things three times. It also reads the kind of role
-        (the track), which decides whether the untouched documents are re-seeded
-        from the newest application of that same kind.
+        (the track), and the posting's keyword list.
         """
         slug = str(payload.get("slug") or "") or self._workspace.current
         text = str(payload.get("job_description") or "").strip()[: assistant.MAX_IMPORT_TEXT]
@@ -1013,15 +1041,10 @@ class EditorHandler(BaseHTTPRequestHandler):
             raise ValueError("that posting does not name a company or a role")
         app = self._workspace.rename(slug, name, reslug=True)
 
-        # The track goes on the application, then the untouched documents are
-        # re-seeded from the newest application of that same track — the latest
-        # version of this kind of CV, not whatever happened to be open last.
         app = self._workspace.set_track(app.slug, found["track"])
-        reseeded = self._workspace.reseed(app.slug, found["track"])
 
         # The cover letter is addressed to the same pair, and the export
-        # filenames are built from it. Runs after the reseed so the freshly
-        # copied letter is the one addressed.
+        # filenames are built from it.
         cover_path = self._paths(app.slug)["cover"]
         cover = _read_json(cover_path)
         if cover:
@@ -1036,8 +1059,197 @@ class EditorHandler(BaseHTTPRequestHandler):
         except (llm.LLMError, assistant.ImportFailed, ValueError) as exc:
             print(f"[keywords] not read for {app.slug}: {exc}")
         self._json(HTTPStatus.OK, {"application": as_json(app), **found,
-                                   "reseeded": reseeded,
                                    "current": self._workspace.current})
+
+    # -- the line library -------------------------------------------------
+
+    @property
+    def _library_path(self) -> Path:
+        return self._notes_path.with_name("library.json")
+
+    def _history(self) -> tuple[dict[str, Any], list[library.Line], library.Decisions]:
+        """The base CV, every usable line he has used, and his decisions."""
+        base = _read_json(Path(self._workspace.base["cv"]))
+        cvs = library.load_cvs(self._workspace)
+        reworded: dict[str, str] = {}
+        for app in self._workspace.list():
+            chat = _read_json(self._workspace.folder(app.slug, archived=app.archived)
+                              / "chat.json")
+            for text in library.accepted_proposals(chat):
+                reworded.setdefault(text, "")
+        decisions = library.Decisions.load(self._library_path)
+        reworded.update(decisions.reworded)
+        lines = library.usable(library.collect(base, cvs, reworded), decisions)
+        return base, lines, decisions
+
+    def _build_page(self, slug: str) -> bool:
+        """Empty ``slug``'s CV down to its frame for the chat to write into.
+
+        Only a CV still exactly as it was created is emptied; anything he
+        saved first is his. Returns whether the CV was written.
+        """
+        if not self._workspace.untouched(slug, "cv"):
+            return False
+        paths = self._paths(slug)
+        base = _read_json(Path(self._workspace.base["cv"]))
+        cv = fill.blank(json.loads(json.dumps(base)))
+        _atomic_write(paths["cv"], json.dumps(cv, indent=2, ensure_ascii=False))
+        return True
+
+    _ENTRY_PATH = re.compile(r"sections\.(\d+)\.entries\.(\d+)")
+    # How many of his lines a section turn is shown, best first.
+    _SECTION_LINES = {"summary": 4, "bullets": 8, "additional": 6}
+
+    def _section_note(self, phase: str, payload: dict[str, Any]) -> str:
+        """His past lines for the section being written, only those his notes
+        back, ranked against the posting's frozen keyword list."""
+        _, notes = self._voice_and_notes()
+        if phase == "skills":
+            # His skills list, not old lines: a line is a list of tools, and
+            # no one paragraph of his notes ever backed a whole one.
+            posting = str(payload.get("job_description") or "").casefold()
+            listed = {label: sorted(tools, key=lambda t: t.casefold() not in posting)
+                      for label, tools in setup.skills(notes).items()}
+            return assistant.skills_note(listed)
+        base, lines, decisions = self._history()
+        terms = keywords.load(self._paths(str(payload.get("app") or ""))["keywords"])["keywords"]
+        limit = self._SECTION_LINES[phase]
+        sections = base.get("sections") or []
+        room, where = 0, ""
+        if phase == "bullets":
+            found = self._ENTRY_PATH.fullmatch(str(payload.get("entry") or ""))
+            try:
+                entry = sections[int(found[1])]["entries"][int(found[2])] if found else None
+            except (IndexError, KeyError, TypeError):
+                entry = None
+            if not isinstance(entry, dict):
+                raise ValueError("which job?")
+            where = found[0]
+            # The frame has no bullets left to count; the base is the record
+            # of the room each role gets.
+            room = len(entry.get("bullets") or []) or 3
+            cap = (entry.get("budget") or {}).get("bullets")
+            room = min(room, cap) if isinstance(cap, int) else room
+            slots = [(("bullets", library.company(entry.get("left"))), "")]
+        else:
+            slots = [((phase, ""), "")]
+        wanted = {slot for slot, _ in slots}
+        mine = [line for line in lines if line.slot in wanted]
+        try:
+            verdicts = library.check(mine, notes, decisions, support=jev.support)
+            self._label_additional(mine, decisions)
+            self._keep_learned(decisions)
+        except jev.JevError:
+            def no_jev(pairs):
+                raise jev.JevError("not reachable")
+            verdicts = library.check(mine, notes, decisions, support=no_jev)
+        index = library.Index(mine)
+        shown: list[str] = []
+        for slot, prefix in slots:
+            ranked = [line for line, _ in index.rank(slot, terms)
+                      if verdicts.get(line.text) == "pass"
+                      and decisions.labels.get(line.text) != "self_description"]
+            shown.extend(prefix + line.text for line in ranked[:limit])
+        return assistant.section_note(shown, room=room, where=where)
+
+    @staticmethod
+    def _label_additional(lines: list[library.Line], decisions: library.Decisions) -> None:
+        """Label each Additional Information line once; a label he set stays."""
+        unlabelled = [l.text for l in lines
+                      if l.slot == ("additional", "") and l.text not in decisions.labels]
+        if not unlabelled:
+            return
+        try:
+            for text, kind in zip(unlabelled, jev.label(unlabelled)):
+                decisions.labels[text] = kind
+        except jev.JevError as exc:
+            print(f"[library] lines not labelled: {exc}", flush=True)
+
+    def _gaps(self, payload: dict[str, Any]) -> None:
+        """Before a gap is asked: is it in his notes, or on a past CV? A past
+        line he confirms is filed in his notes as his own answer."""
+        if payload.get("action") == "confirm":
+            self._append_note(str(payload.get("line") or "").strip()[:400])
+            return self._json(HTTPStatus.OK, {"saved": True})
+        questions = payload.get("questions")
+        if not isinstance(questions, list) or len(questions) > 20:
+            raise ValueError("questions must be a short list")
+        _, lines, decisions = self._history()
+        _, notes = self._voice_and_notes()
+        self._json(HTTPStatus.OK, library.answer_gaps(
+            [str(q)[:400] for q in questions], notes, decisions, lines, judge=jev.answers))
+
+    def _library_post(self, payload: dict[str, Any]) -> None:
+        """What he decided about a line, a note, or a CV."""
+        action = payload.get("action")
+        text = " ".join(str(payload.get("text") or "").split())
+        if action in ("check", "review"):
+            return self._review(action)
+        with _LIBRARY_LOCK:
+            decisions = library.Decisions.load(self._library_path)
+            self._decide(action, payload, text, decisions)
+            decisions.save(self._library_path)
+        self._json(HTTPStatus.OK, {"ok": True})
+
+    def _decide(self, action: Any, payload: dict[str, Any], text: str,
+                decisions: library.Decisions) -> None:
+        if action in ("keep", "strike"):
+            if not text:
+                raise ValueError("which line?")
+            (decisions.kept if action == "keep" else decisions.struck).add(text)
+            (decisions.struck if action == "keep" else decisions.kept).discard(text)
+        elif action == "confirm":
+            passage = " ".join(str(payload.get("passage") or "").split())
+            if not passage:
+                raise ValueError("which note?")
+            decisions.confirmed[library.passage_key(passage)] = bool(payload.get("value"))
+        elif action == "exclude":
+            slug = str(payload.get("slug") or "")
+            self._workspace.find(slug)
+            (decisions.excluded.add if payload.get("value", True) else decisions.excluded.discard)(slug)
+        else:
+            raise ValueError(f"unknown library action: {action!r}")
+
+    def _keep_learned(self, worked: library.Decisions) -> None:
+        """Save what a check learned (Jev results, labels) into a fresh read,
+        so a Keep or Strike he made while it ran is not written over."""
+        with _LIBRARY_LOCK:
+            fresh = library.Decisions.load(self._library_path)
+            fresh.checks.update(worked.checks)
+            for text, kind in worked.labels.items():
+                fresh.labels.setdefault(text, kind)
+            fresh.save(self._library_path)
+
+    def _review(self, action: str) -> None:
+        """Check the whole library against the notes, or list what needs him.
+
+        "check" is the one sitting: every line not yet judged goes to Jev in
+        batches, and the results are kept. "review" never calls Jev; a line
+        the check has not reached shows as unchecked.
+        """
+        _, lines, decisions = self._history()
+        _, notes = self._voice_and_notes()
+        if action == "check":
+            support = jev.support
+        else:
+            def support(pairs):
+                raise jev.JevError("review does not call Jev")
+        verdicts = library.check(lines, notes, decisions, support=support)
+        if action == "check":
+            self._label_additional(lines, decisions)
+            self._keep_learned(decisions)
+            counts = {kind: sum(1 for v in verdicts.values() if v == kind)
+                      for kind in ("held", "unconfirmed", "unchecked")}
+            return self._json(HTTPStatus.OK, counts)
+        flagged = [{"text": l.text, "slot": list(l.slot), "cvs": list(l.cvs),
+                    "verdict": verdicts.get(l.text)}
+                   for l in lines if verdicts.get(l.text, "pass") != "pass"]
+        unsure = [{"passage": p.text, "trust": p.trust} for p in library.passages(notes)
+                  if not library.trusted(p, decisions) and p.trust != "no"
+                  and library.passage_key(p.text) not in decisions.confirmed]
+        apps = [{"slug": a.slug, "name": a.name, "excluded": a.slug in decisions.excluded}
+                for a in self._workspace.list()]
+        self._json(HTTPStatus.OK, {"lines": flagged, "notes": unsure, "applications": apps})
 
     def _history_get(self) -> None:
         """The application's one conversation, spanning both documents."""

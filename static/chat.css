@@ -27,7 +27,7 @@ body:not(.chat-open) .chat { display: none; }
 .chat-heading { font-weight: 600; color: #fff; }
 .chat-group { display: flex; flex-direction: column; gap: 6px; }
 .chat-msg.user { align-self: flex-end; max-width: 88%; background: #f4f1ea; color: #111; padding: 8px 10px; border-radius: 10px; }
-.chat-msg.user strong { color: #111; }
+.chat-msg.user p, .chat-msg.user strong { color: #111; }
 .chat-msg.assistant { display: flex; flex-direction: column; gap: 8px; background: #1e1e1e; padding: 10px 12px; border-radius: 10px; }
 .chat-para { position: relative; }
 /* One row under the whole reply, shown while the message is hovered. */
@@ -76,11 +76,11 @@ body:not(.chat-open) .chat { display: none; }
 /* Two square tiles: pasted job description, uploaded document. */
 .chat-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .tile {
-  position: relative; aspect-ratio: 1; border: 1px dashed #3a3a3a; border-radius: 8px;
-  background: rgba(61, 90, 67, .15); color: #fff;
+  position: relative; aspect-ratio: 1; border: 1px dashed rgba(242, 246, 242, .35); border-radius: 8px;
+  background: #4f7356; color: #fff;   /* the same green as the gaps card */
   overflow: hidden; display: flex; align-items: center; justify-content: center;
 }
-.tile:hover, .tile:focus-within, .tile.drag { border-color: #5a7a60; }
+.tile:hover, .tile:focus-within, .tile.drag { border-color: #f2f6f2; }
 .tile textarea {
   position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; resize: none;
   border: 0; background: transparent; padding: 12px; font-size: 12px; text-align: center;
@@ -181,3 +181,11 @@ dialog article { width: min(460px, 92vw); padding: 20px; }
    from a change to what the tool knows about him. */
 .chat-card.notes { background: #eef5ee; color: #1b2a1e; }
 .chat-card.notes .chat-card-head, .chat-card.notes .chat-answer-text { color: #1b2a1e; }
+
+/* Gaps come last and must not be scrolled past: a lighter step of the
+   accent green, with near-white text. */
+.chat-card.gaps { background: #4f7356; color: #f2f6f2; }
+.chat-card.gaps .chat-card-head, .chat-card.gaps .chat-answer-text { color: #f2f6f2; }
+.chat-card.gaps .chat-gap-q { color: #f2f6f2; }
+.chat-card.gaps button.tiny { color: #f2f6f2; border-color: rgba(242, 246, 242, .6); }
+.chat-card.gaps button.tiny:hover, .chat-card.gaps button.tiny:focus { background: #3d5a43; border-color: #f2f6f2; }

@@ -477,6 +477,13 @@ class PaginationTests(unittest.TestCase):
         self.assertNotIn("column-fill", HtmlRenderer(theme).render(cv))
 
 
+    def test_the_preview_reports_the_room_left_on_the_page(self):
+        """Spare lines at the foot of a one-page CV, for the chat to use."""
+        cv, theme = load()
+        html = HtmlRenderer(theme).render(cv, preview=True)
+        self.assertIn("type: 'resume-pages', count: pageCount, room: room", html)
+
+
 class MatchTests(unittest.TestCase):
     """Coverage of a posting's vocabulary, counted rather than judged."""
 

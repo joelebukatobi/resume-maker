@@ -78,13 +78,25 @@ _FIT_SCRIPT = """
       'column-width:' + textW + 'px;column-gap:' + gap + 'px;column-fill:auto;';
     var step = textW + gap;
     pageCount = Math.max(1, Math.round((flow.scrollWidth + gap) / step));
+    // Whole lines still free at the foot of a one-page CV, at a bullet's
+    // line height. Rects are scaled by the zoom; textH is not.
+    var room = 0;
+    var last = flow.lastElementChild;
+    if (pageCount === 1 && last) {
+      var box = flow.getBoundingClientRect();
+      var used = (last.getBoundingClientRect().bottom - box.top) * textH / (box.height || textH);
+      var item = flow.querySelector('li') || last;
+      var ics = getComputedStyle(item);
+      var lh = parseFloat(ics.lineHeight) || parseFloat(ics.fontSize) * 1.2;
+      room = Math.max(0, Math.floor((textH - used) / lh));
+    }
     for (var k = 1; k < pageCount; k++) {
       var sheet = first.cloneNode(true);
       sheet.querySelector('.flow').style.transform = 'translateX(' + (-k * step) + 'px)';
       sheets.appendChild(sheet);
     }
     if (window.parent !== window) {
-      window.parent.postMessage({ type: 'resume-pages', count: pageCount }, '*');
+      window.parent.postMessage({ type: 'resume-pages', count: pageCount, room: room }, '*');
     }
   }
 

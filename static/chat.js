@@ -12,7 +12,7 @@
  * schedule(), documentMode.
  */
 
-const BLOCK = /```(proposal|answer|notes|voice|gaps|ask)\s*([\s\S]*?)```/g;
+const BLOCK = /```(proposal|answer|notes|voice|gaps|ask|skill)\s*([\s\S]*?)```/g;
 // One conversation per application, covering both documents.
 let chat = null;
 let chatController = null;
@@ -252,6 +252,41 @@ function showCard(path, show, { state, onResolve, kind }) {
 // Something about the candidate's own history, offered for their experience
 // bank. Notes feed every future application, so this is the one thing the chat
 // writes outside the open document, and only once the user has accepted it.
+// A tool he said he has used, for the skills list in his notes: the only
+// place the CV's skill lines are written from.
+function skillCard(text, { state, onResolve }) {
+  let skill = null;
+  try { skill = JSON.parse(text); } catch { /* shown as text below */ }
+  const card = el("div", { class: `chat-card notes ${state || ""}` });
+  if (!skill || typeof skill.label !== "string" || typeof skill.tool !== "string") {
+    card.append(el("p", { class: "chat-answer-text", text }));
+    return card;
+  }
+  card.append(el("div", { class: "chat-card-head",
+    text: state ? "For your skills list" : "For your skills list · not saved yet" }));
+  card.append(el("p", { class: "chat-answer-text", text: `${skill.label}: ${skill.tool}` }));
+  if (state) {
+    card.append(el("div", { class: "chat-card-state",
+      text: state === "accepted" ? "Added to Skills" : "Dismissed" }));
+    return card;
+  }
+  card.append(el("div", { class: "chat-card-actions" }, [
+    el("button", { class: "tiny", text: "Add to Skills", onclick: async (e) => {
+      e.target.disabled = true;
+      try {
+        await api("/api/setup/notes", { skill: { label: skill.label, tool: skill.tool } });
+        setStatus(`Added ${skill.tool} to your skills`);
+        onResolve("accepted");
+      } catch (error) {
+        e.target.disabled = false;
+        setStatus(`Could not add to skills: ${error.message}`, true);
+      }
+    } }),
+    el("button", { class: "tiny secondary", text: "Skip", onclick: () => onResolve("dismissed") }),
+  ]));
+  return card;
+}
+
 function notesCard(text, { state, onResolve }) {
   const card = el("div", { class: `chat-card notes ${state || ""}` });
   // Says it is pending, because a card sitting in a column of applied
@@ -416,10 +451,26 @@ function declineLine(question) {
   return negative(String(question).replace(/^[^.?:]*[.:]\s+(?=\S)/, ""));
 }
 
+// What code found for each gap question before he is asked, by question:
+// covered by his notes, answered by a past CV line, or open. Kept for the
+// page's life, so a redraw does not ask again.
+const gapChecks = new Map();
+
+function checkGaps(questions) {
+  const todo = questions.filter((q) => !gapChecks.has(q));
+  if (!todo.length) return;
+  for (const q of todo) gapChecks.set(q, null);
+  api("/api/gaps", { action: "check", questions: todo })
+    .then((r) => r.json())
+    .then((found) => { for (const g of found) gapChecks.set(g.question, g); })
+    .catch(() => { for (const q of todo) gapChecks.set(q, { question: q, status: "open" }); })
+    .finally(() => renderChat());
+}
+
 function gapsCard(text, { state, onResolve }) {
   const questions = text.split("\n").map((line) => line.replace(/^[-*\d.\s]+/, "").trim())
     .filter(Boolean);
-  const card = el("div", { class: `chat-card ${state || ""}` });
+  const card = el("div", { class: `chat-card gaps ${state || ""}` });
   card.append(el("div", { class: "chat-card-head", text: "Gaps against this posting" }));
   if (state) {
     for (const question of questions) {
@@ -428,30 +479,22 @@ function gapsCard(text, { state, onResolve }) {
     card.append(el("div", { class: "chat-card-state", text: "Dismissed" }));
     return card;
   }
-  for (const question of questions) {
-    const row = el("div", { class: "chat-gap" }, [
-      el("span", { class: "chat-gap-q", text: question }),
-      el("button", { class: "tiny secondary", text: "I have this", onclick: () => {
-        const input = $("chat-input");
-        input.value = joinText(input.value, question);
-        input.focus();
-      } }),
-      el("button", { class: "tiny secondary", text: "I haven't", onclick: async (e) => {
-        const line = negative(question);
-        e.target.disabled = true;
-        try {
-          await api("/api/setup/notes", { append: line });
-          row.textContent = "";
-          row.append(el("span", { class: "chat-gap-q", text: line }),
-                     el("span", { class: "chat-card-state", text: "In your notes" }));
-          setStatus("Added to your notes");
-        } catch (error) {
-          e.target.disabled = false;
-          setStatus(`Could not add to notes: ${error.message}`, true);
-        }
-      } }),
-    ]);
-    card.append(row);
+  checkGaps(questions);
+  if (questions.some((q) => !gapChecks.get(q))) {
+    card.append(el("p", { class: "chat-answer-text", text: "Checking your notes and past CVs…" }));
+    return card;
+  }
+  const found = questions.map((q) => gapChecks.get(q));
+  const covered = found.filter((g) => g.status === "covered").length;
+  for (const gap of found) {
+    if (gap.status === "past") card.append(pastRow(gap));
+    else if (gap.status !== "covered") card.append(openRow(gap.question));
+  }
+  if (covered && covered < found.length) {
+    card.append(el("div", { class: "chat-card-state",
+      text: `${covered} more already answered by your notes, so not asked.` }));
+  } else if (covered) {
+    card.append(el("p", { class: "chat-answer-text", text: "Nothing to ask: your notes cover all of it." }));
   }
   card.append(el("div", { class: "chat-card-actions" }, [
     el("button", { class: "tiny secondary", text: "Copy",
@@ -460,6 +503,64 @@ function gapsCard(text, { state, onResolve }) {
       onclick: () => onResolve("dismissed") }),
   ]));
   return card;
+}
+
+// A gap a past CV already answers: the line is quoted for him to confirm.
+// Yes files it in his notes as his own words; no strikes it for good.
+function pastRow(gap) {
+  const row = el("div", { class: "chat-gap" }, [
+    el("span", { class: "chat-gap-q", text: `Your past CVs say: "${gap.line}" Is that right?` }),
+    el("button", { class: "tiny secondary", text: "That's right", onclick: async (e) => {
+      e.target.disabled = true;
+      try {
+        await api("/api/gaps", { action: "confirm", line: gap.line });
+        gapChecks.set(gap.question, { ...gap, status: "covered" });
+        setStatus("Added to your notes");
+        renderChat();
+      } catch (error) {
+        e.target.disabled = false;
+        setStatus(`Could not add to notes: ${error.message}`, true);
+      }
+    } }),
+    el("button", { class: "tiny secondary", text: "Not true", onclick: async (e) => {
+      e.target.disabled = true;
+      try {
+        await api("/api/library", { action: "strike", text: gap.line });
+        gapChecks.set(gap.question, { question: gap.question, status: "open" });
+        renderChat();
+      } catch (error) {
+        e.target.disabled = false;
+        setStatus(`Could not strike it: ${error.message}`, true);
+      }
+    } }),
+  ]);
+  return row;
+}
+
+function openRow(question) {
+  const row = el("div", { class: "chat-gap" }, [
+    el("span", { class: "chat-gap-q", text: question }),
+    el("button", { class: "tiny secondary", text: "I have this", onclick: () => {
+      const input = $("chat-input");
+      input.value = joinText(input.value, question);
+      input.focus();
+    } }),
+    el("button", { class: "tiny secondary", text: "I haven't", onclick: async (e) => {
+      const line = negative(question);
+      e.target.disabled = true;
+      try {
+        await api("/api/setup/notes", { append: line });
+        row.textContent = "";
+        row.append(el("span", { class: "chat-gap-q", text: line }),
+                   el("span", { class: "chat-card-state", text: "In your notes" }));
+        setStatus("Added to your notes");
+      } catch (error) {
+        e.target.disabled = false;
+        setStatus(`Could not add to notes: ${error.message}`, true);
+      }
+    } }),
+  ]);
+  return row;
 }
 
 // An answer to an application question: it belongs on someone else's form, so
@@ -637,6 +738,16 @@ function renderAssistant(message, index, streaming) {
   const content = message.content;
   const kind = message.document || documentMode;
   let last = 0, n = 0;
+  // A section arrives as several proposals in one message. The round waits
+  // for all of them, and one button takes them together.
+  const proposals = [];
+  const settle = (result, path) => {
+    if (index !== chat.messages.length - 1) return;
+    const resolved = message.resolved || {};
+    if (!proposals.every((p) => resolved[p.key])) return;
+    const any = proposals.some((p) => resolved[p.key] === "accepted");
+    cardResolved(proposals.length > 1 ? (any ? "accepted" : "dismissed") : result, path);
+  };
   const addText = (text) => {
     for (const para of text.split(/\n{2,}/)) {
       if (!para.trim()) continue;
@@ -646,6 +757,10 @@ function renderAssistant(message, index, streaming) {
   for (const match of content.matchAll(BLOCK)) {
     addText(content.slice(last, match.index));
     last = match.index + match[0].length;
+    if (message.section && !sectionAllows(message.section, match[1], match[2])) {
+      if (match[1] !== "answer") n++;   // keys stay where the history put them
+      continue;
+    }
     if (match[1] === "answer") {
       box.append(answerCard(match[2].trim()));
       continue;
@@ -669,9 +784,9 @@ function renderAssistant(message, index, streaming) {
       }));
       continue;
     }
-    if (match[1] === "notes" || match[1] === "voice" || match[1] === "gaps") {
+    if (["notes", "voice", "gaps", "skill"].includes(match[1])) {
       const key = String(n++);
-      const card = { notes: notesCard, voice: voiceCard, gaps: gapsCard }[match[1]];
+      const card = { notes: notesCard, voice: voiceCard, gaps: gapsCard, skill: skillCard }[match[1]];
       box.append(card(match[2].trim(), {
         state: message.resolved && message.resolved[key],
         onResolve: (result) => {
@@ -690,6 +805,8 @@ function renderAssistant(message, index, streaming) {
     if (parsed && typeof parsed.path === "string"
         && (wantsRemoval || wantsShown !== null || typeof parsed.text === "string")) {
       const state = message.resolved && message.resolved[key];
+      proposals.push({ key, path: parsed.path, text: parsed.text || "",
+                       plain: !wantsRemoval && wantsShown === null });
       box.append(proposalCard(parsed.path, parsed.text || "", {
         state,
         kind,
@@ -699,15 +816,31 @@ function renderAssistant(message, index, streaming) {
           message.resolved = { ...(message.resolved || {}), [key]: result };
           saveHistory();
           renderChat();
-          if (index === chat.messages.length - 1) cardResolved(result, parsed.path);
+          settle(result, parsed.path);
         },
       }));
     } else {
       addText(match[2]);
     }
   }
+  const waiting = proposals.filter((p) => p.plain && !(message.resolved || {})[p.key]);
+  if (!streaming && waiting.length > 1) {
+    box.append(el("div", { class: "chat-card-actions" }, [
+      el("button", { class: "tiny", text: "Use all", onclick: () => {
+        // In order: bullets.1 can only be added once bullets.0 is there.
+        for (const p of waiting) {
+          try { applyText(p.path, p.text, kind); }
+          catch (error) { setStatus(error.message, true); break; }
+          message.resolved = { ...(message.resolved || {}), [p.key]: "accepted" };
+        }
+        saveHistory();
+        renderChat();
+        settle("accepted", waiting[0].path);
+      } }),
+    ]));
+  }
   const tail = content.slice(last);
-  const open = tail.search(/```(proposal|answer|notes|voice|gaps)/);
+  const open = tail.search(/```(proposal|answer|notes|voice|gaps|skill)/);
   addText(open === -1 ? tail : tail.slice(0, open));
   if (open !== -1 && streaming) {
     box.append(el("div", { class: "chat-pending", text: "Writing a proposal…" }));
@@ -738,7 +871,7 @@ function renderAssistant(message, index, streaming) {
 // blocks, which are machinery rather than something to paste anywhere.
 function messageText(content) {
   return content
-    .replace(/```(?:proposal|notes|voice|gaps)\s*[\s\S]*?```/g, "")
+    .replace(/```(?:proposal|notes|voice|gaps|skill)\s*[\s\S]*?```/g, "")
     .replace(/```answer\s*([\s\S]*?)```/g, "$1")
     .split(/\n{2,}/)
     .map((para) => plainText(para.trim()))
@@ -798,6 +931,10 @@ async function retryTurn(index) {
 function renderChat({ streaming = false } = {}) {
   const host = $("chat-log");
   const state = chat;
+  // Follow new text only when he was already at the end; pressing a card's
+  // button further up left him there, not at the bottom.
+  const top = host.scrollTop;
+  const atEnd = host.scrollHeight - top - host.clientHeight < 40;
   host.textContent = "";
   if (!state) return;
   if (!state.messages.length) host.append(emptyState());
@@ -805,7 +942,7 @@ function renderChat({ streaming = false } = {}) {
     const isLast = i === state.messages.length - 1;
     host.append(m.role === "user" ? renderUser(m, i) : renderAssistant(m, i, streaming && isLast));
   });
-  host.scrollTop = host.scrollHeight;
+  host.scrollTop = atEnd ? host.scrollHeight : top;
 }
 
 /* ---------------------------------------------------------- persistence */
@@ -1268,7 +1405,9 @@ async function sendMessage() {
   cancelDictation();
   // The round is waiting on a card and the user has typed instead. That is an
   // answer of its own: they have taken over, so the round stops here.
-  if (awaitingCard) cardResolved("stopped");
+  // While a section is on screen, typing asks for changes to it; the round
+  // waits for the yes on the section that comes back.
+  if (awaitingCard && !currentSection) cardResolved("stopped");
   const input = $("chat-input");
   const typed = input.value.trim();
   const state = chat;
@@ -1284,6 +1423,7 @@ async function sendMessage() {
   drawAttachment();
   state.messages.push({ role: "user", content, document: documentMode });
   const reply = { role: "assistant", content: "", document: documentMode };
+  if (currentSection) reply.section = { ...currentSection };
   state.messages.push(reply);
   renderChat({ streaming: true });
   setBusy(true);
@@ -1297,7 +1437,7 @@ async function sendMessage() {
     setStatus(message, true);
   };
   try {
-    await streamReply(reply, chatBody(state, agent));
+    await streamReply(reply, chatBody(state, agent, sectionTask()));
     if (!reply.content.trim()) state.messages.splice(-2, 2);
   } catch (error) {
     if (error.name === "AbortError") {
@@ -1349,8 +1489,14 @@ const tailorReady = () => Boolean(
 const STEP_STATUS = {
   cast: "reading the posting against your experience…",
   wording: "working on the wording…",
+  summary: "writing your summary…",
+  skills: "writing your skills…",
+  bullets: "writing this job's bullets…",
+  additional: "writing additional information…",
   fit: "making it fit the page…",
   again: "working from what you just told me…",
+  gaps: "checking the finished CV against the posting…",
+  lengthen: "using the room left on the page…",
 };
 
 // A card the round is waiting on calls this when the user answers it.
@@ -1364,25 +1510,27 @@ function cardResolved(result, what) {
   }
   const waiting = awaitingCard;
   awaitingCard = null;
-  if (waiting) waiting(result);
+  if (waiting) waiting(result, what);
 }
 
 // Whether the reply that just arrived offered anything. A step that offers no
 // card has nothing left to say, which is how it ends.
-function offeredCard(content) {
+function offeredCard(content, section) {
   for (const match of String(content || "").matchAll(BLOCK)) {
+    if (section && !sectionAllows(section, match[1], match[2])) continue;
     if (match[1] === "proposal" || match[1] === "gaps" || match[1] === "ask") return match[1];
   }
   return null;
 }
 
-async function askStep(phase) {
+async function askStep(phase, extra = {}) {
   const state = chat;
   const agent = agentModel();
   state.messages.push({ role: "user", content: TAILOR_ASK,
                         document: documentMode, pipeline: true });
   const reply = { role: "assistant", content: "", document: documentMode,
                   pipeline: true };
+  if (writingSections) reply.section = { phase, ...extra };
   state.messages.push(reply);
   renderChat({ streaming: true });
   setBusy(true);
@@ -1390,7 +1538,7 @@ async function askStep(phase) {
   chatController = new AbortController();
   try {
     await streamReply(reply, chatBody(state, agent, {
-      task: "tailor", phase,
+      task: "tailor", phase, ...extra,
       settled: settledPaths(),
       declined: tailorDeclined,
     }));
@@ -1398,7 +1546,7 @@ async function askStep(phase) {
       state.messages.splice(-2, 2);
       return "empty";
     }
-    return offeredCard(reply.content) || "empty";
+    return offeredCard(reply.content, reply.section) || "empty";
   } catch (error) {
     if (error.name === "AbortError") {
       state.messages.splice(-2, 2);
@@ -1441,15 +1589,176 @@ async function runTailor({ again = false } = {}) {
   showTailorButton();
   if (!again) tailorDeclined = keywordState.current ? [...(keywordState.skipped || [])] : [];
   try {
-    for (const phase of (again ? ["again"] : TAILOR_STEPS)) {
-      const finished = await runStep(phase);
-      if (!finished) break;
+    if (!again && nextSection(new Set())) await runSections();
+    else {
+      for (const phase of (again ? ["again"] : TAILOR_STEPS)) {
+        const finished = await runStep(phase);
+        if (!finished) break;
+      }
     }
   } finally {
     tailorRunning = false;
     awaitingCard = null;
+    currentSection = null;
     showTailorButton();
   }
+}
+
+/* A new CV opens on a blank frame and is written here, one section at a time,
+   top to bottom: the summary, the skills, which roles are on, each job's
+   bullets, Additional Information. Each is offered whole, and the next one
+   waits for his yes. Typing asks for changes to the section on screen. */
+
+// The section on screen, so a typed change is written for it and nothing else.
+let currentSection = null;
+// While a blank CV is being written, every reply is fenced to its section.
+let writingSections = false;
+
+const sectionOf = (doc, word) => ((doc && doc.sections) || []).findIndex(
+  (s) => String(s.heading || "").toUpperCase().includes(word));
+const blank = (text) => !String(text || "").trim();
+
+// The first section still to write, or null. ``handled`` holds the ones
+// already offered this round, so one he skipped is left empty, not re-asked.
+function nextSection(handled) {
+  const doc = typeof cv !== "undefined" ? cv : null;
+  if (!doc) return null;
+  const todo = [];
+  const summary = sectionOf(doc, "SUMMARY");
+  if (summary >= 0 && blank(doc.sections[summary].text)) todo.push({ phase: "summary" });
+  const skills = sectionOf(doc, "SKILL");
+  if (skills >= 0 && (doc.sections[skills].items || []).some((i) => blank(i.text))) {
+    todo.push({ phase: "skills" });
+  }
+  const at = sectionOf(doc, "EXPERIENCE");
+  const entries = at >= 0 ? doc.sections[at].entries || [] : [];
+  const shown = entries.map((e, j) => [e, j]).filter(([e]) => !e.off);
+  const empty = shown.filter(([e]) => !(e.bullets || []).length);
+  // Roles first, while no job has bullets: a job taken off after its bullets
+  // were written is work thrown away.
+  if (empty.length && empty.length === shown.length) todo.push({ phase: "cast" });
+  for (const [, j] of empty) todo.push({ phase: "bullets", entry: `sections.${at}.entries.${j}` });
+  const extra = sectionOf(doc, "ADDITIONAL");
+  if (extra >= 0 && (doc.sections[extra].items || []).some((i) => blank(i.text))) {
+    todo.push({ phase: "additional" });
+  }
+  const key = (step) => `${step.phase} ${step.entry || ""}`;
+  return todo.find((step) => !handled.has(key(step))) || null;
+}
+
+// What a reply written for one section may put in front of him. The frame
+// (company, title, place, dates, skill labels, Education) is never offered,
+// and gaps, notes and asks wait for the last turn, whatever the model writes.
+function sectionAllows(section, kind, body) {
+  if (kind === "answer") return true;
+  if (section.phase === "gaps") return ["gaps", "ask", "notes", "skill"].includes(kind);
+  if (kind !== "proposal") return false;
+  let parsed = null;
+  try { parsed = JSON.parse(body); } catch { return false; }
+  if (!parsed || typeof parsed.path !== "string") return false;
+  const doc = typeof cv !== "undefined" ? cv : null;
+  const at = (word) => sectionOf(doc, word);
+  const entry = String(section.entry || "").replace(/\./g, "\\.");
+  const fields = {
+    summary: `sections\\.${at("SUMMARY")}\\.text`,
+    skills: `sections\\.${at("SKILL")}\\.items\\.\\d+\\.text`,
+    cast: `sections\\.${at("EXPERIENCE")}\\.entries\\.\\d+`,
+    bullets: `${entry}\\.bullets\\.\\d+`,
+    additional: `sections\\.${at("ADDITIONAL")}\\.items\\.\\d+\\.text`,
+    fit: `sections\\.${at("EXPERIENCE")}\\.entries\\.\\d+\\.bullets\\.\\d+`
+      + `|sections\\.${at("SUMMARY")}\\.text`,
+    lengthen: `sections\\.${at("EXPERIENCE")}\\.entries\\.(?!${headlineEntry(doc).index}\\.)\\d+`
+      + `\\.bullets\\.\\d+`,
+  }[section.phase];
+  if (!fields || !new RegExp(`^(?:${fields})$`).test(parsed.path)) return false;
+  // Roles are only shown or hidden; everything else is new text.
+  return (section.phase === "cast") === (typeof parsed.show === "boolean");
+}
+
+async function runSections() {
+  writingSections = true;
+  try { await writeSections(); } finally { writingSections = false; }
+}
+
+async function writeSections() {
+  const handled = new Set();
+  for (let step = nextSection(handled); step; step = nextSection(handled)) {
+    handled.add(`${step.phase} ${step.entry || ""}`);
+    if (step.phase === "cast") {
+      if (!await runStep("cast")) return;
+      continue;
+    }
+    currentSection = step;
+    const kind = await askStep(step.phase, step.entry ? { entry: step.entry } : {});
+    if (kind === "stopped" || kind === "failed") return;
+    if (kind !== "empty") {
+      const answered = await new Promise((resolve) => { awaitingCard = resolve; });
+      if (answered === "stopped") return;
+    }
+    currentSection = null;
+  }
+  // The page decides what comes next, not the model: over one page is
+  // trimmed, a page with lines to spare may take one longer bullet.
+  await measured();
+  if (pagesNow() > 1) {
+    if (!await runStep("fit")) return;
+  } else if (roomNow() >= 1 && !longBulletShown()) {
+    if (!await lengthenOne()) return;
+    await measured();
+    if (pagesNow() > 1 && !await runStep("fit")) return;
+  }
+  await askStep("gaps");
+}
+
+const pagesNow = () => (typeof previewPages === "number" ? previewPages : 1);
+const roomNow = () => (typeof previewRoom === "number" ? previewRoom : 0);
+const measured = () => (typeof nextMeasure === "function" ? nextMeasure() : null);
+
+// The first role shown under Experience: the headline, with its own budget.
+function headlineEntry(doc) {
+  const at = sectionOf(doc, "EXPERIENCE");
+  const entries = at >= 0 ? doc.sections[at].entries || [] : [];
+  return { at, index: entries.findIndex((e) => !e.off), entries };
+}
+
+// Whether a role other than the headline already has its one longer bullet.
+function longBulletShown() {
+  const { index, entries } = headlineEntry(cv);
+  return entries.some((e, j) => j !== index && !e.off && e.budget && e.budget.long > 0);
+}
+
+// One bullet outside the headline written to three lines, if he says yes.
+async function lengthenOne() {
+  const kind = await askStep("lengthen");
+  if (kind === "stopped" || kind === "failed") return false;
+  if (kind !== "proposal") return true;
+  const [answered, path] = await new Promise((resolve) => {
+    awaitingCard = (result, what) => resolve([result, what]);
+  });
+  if (answered === "stopped") return false;
+  if (answered === "accepted" && path) makeLong(path);
+  return true;
+}
+
+// The longer bullet moves to the front of its job, where the budget's long
+// allowance applies, and the job is allowed it.
+function makeLong(path) {
+  const found = /^sections\.(\d+)\.entries\.(\d+)\.bullets\.(\d+)$/.exec(path);
+  const entry = found && ((cv.sections[Number(found[1])] || {}).entries || [])[Number(found[2])];
+  if (!entry || !Array.isArray(entry.bullets) || entry.bullets[Number(found[3])] === undefined) return;
+  const [bullet] = entry.bullets.splice(Number(found[3]), 1);
+  entry.bullets.unshift(bullet);
+  entry.budget = { ...(entry.budget || {}), long: 1 };
+  if (typeof draw === "function") { fieldCache = null; draw(); }
+}
+
+// What a typed message carries while a section is on screen: the same
+// instruction, so the reply is the whole section again with his changes.
+function sectionTask() {
+  if (!currentSection) return {};
+  return { task: "tailor", phase: currentSection.phase,
+           ...(currentSection.entry ? { entry: currentSection.entry } : {}),
+           settled: settledPaths(), declined: tailorDeclined };
 }
 
 // Every field the user has decided on in this conversation, by path. The

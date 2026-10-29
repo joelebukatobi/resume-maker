@@ -8,6 +8,7 @@ handler so it can be tested directly and reused by any page.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -90,8 +91,17 @@ def templates() -> list[dict[str, str]]:
 
 APPENDED_HEADING = "## From the chat"
 
+# Who put a dated entry in the log, written after the date. A Keep this on a
+# note the assistant offered files the assistant's words, and a sentence typed
+# into I have… files his; the support check trusts only the second until he
+# confirms the first. A no he pressed is his too, but it backs nothing. An
+# entry with no suffix predates the record.
+LOG_SOURCES = {"his answer": "his", "his no": "no", "suggested by the assistant": "assistant"}
+_SUFFIX = {source: label for label, source in LOG_SOURCES.items()}
 
-def append_text(current: str, addition: Any, *, today: str, kind: str = "notes") -> str:
+
+def append_text(current: str, addition: Any, *, today: str, kind: str = "notes",
+                source: str = "") -> str:
     """``current`` with ``addition`` filed under a dated note at the end.
 
     Everything the chat contributes lands in one place rather than being
@@ -106,8 +116,70 @@ def append_text(current: str, addition: Any, *, today: str, kind: str = "notes")
     parts = [current.rstrip()] if current.strip() else []
     if APPENDED_HEADING not in current:
         parts.append(APPENDED_HEADING)
-    parts.append(f"### {today}\n\n{body}")
+    suffix = f" · {_SUFFIX[source]}" if source in _SUFFIX else ""
+    parts.append(f"### {today}{suffix}\n\n{body}")
     return check_text(kind, "\n\n".join(parts))
+
+
+SKILLS_HEADING = "## Skills"
+# A comma between tools, not one inside "JavaScript (React, Next.js)".
+_TOOL_SPLIT = re.compile(r",\s*(?![^()]*\))")
+_SMALL_WORDS = {"a", "an", "and", "as", "at", "for", "in", "of", "on", "or", "the", "to", "with"}
+
+
+def _capitalised(tool: str) -> str:
+    """A list entry starts each word with a capital ("Large Language Models").
+    A word already carrying a capital is his spelling and stays: iOS, LLMs."""
+    words = tool.split()
+    return " ".join(
+        w if any(c.isupper() for c in w) or (i and w in _SMALL_WORDS) else w[:1].upper() + w[1:]
+        for i, w in enumerate(words))
+
+
+def skills(notes: str) -> dict[str, list[str]]:
+    """His skills list: the ``## Skills`` section, one ``- Label: a, b`` line
+    per label. The only place the CV's skill lines are written from."""
+    out: dict[str, list[str]] = {}
+    inside = False
+    for raw in notes.splitlines():
+        line = raw.strip()
+        if line.startswith("#"):
+            inside = line == SKILLS_HEADING
+        elif inside and line.startswith("- ") and ":" in line:
+            label, _, tools = line[2:].partition(":")
+            out[label.strip()] = [t.strip() for t in _TOOL_SPLIT.split(tools) if t.strip()]
+    return out
+
+
+def add_skill(notes: str, label: str, tool: str) -> str:
+    """``notes`` with ``tool`` under ``label`` in his skills list, once.
+
+    The list sits above the chat log, where his own words are, so a tool he
+    said yes to reads as his. A label not there yet gets its own line.
+    """
+    label, tool = " ".join(str(label).split()), _capitalised(" ".join(str(tool).split()))
+    if not label or not tool or ":" in label or len(_TOOL_SPLIT.split(tool)) > 1:
+        raise ValueError("a skill needs a label and one tool")
+    listed = skills(notes)
+    name = next((k for k in listed if k.casefold() == label.casefold()), label)
+    tools = listed.get(name, [])
+    if any(t.casefold() == tool.casefold() for t in tools):
+        return notes
+    listed[name] = tools + [tool]
+    section = SKILLS_HEADING + "\n\n" + "\n".join(
+        f"- {k}: {', '.join(v)}" for k, v in listed.items())
+    # Take the old section out, then put the new one back above the log.
+    kept, inside = [], False
+    for raw in notes.splitlines():
+        if raw.strip().startswith("#"):
+            inside = raw.strip() == SKILLS_HEADING
+        if not inside:
+            kept.append(raw)
+    rest = "\n".join(kept).strip()
+    if APPENDED_HEADING in rest:
+        head, _, tail = rest.partition(APPENDED_HEADING)
+        return check_text("notes", f"{head.rstrip()}\n\n{section}\n\n{APPENDED_HEADING}{tail}".lstrip())
+    return check_text("notes", f"{rest}\n\n{section}".strip())
 
 
 def check_text(kind: str, text: Any) -> str:

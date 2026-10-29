@@ -53,6 +53,7 @@ FILES = {
 # tailoring is a head start, the chat about another job is noise. Nor the
 # keyword list, which was read from the last posting and would count the next
 # application against the wrong job.
+# Nor the cards from the last page build, which were about that page.
 COPIED = tuple(k for k in FILES if k not in ("chat", "keywords"))
 _SLUG_OK = re.compile(r"\A[a-z0-9][a-z0-9-]{0,63}\Z")
 
@@ -345,6 +346,26 @@ class Workspace:
         app = self._read(folder, archived)
         assert app is not None
         return app
+
+    def untouched(self, slug: str, key: str = "cv") -> bool:
+        """Whether the document is still byte for byte what :meth:`create` wrote.
+
+        An edit he saved before the posting arrived is his, and nothing built
+        from the library may write over it.
+
+        A save of the unchanged copy can still change its bytes (the editor
+        writes its own formatting), so a CV whose content equals the base it
+        was copied from counts as untouched too.
+        """
+        folder, _ = self.find(slug)
+        try:
+            meta = json.loads((folder / META).read_text(encoding="utf-8"))
+            if _sha(folder / FILES[key]) == (meta.get("seed") or {}).get(key):
+                return True
+        except (OSError, ValueError, AttributeError):
+            pass
+        base = self.base.get(key)
+        return bool(base) and _load(folder / FILES[key]) == _load(Path(base)) != {}
 
     def reseed(self, slug: str, track: str) -> bool:
         """Fill the CV from the newest live application of ``track``.

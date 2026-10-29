@@ -6,6 +6,8 @@ __pycache__/
 # Personal: your Voice and experience notes. Role starters in templates/ stay tracked.
 voice.md
 notes.md
+# What you decided about lines in your history: struck, kept, confirmed, checked.
+library.json
 
 # Your applications: tailored documents and the chat about each job.
 applications/

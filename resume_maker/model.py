@@ -279,7 +279,8 @@ class LabeledItem:
         raw = _mapping(data, where=where, allowed={"label", "text"})
         return cls(
             label=_text(raw.get("label"), where=f"{where}.label"),
-            text=_text(raw.get("text"), where=f"{where}.text"),
+            # Empty while a new CV is still being written in the chat.
+            text=_text(raw.get("text"), where=f"{where}.text", allow_empty=True),
         )
 
 
@@ -329,7 +330,8 @@ def _parse_section(data: Any, *, where: str, separator: str) -> Section:
 
     if kind == "paragraph":
         return ParagraphSection(
-            heading=heading, text=_text(raw.get("text"), where=f"{where}.text")
+            heading=heading,
+            text=_text(raw.get("text"), where=f"{where}.text", allow_empty=True),
         )
     if kind == "entries":
         items = _sequence(raw.get("entries"), where=f"{where}.entries")

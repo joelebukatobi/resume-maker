@@ -43,7 +43,7 @@ _TRUNCATED = "\n\n[Notes truncated here: the file is longer than this prompt all
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _FENCE = re.compile(r"```(?:json)?\s*(\{.*\})\s*```", re.S)
 # A card block in a reply, in the order the editor renders and numbers them.
-_CARD = re.compile(r"```(proposal|answer|notes|voice|gaps|ask)\s*([\s\S]*?)```")
+_CARD = re.compile(r"```(proposal|answer|notes|voice|gaps|ask|skill)\s*([\s\S]*?)```")
 # What a resolved proposal collapses to on the wire. The edit is already in the
 # live fields, and the marker keeps the fact that it happened without the JSON.
 _ELIDED = {"accepted": "(proposal already applied)", "dismissed": "(proposal declined)"}
@@ -190,6 +190,13 @@ How to answer:
   recorded, remembered or added anything. Say what the block is for and that
   it needs the button. A user who is told it is saved does not press it, and
   the fact is lost.
+- When the user says they have used a tool, platform or language, offer it
+  for their skills list too, in a skill block, under the label in their
+  skills list it belongs with, alongside a notes block saying what they used
+  it for:
+```skill
+{{"label": "<a label from their skills list>", "tool": "<the tool's name>"}}
+```
 - When the user states a rule about how to write — a tone, a banned word, a
   habit you should drop — offer it as a voice block. It is a rule for the
   editor, not a fact about their work, so write it as an instruction:
@@ -423,6 +430,9 @@ another off. Suggest the one that gains the most first.
 A role is suggested with a show proposal naming the entry, never by
 rewriting anything. Change no wording in this step.
 
+No gaps or ask block in this turn. This step is only about which roles are
+shown.
+
 {one}
 """
 
@@ -477,6 +487,39 @@ once, in one line, with no card. Do not argue and do not suggest again.
 {one}
 """
 
+# A one-page CV with lines to spare: one bullet outside the headline role may
+# run to three lines, never more than one.
+_TAILOR_LENGTHEN = """\
+## This turn, without being asked
+
+The CV is written and fits on one page with room to spare. One bullet from a
+role that is not the first role on the page may run to three lines instead of
+two. Choose the bullet that best answers the posting and offer it written to
+three lines, as an ordinary proposal for that bullet. Add only what his notes
+back: a tool, a number or a result they state. Never invent.
+
+If no bullet would gain from the room, say so in one line and write no card.
+
+{one}
+"""
+
+# Asked once, after a blank CV has been written: the CV may already close
+# some of what the posting wants, so only what it still misses is a gap.
+_TAILOR_GAPS = """\
+## This turn, without being asked
+
+The CV has been written. Compare the CV as it now stands with the posting and
+find what the posting asks for that the CV does not show and his notes do not
+back. Ask about those in one gaps block, one question per line, most important
+first, at most five. Nothing the CV already covers is a gap.
+```gaps
+<one short question per line>
+```
+
+If nothing is missing, say so in one line and write no block. No proposal
+block in this turn.
+"""
+
 _TAILOR_AGAIN = """\
 ## This turn, without being asked
 
@@ -489,12 +532,134 @@ document. Name the notes section it came from.
 {one}
 """
 
-PHASES = ("cast", "wording", "fit", "again")
+# A blank new CV is written in the chat one section at a time, top to bottom,
+# and each section is offered whole: the summary, every skill line, one job's
+# bullets. He says yes or types what to change; nothing later is touched
+# until he has said yes.
+_SECTION_WHOLE = """\
+Offer this section whole, in one message: one proposal block per field, all
+together, and above them one or two short sentences saying why, ending in a
+question asking whether it is right or what to change. If the user asks for
+changes, offer the whole section again the same way, with the changes made.
+
+Never write for any other section, and never mention, preview or draft one.
+The sections after this one wait until the user has said yes to this one.
+
+No gaps or ask block in this turn, and no notes or voice block. Write the
+section from what his notes and lines already hold; what the posting wants
+that they do not cover is asked about once, at the end, after the whole CV
+is written.
+
+The company, job title, location, dates, skill labels and Education are fixed
+and stay exactly as they are. Never propose a change to any of them.
+"""
+
+# Where the words come from, for every section but Skills.
+_FROM_HIS_LINES = """\
+Write in sentences, with ordinary capitals: only names and acronyms take
+capitals (built tools on large language models; AWS, Python, LLMs).
+
+Work from the lines listed under "His lines for this section" first: they are
+his, from CVs he has sent, and his notes back them. Use one as it is or adjust
+its wording to the posting. Write a new line only when none of them answers
+what the posting asks for, and then only from what his notes state, naming
+the notes section it came from. Never invent a tool, number, title or result
+that is not in his notes or those lines.
+"""
+
+_SECTION_SUMMARY = """\
+## This turn
+
+The CV is being written section by section. This section is the
+Professional Summary: its one paragraph, for this posting.
+
+{whole}
+
+{lines}
+"""
+
+_SECTION_SKILLS = """\
+## This turn
+
+The CV is being written section by section. This section is Skills: the text
+of every skill line, under the labels already there. Keep each label; write
+only its text.
+
+{whole}
+
+Build each line from the tools listed under that label in "His skills list"
+below; never a tool that is not in his skills list, and never one from
+another label's list. Do not copy an old line: choose. The tools this
+posting asks for come first, then his strongest others, while the line still
+fits on one line of the page. Write tool names as he wrote them, each word
+starting with a capital: Large Language Models, not large language models.
+Never invent.
+"""
+
+_SECTION_BULLETS = """\
+## This turn
+
+The CV is being written section by section. This section is the bullets of
+one job, the one named under "His lines for this section". Write every bullet
+it has room for, starting at bullets.0, and none for any other job.
+
+{whole}
+
+{lines}
+"""
+
+_SECTION_ADDITIONAL = """\
+## This turn
+
+The CV is being written section by section. This section is Additional
+Information, the last one. It holds his interests line. Add the line about
+work authorisation and sponsorship only when the posting mentions visas,
+sponsorship or the right to work. Never a sentence describing his character.
+
+{whole}
+
+{lines}
+"""
+
+SECTIONS = {
+    "summary": _SECTION_SUMMARY,
+    "skills": _SECTION_SKILLS,
+    "bullets": _SECTION_BULLETS,
+    "additional": _SECTION_ADDITIONAL,
+}
+
+
+def skills_note(listed: Mapping[str, Sequence[str]]) -> str:
+    """His skills list, by label, the tools the posting names first."""
+    out = ["His skills list:"]
+    out.extend(f"- {label}: {', '.join(tools)}" for label, tools in listed.items())
+    if not listed:
+        out.append("- He has no skills list yet. Leave every skill line empty.")
+    return "\n".join(out)
+
+
+def section_note(lines: Sequence[str], room: int = 0, where: str = "") -> str:
+    """His past lines for the section being written, best first, and for a
+    job, how many bullets it has room for and where they go."""
+    out = ["His lines for this section:"]
+    if where:
+        out.append(f"The job is {where}. It has room for {room} bullets, "
+                   f"{where}.bullets.0 to {where}.bullets.{max(room - 1, 0)}.")
+    if lines:
+        out.extend(f"- {line}" for line in lines)
+    else:
+        out.append("- No line he has used fits this section yet.")
+    return "\n".join(out)
+
+
+PHASES = ("cast", "wording", "fit", "again", "gaps", "lengthen")
 _PHASE_RULES = {
     "cast": _TAILOR_CAST,
     "wording": _TAILOR_WORDING,
     "fit": _TAILOR_FIT,
     "again": _TAILOR_AGAIN,
+    "gaps": _TAILOR_GAPS,
+    "lengthen": _TAILOR_LENGTHEN,
 }
 
 
@@ -519,8 +684,12 @@ def tailor_rules(phase: str = "wording", settled=(), declined=()) -> str:
     the model is about to write. One step offers one suggestion: the step
     ends when it has nothing left to offer and says so without a card.
     """
-    rules = _PHASE_RULES.get(phase, _TAILOR_WORDING).format(
-        one=_ONE_AT_A_TIME.strip()).strip()
+    if phase in SECTIONS:
+        rules = SECTIONS[phase].format(whole=_SECTION_WHOLE.strip(),
+                                       lines=_FROM_HIS_LINES.strip()).strip()
+    else:
+        rules = _PHASE_RULES.get(phase, _TAILOR_WORDING).format(
+            one=_ONE_AT_A_TIME.strip()).strip()
     for note in (settled_note(settled), declined_note(declined)):
         if note:
             rules = f"{rules}\n\n{note}"

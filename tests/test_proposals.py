@@ -313,6 +313,145 @@ class RoundTests(unittest.TestCase):
         """)
         self.assertEqual(asked, ["cast", "cast", "wording", "wording", "fit", "fit"])
 
+    BLANK = json.dumps({"name": "Joel", "sections": [
+        {"heading": "PROFESSIONAL SUMMARY", "type": "paragraph", "text": ""},
+        {"heading": "SKILLS", "type": "labeled", "items": [{"label": "AI", "text": ""}]},
+        {"heading": "EXPERIENCE", "type": "entries", "entries": [
+            {"left": "Amazon", "bullets": []},
+            {"left": "Fordham", "bullets": [], "off": True},
+            {"left": "xPathEdge", "bullets": []}]},
+        {"heading": "EDUCATION", "type": "entries", "entries": [{"left": "Fordham", "bullets": []}]},
+        {"heading": "ADDITIONAL INFORMATION", "type": "labeled",
+         "items": [{"label": "Interests", "text": ""}]},
+    ]})
+
+    def sections_asked(self, answer, pages=1, room=0):
+        return run_round(f"""
+          let cv = {self.BLANK};
+          let previewPages = {pages}, previewRoom = {room};
+          const asked = [], offered = [];
+          streamReply = async (reply, body) => {{
+            asked.push(body.entry ? body.phase + " " + body.entry : body.phase);
+            const section = ["summary", "skills", "bullets", "additional"].includes(body.phase);
+            if (section && "{answer}" === "accepted") {{
+              // What pressing Use all leaves behind.
+              if (body.phase === "summary") cv.sections[0].text = "Summary.";
+              if (body.phase === "skills") cv.sections[1].items[0].text = "Claude.";
+              if (body.phase === "bullets") getEntry(body.entry).bullets = ["Did it."];
+              if (body.phase === "additional") cv.sections[4].items[0].text = "Reads.";
+            }}
+            const path = {{ summary: "sections.0.text", skills: "sections.1.items.0.text",
+                           bullets: body.entry + ".bullets.0",
+                           additional: "sections.4.items.0.text" }}[body.phase];
+            const card = F + "proposal\\n" + JSON.stringify({{ path, text: "x" }}) + "\\n" + F;
+            reply.content = section ? "Right?\\n" + card : "Nothing left here.";
+            if (section) offered.push(offeredCard(reply.content, {{ phase: body.phase, entry: body.entry }}));
+          }};
+          const getEntry = (path) => {{
+            const [, i, , j] = path.split(".");
+            return cv.sections[Number(i)].entries[Number(j)];
+          }};
+          const tick = setInterval(() => {{ if (awaitingCard) cardResolved("{answer}"); }}, 1);
+          runTailor().then(() => {{
+            clearInterval(tick);
+            if (offered.some((k) => k !== "proposal")) throw new Error("a card was fenced out");
+            console.log(JSON.stringify(asked));
+          }});
+        """)
+
+    def test_a_blank_cv_is_written_one_section_at_a_time(self):
+        self.assertEqual(self.sections_asked("accepted"), [
+            "summary", "skills", "cast", "bullets sections.2.entries.0",
+            "bullets sections.2.entries.2", "additional", "gaps"])
+
+    def test_a_section_he_skips_is_left_and_the_next_one_comes(self):
+        self.assertEqual(self.sections_asked("dismissed"), [
+            "summary", "skills", "cast", "bullets sections.2.entries.0",
+            "bullets sections.2.entries.2", "additional", "gaps"])
+
+    def test_a_page_that_runs_over_is_trimmed_before_the_gaps(self):
+        self.assertEqual(self.sections_asked("accepted", pages=2)[-2:], ["fit", "gaps"])
+
+    def test_spare_room_offers_one_longer_bullet_before_the_gaps(self):
+        self.assertEqual(self.sections_asked("accepted", room=2)[-2:], ["lengthen", "gaps"])
+
+    def test_no_room_and_one_page_goes_straight_to_the_gaps(self):
+        self.assertEqual(self.sections_asked("accepted", room=0)[-2:], ["additional", "gaps"])
+
+    def test_the_longer_bullet_goes_first_and_its_job_allows_it(self):
+        cv = json.loads(self.BLANK)
+        cv["sections"][2]["entries"][2]["bullets"] = ["One.", "Two."]
+        after = run_round(f"""
+          let cv = {json.dumps(cv)};
+          makeLong("sections.2.entries.2.bullets.1");
+          console.log(JSON.stringify(cv.sections[2].entries[2]));
+        """)
+        self.assertEqual(after["bullets"], ["Two.", "One."])
+        self.assertEqual(after["budget"], {"long": 1})
+
+    def test_the_longer_bullet_is_never_the_first_jobs(self):
+        self.assertTrue(self.allows({"phase": "lengthen"}, "proposal",
+                                    {"path": "sections.2.entries.2.bullets.0", "text": "x"}))
+        self.assertFalse(self.allows({"phase": "lengthen"}, "proposal",
+                                     {"path": "sections.2.entries.0.bullets.0", "text": "x"}))
+
+    def allows(self, section, kind, body):
+        return run_round(f"""
+          let cv = {self.BLANK};
+          console.log(JSON.stringify(sectionAllows({json.dumps(section)}, "{kind}",
+                                                   {json.dumps(json.dumps(body))})));
+        """)
+
+    def test_a_section_card_may_only_touch_its_own_fields(self):
+        """The frame is his: company, title, dates, labels, Education."""
+        cases = [
+            ({"phase": "summary"}, {"path": "sections.0.text", "text": "x"}, True),
+            ({"phase": "summary"}, {"path": "sections.2.entries.0.left", "text": "Amazon"}, False),
+            ({"phase": "skills"}, {"path": "sections.1.items.0.text", "text": "x"}, True),
+            ({"phase": "skills"}, {"path": "sections.1.items.0.label", "text": "x"}, False),
+            ({"phase": "cast"}, {"path": "sections.2.entries.1", "show": True}, True),
+            ({"phase": "cast"}, {"path": "sections.2.entries.0.left", "text": "Amazon"}, False),
+            ({"phase": "bullets", "entry": "sections.2.entries.0"},
+             {"path": "sections.2.entries.0.bullets.1", "text": "x"}, True),
+            ({"phase": "bullets", "entry": "sections.2.entries.0"},
+             {"path": "sections.2.entries.0.left", "text": "Amazon"}, False),
+            ({"phase": "bullets", "entry": "sections.2.entries.0"},
+             {"path": "sections.2.entries.2.bullets.0", "text": "x"}, False),
+            ({"phase": "bullets", "entry": "sections.2.entries.0"},
+             {"path": "sections.3.entries.0.bullets.0", "text": "x"}, False),
+            ({"phase": "additional"}, {"path": "sections.4.items.0.text", "text": "x"}, True),
+            ({"phase": "gaps"}, {"path": "sections.0.text", "text": "x"}, False),
+        ]
+        for section, body, expected in cases:
+            with self.subTest(section=section, path=body["path"]):
+                self.assertIs(self.allows(section, "proposal", body), expected)
+
+    def test_gaps_and_notes_wait_for_the_end(self):
+        for kind in ("gaps", "notes", "ask", "skill"):
+            with self.subTest(kind=kind):
+                self.assertFalse(self.allows({"phase": "summary"}, kind, ""))
+                self.assertFalse(self.allows({"phase": "cast"}, kind, ""))
+                self.assertTrue(self.allows({"phase": "gaps"}, kind, ""))
+
+    def test_a_section_reply_with_only_a_gap_offers_nothing(self):
+        kinds = run_round("""
+          const gap = F + "gaps\\nHave you used Go?\\n" + F;
+          console.log(JSON.stringify([offeredCard(gap, { phase: "summary" }),
+                                      offeredCard(gap)]));
+        """)
+        self.assertEqual(kinds, [None, "gaps"])
+
+    def test_every_turn_of_a_blank_cv_knows_its_section(self):
+        phases = run_round(f"""
+          let cv = {self.BLANK};
+          streamReply = async (reply) => {{ reply.content = "Nothing left here."; }};
+          runTailor().then(() => console.log(JSON.stringify(
+            chat.messages.filter((m) => m.role === "assistant")
+              .map((m) => m.section && m.section.phase))));
+        """)
+        self.assertEqual(phases, ["summary", "skills", "cast", "bullets", "bullets",
+                                  "additional", "gaps"])
+
     def test_a_no_is_carried_into_every_later_suggestion(self):
         """A no is an answer. Offered the same thing two cards later, the
         round stops being a conversation and becomes a form."""
@@ -424,7 +563,7 @@ class RoundTests(unittest.TestCase):
     def test_the_card_hands_back_what_it_offered(self):
         """The round only knows what to stop offering because the card says."""
         source = (ROOT / "static" / "chat.js").read_text(encoding="utf-8")
-        self.assertIn("cardResolved(result, parsed.path)", source)
+        self.assertIn("settle(result, parsed.path)", source)
         self.assertIn("index === chat.messages.length - 1", source)   # not an old card
 
 
@@ -450,6 +589,37 @@ class CutOffTests(unittest.TestCase):
         self.assertIn("message.pipeline", retry)
         self.assertIn("runTailor()", retry)
         self.assertIn("splice(index - 1, 2)", retry)   # the cut-off pair goes
+
+
+class ScrollTests(unittest.TestCase):
+    """Pressing a card's button redraws the chat. It used to jump to the end,
+    and he had to scroll back to where he was reading."""
+
+    def scroll_after(self, top):
+        node = shutil.which("node")
+        if not node:
+            raise unittest.SkipTest("node is not installed")
+        source = (ROOT / "static" / "chat.js").read_text(encoding="utf-8")
+        render = source[source.index("function renderChat("):source.index("/* ---------------------------------------------------------- persistence")]
+        script = render + f"""
+          const host = {{ textContent: "", append() {{}}, scrollTop: {top},
+                          scrollHeight: 1000, clientHeight: 400 }};
+          const $ = () => host;
+          const chat = {{ messages: [{{ role: "user" }}] }};
+          const renderUser = () => null, renderAssistant = () => null, emptyState = () => null;
+          renderChat();
+          console.log(host.scrollTop);
+        """
+        done = subprocess.run([node, "-e", script], capture_output=True, text=True, timeout=30)
+        if done.returncode:
+            raise AssertionError(done.stderr.strip())
+        return int(done.stdout)
+
+    def test_reading_further_up_the_chat_stays_put(self):
+        self.assertEqual(self.scroll_after(100), 100)
+
+    def test_at_the_end_the_chat_follows_new_text(self):
+        self.assertEqual(self.scroll_after(600), 1000)
 
 
 class CopyTests(unittest.TestCase):
@@ -498,3 +668,41 @@ class SettingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SectionCardTests(unittest.TestCase):
+    """A section is several fields, taken with one yes; typing asks for changes."""
+
+    def setUp(self):
+        self.chat = (ROOT / "static" / "chat.js").read_text(encoding="utf-8")
+
+    def test_a_whole_section_is_taken_with_one_button(self):
+        self.assertIn('text: "Use all"', self.chat)
+        self.assertIn("proposals.every((p) => resolved[p.key])", self.chat)
+
+    def test_typing_during_a_section_asks_for_changes_not_a_stop(self):
+        self.assertIn("if (awaitingCard && !currentSection) cardResolved(\"stopped\")", self.chat)
+        self.assertIn("chatBody(state, agent, sectionTask())", self.chat)
+
+
+class HubFitTests(unittest.TestCase):
+    """The hub fits the window; the list pages instead of scrolling."""
+
+    def setUp(self):
+        self.home = (ROOT / "static" / "home.html").read_text(encoding="utf-8")
+        self.apps = (ROOT / "static" / "apps.js").read_text(encoding="utf-8")
+
+    def test_the_home_page_does_not_scroll(self):
+        self.assertIn("height: 100vh", self.home)
+        self.assertIn("overflow: hidden", self.home)
+
+    def test_the_list_is_paged(self):
+        for copy in ('"Previous"', '"Next"', "`Page ${page + 1} of ${pages}`"):
+            with self.subTest(copy=copy):
+                self.assertIn(copy, self.apps)
+
+    def test_the_pager_is_measured_while_showing(self):
+        show = self.apps.index("pager.hidden = false;")
+        self.assertLess(show, self.apps.index("const size = perPage();"))
+        self.assertNotIn(".hub .app-list { flex: 1; min-height: 0; overflow: hidden; }", self.home)
+

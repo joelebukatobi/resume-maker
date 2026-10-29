@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import server  # noqa: E402
-from resume_maker import assistant, keywords, llm, setup
+from resume_maker import assistant, fill, jev, keywords, llm, setup
 from resume_maker.applications import Workspace  # noqa: E402
 
 CV = json.loads((ROOT / "cv.json").read_text())
@@ -166,6 +166,55 @@ class SetupApiTests(unittest.TestCase):
         self.assertEqual(text.count("## From the chat"), 1)  # one heading, not one each
         self.assertIn("MKEL was a telecom startup.", text)
 
+    NOTES_WITH_LOG = "# Me\n\nI fixed PCs.\n\n## From the chat\n\n### 2026-10-01\n\nDid X."
+
+    def test_his_skills_list_is_read_by_label(self):
+        notes = "## Skills\n\n- Product: Jira, Confluence\n- AI: Claude, RAG\n\n## Work\n\nStuff."
+        self.assertEqual(setup.skills(notes), {"Product": ["Jira", "Confluence"],
+                                               "AI": ["Claude", "RAG"]})
+        self.assertEqual(setup.skills("# Me\n\nNo list."), {})
+        bracketed = "## Skills\n\n- Programming: JavaScript (React, Next.js), Python\n"
+        self.assertEqual(setup.skills(bracketed),
+                         {"Programming": ["JavaScript (React, Next.js)", "Python"]})
+
+    def test_a_skill_goes_under_its_label_once(self):
+        notes = setup.add_skill(self.NOTES_WITH_LOG, "Product", "Odoo")
+        notes = setup.add_skill(notes, "Product", "Jira")
+        notes = setup.add_skill(notes, "product", "odoo")        # already there
+        notes = setup.add_skill(notes, "AI", "Claude")
+        self.assertEqual(setup.skills(notes), {"Product": ["Odoo", "Jira"], "AI": ["Claude"]})
+        # Above the chat log, so it reads as his own list, not a log entry.
+        self.assertLess(notes.index("## Skills"), notes.index("## From the chat"))
+        self.assertIn("I fixed PCs.", notes)
+        self.assertIn("Did X.", notes)
+
+    def test_a_new_skill_starts_each_word_with_a_capital(self):
+        notes = setup.add_skill("", "AI", "large language models")
+        notes = setup.add_skill(notes, "AI", "testing and evaluation")
+        notes = setup.add_skill(notes, "Programming", "next.js")
+        notes = setup.add_skill(notes, "Programming", "iOS")      # his capitals stay
+        notes = setup.add_skill(notes, "AI", "LLMs")
+        self.assertEqual(setup.skills(notes), {
+            "AI": ["Large Language Models", "Testing and Evaluation", "LLMs"],
+            "Programming": ["Next.js", "iOS"]})
+
+    def test_the_chat_can_add_a_skill_he_confirmed(self):
+        self.post("/api/setup/notes", {"text": "# Me\n\nI fixed PCs."})
+        self.post("/api/setup/notes", {"skill": {"label": "Product", "tool": "Moodle"}})
+        self.assertEqual(setup.skills(self.get("/api/setup")["notes"]), {"Product": ["Moodle"]})
+
+    def test_a_note_records_who_wrote_it(self):
+        """An assistant's note accepted with one click is not his own words, and
+        the support check has to be able to tell the two apart."""
+        kept = setup.append_text("", "Did X.", today="2026-10-24", source="assistant")
+        self.assertIn("### 2026-10-24 · suggested by the assistant", kept)
+        his = setup.append_text("", "Did X.", today="2026-10-24", source="his")
+        self.assertIn("### 2026-10-24 · his answer", his)
+
+    def test_a_kept_note_is_filed_as_the_assistants(self):
+        self.post("/api/setup/notes", {"append": "Cedric is a writing tool.", "source": "his"})
+        self.assertIn("· suggested by the assistant", self.get("/api/setup")["notes"])
+
     def test_the_chat_can_add_to_voice_without_replacing_it(self):
         """Same offer as Notes, but a writing rule lands in the Voice file."""
         self.post("/api/setup/voice", {"text": "## Never\n- No 'spearheaded'."})
@@ -267,8 +316,8 @@ class SetupApiTests(unittest.TestCase):
         """Inside an application, Style and Notes are not part of the job."""
         with urllib.request.urlopen(f"{self.base}/static/base.css", timeout=10) as response:
             css = response.read().decode()
-        self.assertIn('body[data-page="resume"] :is(#nav-voice, #nav-notes)', css)
-        self.assertIn('body[data-page="cover"] :is(#nav-voice, #nav-notes)', css)
+        self.assertIn('body[data-page="resume"] :is(#nav-voice, #nav-notes, #nav-review)', css)
+        self.assertIn('body[data-page="cover"] :is(#nav-voice, #nav-notes, #nav-review)', css)
 
     def test_editor_links_back_to_the_setup_pages(self):
         for path in ("/resume", "/cover-letter"):
@@ -499,18 +548,28 @@ class ApplicationApiTests(unittest.TestCase):
         self.assertEqual(kept["job_description"], "RPM at Meta")
         self.assertEqual(second["application"]["name"], "Osmo — TPM")
 
-    def test_a_new_application_inherits_the_documents_then_diverges(self):
+    def test_a_new_application_starts_from_the_base_then_diverges(self):
+        """A plain New used to copy the application just worked on, and one
+        posting's bullets rode along into the next. It starts from the base
+        CV now, and the posting builds the rest from the library."""
         first = self.get("/api/apps")["current"]
         document = self.get("/api/document")
         self.post("/api/save", dict(document, cv=dict(document["cv"], name="Tailored Name"),
                                     document="cv"))
         second = self.post("/api/apps", {"action": "create", "name": "Osmo — TPM"})
-        # The new application starts from the one just worked on ...
-        self.assertEqual(self.get("/api/document")["cv"]["name"], "Tailored Name")
-        # ... and then goes its own way.
+        self.assertEqual(self.get("/api/document")["cv"]["name"], CV["name"])
         self.post("/api/save", dict(document, cv=dict(document["cv"], name="Osmo Name"),
                                     document="cv", app=second["application"]["slug"]))
         self.assertEqual(self.get(f"/api/document?app={first}")["cv"]["name"], "Tailored Name")
+
+    def test_a_new_application_opens_on_the_blank_frame(self):
+        self.post("/api/apps", {"action": "create", "name": "Osmo — TPM"})
+        cv = self.get("/api/document")["cv"]
+        self.assertEqual(cv["name"], CV["name"])
+        for section in cv["sections"]:
+            for entry in section.get("entries") or []:
+                if "EDUCATION" not in section["heading"].upper():
+                    self.assertEqual(entry["bullets"], [])
 
     def test_the_language_count_can_be_asked_for_on_a_letter(self):
         """Coverage is not shown for a letter by default, because a recruiter's
@@ -812,6 +871,16 @@ class KeywordApiTests(unittest.TestCase):
         self.assertEqual(after["workflow automation"], before["workflow automation"])
         self.assertIn("I ran the review queries", (self.root / "notes.md").read_text())
 
+    def test_an_answer_is_filed_as_his(self):
+        self.keep_posting()
+        with self.call():
+            self.read()
+            self.post("/api/keywords", {
+                "action": "answer", "keyword": "sql", "app": self.slug,
+                "sentence": "I ran the review queries in SQL at Amazon.",
+                "provider": "anthropic", "model": "m"})
+        self.assertIn("· his answer", (self.root / "notes.md").read_text())
+
     def test_an_answer_survives_a_failed_remap(self):
         self.keep_posting()
         with self.call():
@@ -946,3 +1015,193 @@ class KeywordApiTests(unittest.TestCase):
             fresh = self.read()
         self.assertEqual(fresh["skipped"], [])                                  # new list, clean
 
+
+class LibraryApiTests(unittest.TestCase):
+    """Naming an application builds its CV from every line he has used."""
+
+    get = SetupApiTests.get
+    post = SetupApiTests.post
+    call = KeywordApiTests.call
+
+    def setUp(self):
+        ApplicationApiTests.setUp(self)
+        self.patches = [
+            mock.patch.object(llm, "check_model", lambda m: m),
+            mock.patch.object(jev, "support", lambda pairs: [("supports", 0.99)] * len(pairs)),
+            mock.patch.object(jev, "label", lambda lines: ["interests"] * len(lines)),
+        ]
+        for patcher in self.patches:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def identify(self, slug):
+        with self.call():
+            return self.post("/api/apps", {"action": "identify", "slug": slug,
+                                           "job_description": POSTING,
+                                           "provider": "anthropic", "model": "m"})
+
+    def new(self):
+        return self.post("/api/apps", {"action": "create"})["application"]["slug"]
+
+    def test_new_still_works_when_the_frame_fails(self):
+        with mock.patch.object(fill, "blank", mock.Mock(side_effect=RuntimeError("boom"))):
+            slug = self.new()
+        self.assertEqual(self.get(f"/api/document?app={slug}")["cv"], CV)
+
+    def test_pasting_the_posting_leaves_a_duplicate_alone(self):
+        first = self.new()
+        copy = self.post("/api/apps", {"action": "create", "name": "Copy",
+                                       "source": first})["application"]["slug"]
+        before = self.get(f"/api/document?app={copy}")["cv"]
+        slug = self.identify(copy)["application"]["slug"]
+        self.assertEqual(self.get(f"/api/document?app={slug}")["cv"], before)
+
+    def test_an_edit_made_before_the_posting_is_not_built_over(self):
+        slug = self.new()
+        document = self.get(f"/api/document?app={slug}")
+        self.post("/api/save", dict(document, cv=dict(document["cv"], name="Mine"),
+                                    document="cv", app=slug))
+        named = self.identify(slug)
+        slug = named["application"]["slug"]
+        self.assertEqual(self.get(f"/api/document?app={slug}")["cv"]["name"], "Mine")
+
+    def test_strike_is_remembered_for_later_pages(self):
+        self.post("/api/library", {"action": "strike", "text": "A line he disowns."})
+        stored = json.loads((self.root / "library.json").read_text())
+        self.assertIn("A line he disowns.", stored["struck"])
+
+    def past_line(self, text="Automated client onboarding using Zapier, n8n and Airtable."):
+        """An application whose CV carries one line the base does not."""
+        slug = self.post("/api/apps", {"action": "create", "name": "Past"})["application"]["slug"]
+        path = self.root / "applications" / slug / "cv.json"
+        cv = json.loads(path.read_text())
+        entries = next(s for s in cv["sections"] if "EXPERIENCE" in s["heading"])["entries"]
+        entries[-1]["bullets"].append(text)
+        path.write_text(json.dumps(cv))
+        return text
+
+    def section_prompt(self, phase, **extra):
+        slug = self.new()
+        doc = self.get(f"/api/document?app={slug}")["cv"]
+        sent = []
+        def fake(provider, model, system, turns, **kw):
+            sent.append(system)
+            yield "ok"
+        with mock.patch.object(llm, "stream_chat", fake):
+            urllib.request.urlopen(urllib.request.Request(
+                f"{self.base}/api/chat", method="POST",
+                headers={"Content-Type": "application/json"},
+                data=json.dumps({"document": "cv", "doc": doc, "app": slug,
+                                 "job_description": POSTING, "task": "tailor",
+                                 "phase": phase, "provider": "anthropic", "model": "m",
+                                 "messages": [{"role": "user", "content": "go"}],
+                                 **extra}).encode()), timeout=10).read()
+        return sent[0]
+
+    def test_a_section_turn_carries_his_lines_for_that_section(self):
+        system = self.section_prompt("summary")
+        self.assertIn("His lines for this section", system)
+        self.assertIn(CV["sections"][0]["text"], system)
+        self.assertIn("Professional Summary", system)
+
+    def test_a_job_turn_says_how_many_bullets_it_has_room_for(self):
+        system = self.section_prompt("bullets", entry="sections.3.entries.0")
+        self.assertIn("room for 3 bullets", system)
+        self.assertIn(CV["sections"][3]["entries"][0]["bullets"][0], system)
+
+    def test_the_skills_turn_carries_his_skills_list_posting_first(self):
+        (self.root / "notes.md").write_text(
+            "## Skills\n\n- Product: Jira, Account Management, Odoo\n- AI: Claude, SQL\n")
+        system = self.section_prompt("skills")
+        self.assertIn("His skills list", system)
+        self.assertIn("- Product: Account Management, Jira, Odoo", system)
+        self.assertIn("- AI: SQL, Claude", system)
+        self.assertIn("never a tool that is not in his skills list", system.lower())
+
+    def test_gaps_are_checked_against_notes_and_past_cvs(self):
+        line = self.past_line("Mentored 3 software engineering interns at MKEL.")
+        (self.root / "notes.md").write_text("## MKEL\n\nWe added Redis caching after launch.\n")
+
+        def answers(pairs):
+            return [("yes", 0.95) if ("Redis" in e and "caching" in q) or ("Mentored" in e and "mentor" in q)
+                    else ("says_nothing", 0.9) for q, e in pairs]
+        with mock.patch.object(jev, "answers", answers):
+            out = self.post("/api/gaps", {"action": "check", "questions": [
+                "Have you added caching to a slow app?", "Have you mentored interns?",
+                "Have you used React Native?"]})
+        self.assertEqual([g["status"] for g in out], ["covered", "past", "open"])
+        self.assertEqual(out[1]["line"], line)
+
+    def test_a_past_line_he_confirms_goes_into_his_notes_as_his(self):
+        self.post("/api/gaps", {"action": "confirm", "line": "Mentored 3 interns at MKEL."})
+        notes = (self.root / "notes.md").read_text()
+        self.assertIn("Mentored 3 interns at MKEL.", notes)
+        self.assertIn("his answer", notes)
+
+    def test_a_job_turn_needs_a_real_job(self):
+        with self.assertRaises(urllib.error.HTTPError):
+            self.section_prompt("bullets", entry="sections.0.text")
+
+    def test_the_check_runs_once_and_is_remembered(self):
+        self.past_line("Partnered with client teams on delivery of web apps.")
+        (self.root / "notes.md").write_text("## Work\n\nI worked with client teams.\n")
+        asked = []
+
+        def support(pairs):
+            asked.extend(pairs)
+            return [("says_nothing", 0.9)] * len(pairs)
+        with mock.patch.object(jev, "support", support):
+            first = self.post("/api/library", {"action": "check"})
+            self.post("/api/library", {"action": "check"})
+        self.assertEqual(first["held"], 1)
+        self.assertEqual(len(asked), 1)
+
+    def test_review_lists_only_what_needs_him(self):
+        line = self.past_line()
+        (self.root / "notes.md").write_text(
+            "## Work\n\nI built web apps.\n\n## From the chat\n\n### 2026-10-23\n\n"
+            "I automated client onboarding using Zapier, n8n and Airtable.\n")
+        self.post("/api/library", {"action": "check"})
+        out = self.post("/api/library", {"action": "review"})
+        self.assertEqual([l["text"] for l in out["lines"]], [line])
+        self.assertEqual(out["lines"][0]["verdict"], "unconfirmed")
+        self.assertEqual(len(out["notes"]), 1)
+
+    def test_a_kept_note_is_trusted_from_then_on(self):
+        self.past_line()
+        (self.root / "notes.md").write_text(
+            "## From the chat\n\n### 2026-10-23\n\n"
+            "I automated client onboarding using Zapier, n8n and Airtable.\n")
+        self.post("/api/library", {"action": "check"})
+        note = self.post("/api/library", {"action": "review"})["notes"][0]["passage"]
+        self.post("/api/library", {"action": "confirm", "passage": note, "value": True})
+        self.post("/api/library", {"action": "check"})
+        out = self.post("/api/library", {"action": "review"})
+        self.assertEqual(out["lines"], [])
+        self.assertEqual(out["notes"], [])
+
+    def test_the_review_page_is_served(self):
+        with urllib.request.urlopen(f"{self.base}/review", timeout=10) as response:
+            page = response.read().decode()
+        self.assertIn("Check my library", page)
+        self.assertIn("Exclude", page)
+
+    def test_a_decision_made_during_a_check_is_not_lost(self):
+        """The review page stays clickable while Check runs; a Strike made in
+        the meantime must survive the check saving its results."""
+        self.past_line("Partnered with client teams on delivery of web apps.")
+        (self.root / "notes.md").write_text("## Work\n\nI worked with client teams.\n")
+
+        def support(pairs):
+            self.post("/api/library", {"action": "strike", "text": "Struck mid-check."})
+            return [("supports", 0.99)] * len(pairs)
+        with mock.patch.object(jev, "support", support):
+            self.post("/api/library", {"action": "check"})
+        stored = json.loads((self.root / "library.json").read_text())
+        self.assertIn("Struck mid-check.", stored["struck"])
+        self.assertTrue(stored["checks"])
+
+    def test_his_no_is_not_listed_as_the_assistants_note(self):
+        (self.root / "notes.md").write_text(
+            "## From the chat\n\n### 2026-10-24 · his no\n\nI have not used Retool.\n")
+        self.assertEqual(self.post("/api/library", {"action": "review"})["notes"], [])
