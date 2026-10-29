@@ -178,6 +178,18 @@ class SkillsLineTests(unittest.TestCase):
                 for token in out["named"] + out["extra"]:
                     self.assertEqual(token.count("("), token.count(")"), token)
 
+@unittest.skipUnless(shutil.which("node"), "node is not installed")
+class BulletCoverTests(unittest.TestCase):
+    def test_a_line_names_the_frozen_terms_it_carries(self):
+        module = (server.UI_ROOT / "step-bullets.js").as_uri()
+        script = (f"import {{ covers }} from {json.dumps(module)};\n"
+                  "console.log(JSON.stringify(covers('Led Incident Response on Terraform',"
+                  " ['incident response', 'terraform', 'kubernetes', ''])));")
+        out = subprocess.run(["node", "--input-type=module", "-e", script],
+                             capture_output=True, text=True, timeout=20, check=True).stdout
+        self.assertEqual(json.loads(out), ["incident response", "terraform"])
+
+
 
 if __name__ == "__main__":
     unittest.main()

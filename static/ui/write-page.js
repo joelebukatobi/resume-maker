@@ -10,6 +10,7 @@
 
 import { agent, APP, withApp } from "./agent.js";
 import { api, el, toast } from "./dom.js";
+import { drawBullets } from "./step-bullets.js";
 import { drawSkills } from "./step-skills.js";
 import { drawSummary } from "./step-summary.js";
 
@@ -227,6 +228,7 @@ function drawPending(id) {
 
 function route() {
   const here = current();
+  window.onbeforeunload = null;
   paintSteps(here);
   paintRail();
   if (here === "posting") drawPosting(false);
@@ -234,6 +236,7 @@ function route() {
   else if (!documents) drawPending(here);
   else if (here === "summary") drawSummary(context());
   else if (here === "skills") drawSkills(context());
+  else if (here === "bullets") drawBullets(context());
   else drawPending(here);
   window.scrollTo(0, 0);
 }

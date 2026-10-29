@@ -312,6 +312,10 @@ class SetupApiTests(unittest.TestCase):
         skills = self.fetch("/static/ui/step-skills.js")
         self.assertIn('phase: "skills"', skills)
         self.assertIn('"/api/setup/notes", { skill:', skills)  # an added tool joins his list
+        bullets = self.fetch("/static/ui/step-bullets.js")
+        self.assertIn('phase: "bullets", entry: role.path', bullets)   # one read per job
+        self.assertIn('ctx.askSection("bullets", { entry: role.path })', bullets)
+        self.assertIn("ctx.saveCv()", bullets)
 
     def test_redesigned_modules_never_assign_html(self):
         """Nodes, never HTML: file text and model replies cannot inject markup."""
