@@ -3,26 +3,12 @@
 // browser picked, and turns the reply's fenced cards (```voice, ```notes)
 // into Keep / Skip choices. Replies are rendered as nodes, never as HTML.
 
+import { agent, withApp } from "./agent.js";
 import { api, el, icon, toast } from "./dom.js";
 import { renderMarkdown } from "./markdown.js";
 
-const PREFS = "resume-maker.chat";
 const STREAM_ERROR = String.fromCharCode(0);
 const BLOCK = /```(proposal|answer|notes|voice|gaps|ask|skill)\s*([\s\S]*?)```/g;
-
-async function agent() {
-  let prefs = {};
-  try { prefs = JSON.parse(localStorage.getItem(PREFS)) || {}; } catch (e) { /* none */ }
-  const providers = await api("/api/llm/providers");
-  const provider = providers.find((p) => p.id === prefs.provider && p.available);
-  const model = provider && (prefs.models || {})[provider.id];
-  return provider && model ? { provider: provider.id, model, label: provider.label } : null;
-}
-
-function withApp(path) {
-  const app = document.body.dataset.app || "";
-  return app ? `${path}?app=${encodeURIComponent(app)}` : path;
-}
 
 export function mountChat({ host, placeholder, cards, onSaved }) {
   const log = el("div", { class: "chat-log", "aria-live": "polite" });

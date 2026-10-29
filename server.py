@@ -51,7 +51,9 @@ PAGES = {
 }
 # The documents hang off the application they belong to:
 # /meta-rotational-product-manager/resume. The slug on its own opens the CV.
-DOCUMENT_PAGES = {"": "resume", "resume": "resume", "cover-letter": "cover"}
+DOCUMENT_PAGES = {"": "resume", "resume": "resume", "cover-letter": "cover", "write": "write"}
+# The redesigned workbench has its own page; the rest still open the editor.
+DOCUMENT_FILES = {"write": "write.html"}
 
 MAX_BODY = 1 << 20  # 1 MiB is far more than any CV needs.
 MAX_IMPORT_BODY = 8 << 20  # a 5 MB file, base64 encoded
@@ -256,7 +258,8 @@ class EditorHandler(BaseHTTPRequestHandler):
                 return self._error(HTTPStatus.NOT_FOUND, str(exc))
         document_page = self._document_page(route)
         if document_page is not None:
-            return self._page("index.html", document_page[1], app=document_page[0])
+            file = DOCUMENT_FILES.get(document_page[1], "index.html")
+            return self._page(file, document_page[1], app=document_page[0])
         if route == "/api/setup":
             return self._setup_get()
         if route == "/api/setup/templates":

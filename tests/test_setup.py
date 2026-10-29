@@ -717,6 +717,21 @@ class ApplicationApiTests(unittest.TestCase):
             urllib.request.urlopen(f"{self.base}/no-such-application", timeout=10)
         self.assertEqual(caught.exception.code, 404)
 
+    def test_an_application_has_a_write_page_on_the_redesign(self):
+        slug = self.get("/api/apps")["current"]
+        with urllib.request.urlopen(f"{self.base}/{slug}/write", timeout=10) as response:
+            page = response.read().decode()
+        self.assertIn('data-page="write"', page)
+        self.assertIn(f'data-app="{slug}"', page)
+        self.assertIn("/static/ui/write-page.js", page)
+        self.assertNotIn("pico", page.lower())
+        # The old editor is still where it was until the steps are complete.
+        with urllib.request.urlopen(f"{self.base}/{slug}/resume", timeout=10) as response:
+            self.assertIn("/static/chat.js", response.read().decode())
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(f"{self.base}/no-such-application/write", timeout=10)
+        self.assertEqual(caught.exception.code, 404)
+
     def test_archive_keeps_the_documents_and_hides_the_application(self):
         first = self.get("/api/apps")["current"]
         self.post("/api/apps", {"action": "create", "name": "Osmo — TPM"})
