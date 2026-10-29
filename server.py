@@ -61,6 +61,10 @@ MAX_CHAT_CHARS = 400_000  # ceiling on the condensed transcript sent to a model
 DOCUMENTS = ("cv", "cover")
 HOST = "127.0.0.1"
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
+# The redesigned frontend's own files: one folder, CSS and JS, one name shape.
+UI_ROOT = STATIC_ROOT / "ui"
+_UI_NAME = re.compile(r"[a-z0-9][a-z0-9-]*\.(css|js)")
+_UI_TYPES = {"css": "text/css; charset=utf-8", "js": "text/javascript; charset=utf-8"}
 
 _MEDIA_TYPES = {
     "docx": (
@@ -292,6 +296,8 @@ class EditorHandler(BaseHTTPRequestHandler):
             return self._history_get()
         if route == "/api/apps":
             return self._apps_get()
+        if route.startswith("/static/ui/"):
+            return self._ui_static(route[len("/static/ui/"):])
         self._error(HTTPStatus.NOT_FOUND, "not found")
 
     def _font_face(self) -> None:
@@ -409,6 +415,23 @@ class EditorHandler(BaseHTTPRequestHandler):
         if not path.is_file():
             return self._error(HTTPStatus.NOT_FOUND, "not found")
         self._send(HTTPStatus.OK, path.read_bytes(), content_type)
+
+    def _ui_static(self, name: str) -> None:
+        """A file from static/ui/, the redesigned frontend's folder.
+
+        The name is matched whole against one shape before it touches the
+        disk, so no slash, dot segment, escape or other extension gets
+        through. The resolved path is checked again, so a link inside the
+        folder cannot point anywhere else.
+        """
+        match = _UI_NAME.fullmatch(name)
+        if match is None:
+            return self._error(HTTPStatus.NOT_FOUND, "not found")
+        root = UI_ROOT.resolve()
+        path = (root / name).resolve()
+        if path.parent != root or not path.is_file():
+            return self._error(HTTPStatus.NOT_FOUND, "not found")
+        self._send(HTTPStatus.OK, path.read_bytes(), _UI_TYPES[match.group(1)])
 
     def _document(self) -> None:
         try:

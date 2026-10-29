@@ -1,0 +1,124 @@
+/* Design tokens from DESIGN.md. Change a value there first, then here.
+   Dark is the default; light redefines colours only. "system" follows the OS. */
+
+:root {
+  color-scheme: dark;
+
+  --ground: #181818;
+  --surface: #1E1E1E;
+  --raised: #242424;
+  --paper: #F7F7F7;
+  --text: #D6D6DD;
+  --text-secondary: #9B9BA4;
+  --text-muted: #6E6E77;
+  --hairline: #2A2A2A;
+  --hairline-strong: #383838;
+  --action-text: #7C93D6;
+  --action-fill: #3B59A8;
+  --action-fill-hover: #4A68B8;
+  --action-fill-pressed: #2F4B8F;
+  --on-action: #FFFFFF;
+  --action-tint: #1E2A4A;
+  --backed: #3FA36B;
+  --backed-text: #5CC48A;
+  --backed-tint: #16261C;
+  --open: #F79009;
+  --open-text: #FDB022;
+  --open-tint: #1E1E1E;
+  --open-tint-text: #FEDF89;
+  --hover-overlay: rgba(214, 214, 221, 0.06);
+  --pressed-overlay: rgba(214, 214, 221, 0.10);
+
+  /* The page being written is not themed by the app. */
+  --ink: #111111;
+  --ink-secondary: #555555;
+  --covered-highlight: #D3F2DF;
+
+  --font: 'Geist', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --space-xxs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-xxl: 48px;
+  --space-xxxl: 64px;
+  --gutter: 32px;
+  --inset: 24px;
+
+  --radius-paper: 2px;
+  --radius-control: 4px;
+  --radius-full: 9999px;
+
+  --nav-height: 56px;
+  --rail-width: 340px;
+  --rail-min: 260px;
+  --measure-prose: 720px;
+  --measure-list: 800px;
+
+  --layer-base: 0;
+  --layer-rail: 10;
+  --layer-nav: 20;
+  --layer-menu: 30;
+  --layer-dialog-overlay: 40;
+  --layer-dialog: 50;
+  --layer-toast: 60;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --ground: #F4F4F5;
+  --surface: #FAFAFA;
+  --raised: #FFFFFF;
+  --paper: #FFFFFF;
+  --text: #18181B;
+  --text-secondary: #5F5F67;
+  --text-muted: #8E8E96;
+  --hairline: #E4E4E7;
+  --hairline-strong: #D4D4D8;
+  --action-text: #3B59A8;
+  --action-fill-hover: #324E96;
+  --action-fill-pressed: #2A4282;
+  --action-tint: #E7EAF8;
+  --backed: #1F7A4D;
+  --backed-text: #1F7A4D;
+  --backed-tint: #E3F4EA;
+  --open: #DC6803;
+  --open-text: #B54708;
+  --open-tint: #FEF0E0;
+  --open-tint-text: #B54708;
+  --hover-overlay: rgba(24, 24, 27, 0.04);
+  --pressed-overlay: rgba(24, 24, 27, 0.08);
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    color-scheme: light;
+
+    --ground: #F4F4F5;
+    --surface: #FAFAFA;
+    --raised: #FFFFFF;
+    --paper: #FFFFFF;
+    --text: #18181B;
+    --text-secondary: #5F5F67;
+    --text-muted: #8E8E96;
+    --hairline: #E4E4E7;
+    --hairline-strong: #D4D4D8;
+    --action-text: #3B59A8;
+    --action-fill-hover: #324E96;
+    --action-fill-pressed: #2A4282;
+    --action-tint: #E7EAF8;
+    --backed: #1F7A4D;
+    --backed-text: #1F7A4D;
+    --backed-tint: #E3F4EA;
+    --open: #DC6803;
+    --open-text: #B54708;
+    --open-tint: #FEF0E0;
+    --open-tint-text: #B54708;
+    --hover-overlay: rgba(24, 24, 27, 0.04);
+    --pressed-overlay: rgba(24, 24, 27, 0.08);
+  }
+}
