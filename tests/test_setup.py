@@ -350,13 +350,17 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn("settings-rule", settings)
         self.assertNotIn("Appearance", settings)
         self.assertNotIn("font.note", settings)
-        self.assertIn('placeChip("CV"', settings)
-        self.assertIn('placeChip("Letter"', settings)
+        self.assertIn('text: "Text"', settings)    # contact column head
+        self.assertIn('text: "Link"', settings)
+        self.assertIn('text: "CV"', settings)
+        self.assertIn('text: "Letter"', settings)
+        self.assertIn('class: "switch"', settings)  # CV / Letter place toggles
+        self.assertIn('role: "switch"', settings)
         self.assertIn("coverMatch", settings)  # letter footer ticks come from cover.json
         self.assertIn("Add contact item", settings)  # + in the Contacts head
         self.assertIn("settings-foot", settings)     # one Save after Models
         self.assertIn('class: "btn btn-primary"', settings)
-        self.assertIn('class: "chip"', settings)  # place toggles, not native checkboxes
+        self.assertNotIn('class: "chip"', settings)  # switches, not chips
         self.assertNotIn('type: "checkbox"', settings)
         self.assertIn("bespokeSelect", settings)  # Paper Size + Font, same as Models
         self.assertIn("settings-grid-3", settings)
@@ -378,16 +382,23 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn('id="app-new"', page)
         self.assertIn('id="apps-pager"', page)
         self.assertIn(">Company<", page)
-        self.assertIn(">Application<", page)
+        self.assertIn(">Role<", page)
+        self.assertIn(">Created<", page)
+        self.assertIn(">Last updated<", page)
         apps = self.fetch("/static/ui/apps-page.js")
+        self.assertIn("formatDay(app.opened)", apps)
+        self.assertNotIn("Last open", apps)
         self.assertIn('"/api/apps"', apps)
         self.assertIn('"/api/setup"', apps)                    # nudges an empty file
         self.assertNotIn('"/api/llm/providers"', apps)         # model keys line is gone
         self.assertIn("pagePlan(", apps)
         self.assertIn("PAGER_ROWS", apps)
-        for action in ('"rename"', '"create"', '"archive"', '"restore"', '"delete"'):
+        for action in ('"rename"', '"create"', '"archive"', '"restore"', '"delete"', '"track"'):
             self.assertIn(action, apps)
-        self.assertNotIn('action: "track"', apps)  # track stays a column; no row action
+        self.assertIn("openEdit(", apps)                       # edit opens a modal
+        self.assertIn("Edit application", apps)
+        self.assertIn("New track…", apps)
+        self.assertNotIn('window.prompt("Name this application"', apps)
         for name in ('"edit"', '"copy"', '"archive"', '"trash"'):
             self.assertIn(name, apps)  # row icons, not a kebab menu
         self.assertNotIn("kebab", apps)
@@ -422,7 +433,9 @@ class SetupApiTests(unittest.TestCase):
         summary = self.fetch("/static/ui/step-summary.js")
         self.assertIn('phase: "summary"', summary)
         self.assertIn('action: "slot"', summary)               # past versions, as the model sees them
-        self.assertIn("if (!now) await propose()", summary)    # empty page runs the section turn
+        self.assertIn("await fill()", summary)                 # auto-accept on enter / refresh
+        self.assertIn("stepSkeleton", summary)
+        self.assertIn('ctx.askSection("summary")', summary)
         self.assertNotIn("Write a new one", summary)           # the own box is enough
         self.assertIn("posting-line", summary)                 # same type as the posting read
         self.assertIn('stepAction("a"', summary)               # icon Back / Skip like Posting
@@ -430,36 +443,72 @@ class SetupApiTests(unittest.TestCase):
         skills = self.fetch("/static/ui/step-skills.js")
         self.assertIn('phase: "skills"', skills)
         self.assertIn('"/api/setup/notes", { skill:', skills)  # an added tool joins his list
-        self.assertIn('ctx.askSection("skills")', skills)      # empty skills run the section turn
+        self.assertIn('ctx.askSection("skills")', skills)      # same Pico skills turn
+        self.assertIn("await fill()", skills)                  # auto-accept on enter / refresh
+        self.assertIn("stepSkeleton", skills)
+        self.assertIn("setStepProgress", skills)
         bullets = self.fetch("/static/ui/step-bullets.js")
+        self.assertIn('action: "cast"', bullets)               # roles on/off before lines
+        self.assertIn("recommend_off", bullets)
         self.assertIn('phase: "bullets", entry: role.path', bullets)   # one read per job
         self.assertIn('ctx.askSection("bullets", { entry: role.path })', bullets)
+        self.assertIn("acceptProposals(role, found)", bullets) # auto-accept like old chat yes
+        self.assertIn("await fillAll()", bullets)              # every on role, lazy
+        self.assertIn("role.pending", bullets)                 # skeleton until that role lands
+        self.assertIn("stepSkeleton", bullets)
+        self.assertIn("setStepProgress", bullets)              # strip progress while writing
         self.assertIn("ctx.saveCv()", bullets)
-        self.assertIn("await proposeRole(role)", bullets)      # empty role runs the section turn
         self.assertIn("Others for this job", bullets)          # swap settled line
         self.assertNotIn("Write new lines", bullets)
         self.assertNotIn("applyPicks", bullets)                # no pick-cards substep
         self.assertNotIn('class: "option"', bullets)
         self.assertIn("Add a bullet", bullets)
         self.assertIn("Move bullet up", bullets)
+        page = self.fetch("/static/ui/write-page.js")
+        self.assertIn("function setStepProgress", page)
+        self.assertIn("steps-progress", page)
+        self.assertIn("refreshPostingTerms", page)
+        self.assertIn("function consumeAutoFill", page)        # steps still call it
+        self.assertRegex(page, r"function consumeAutoFill\([^)]*\)\s*\{\s*return false;")
+        self.assertIn("setRefresh", page)                      # only the foot refresh runs the model
         self.assertIn("--measure-list: 960px", self.fetch("/static/ui/tokens.css"))
         additional = self.fetch("/static/ui/step-additional.js")
-        self.assertIn('phase: "additional"', additional)
         self.assertIn('ctx.askSection("additional")', additional)
-        self.assertIn("if (!lines.some((line) => line.trim()))", additional)
+        self.assertIn("await fill()", additional)
+        self.assertIn("acceptProposals(found)", additional)
+        self.assertIn("stepSkeleton", additional)
         self.assertNotIn("Write new lines", additional)
-        self.assertIn("ctx.setRefresh(propose)", additional)
+        letter = self.fetch("/static/ui/step-letter.js")
+        self.assertIn("ctx.askLetter()", letter)
+        self.assertIn("acceptProposals(cover, found)", letter)
+        self.assertIn("stepSkeleton", letter)
+        nav = self.fetch("/static/ui/app-nav.js")
+        self.assertIn('text: "Resume"', nav)                   # Resume | Cover letter in the left nav
+        self.assertIn('text: "Cover Letter"', nav)
+        self.assertIn('["voice", "/voice", "Application Tone"]', nav)
+        self.assertIn('MODE === "cover"', page)
+        self.assertIn("/letter", page)
+        self.assertIn("function askLetter", page)
+        self.assertIn("one-page cover letter", page)           # same one-page guard as Pico
         self.assertIn('"/api/match"', page)                    # posting score on the step strip
         self.assertIn('"/api/fit"', page)                      # model fit score on the step strip
         self.assertIn("Click to refresh", page)                # each score circle re-rates itself
         self.assertIn("sectionRefresh", page)                  # foot refresh re-runs the section
         self.assertIn("setRefresh", page)
-        self.assertIn('scoreChip("fit", "Overall"', page)
-        self.assertIn('scoreChip("posting", "Language"', page)
+        self.assertIn('scoreChip("fit", "Overall Fit"', page)
+        self.assertIn('scoreChip("posting", "Language Fit"', page)
+        self.assertIn("function saveFit", page)                # Overall Fit survives leave / return
+        self.assertIn("function loadFit", page)
+        self.assertIn("resume-maker.fit.", page)
+        self.assertIn("resume-maker.lang.", page)              # Language Fit is per Resume / letter
+        self.assertIn("typeof lastFit.score === \"number\"", page)  # paint saved score; never key-blank
+        self.assertIn("function fitStale", page)
         self.assertIn("Save PDF and DOCX to this application", page)
         self.assertIn("saveDocuments", page)
         self.assertIn("build: true", page)                     # strip Save rebuilds out/
         review = self.fetch("/static/ui/step-review.js")
+        self.assertNotIn("Do you need a cover letter", review)
+        self.assertIn('kind === "cover"', review)
         self.assertIn("resume-zoom", review)
         self.assertIn("Zoom in", review)
         self.assertIn('icon("plus"', review)
@@ -477,7 +526,7 @@ class SetupApiTests(unittest.TestCase):
         for endpoint in ('"/api/preview"', '"/api/match"'):
             self.assertIn(endpoint, review)
         self.assertIn('sandbox: "allow-scripts"', review)      # the page runs in a sandbox
-        self.assertIn("ctx.saveCv()", review)                  # kept proposals write the CV
+        self.assertIn("await saveDoc()", review)               # kept proposals write CV or letter
         self.assertNotIn("ctx.setRefresh", review)             # section refresh is steps 1–5
 
     def test_redesigned_modules_never_assign_html(self):
@@ -514,36 +563,25 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn('body[data-page="cover"] :is(#nav-voice, #nav-notes, #nav-review)', css)
 
     def test_editor_links_back_to_the_setup_pages(self):
-        with urllib.request.urlopen(f"{self.base}/cover-letter", timeout=10) as response:
-            page = response.read().decode()
-        for href in ('href="/"', 'href="/voice"', 'href="/notes"'):
-            self.assertIn(href, page)
         slug = self.get("/api/apps")["current"]
         write = self.fetch(f"/{slug}/write")
         self.assertIn('<app-nav', write)
+        letter = self.fetch(f"/{slug}/letter")
+        self.assertIn('<app-nav', letter)
+        self.assertIn("/static/ui/write-page.js", letter)
 
     def test_every_page_serves_the_same_nav(self):
-        """Cover letter still uses the old shared nav; CV paths are Write."""
+        """CV and letter share the redesign shell; Pico site-nav is gone."""
         slug = self.get("/api/apps")["current"]
-        expected = (
-            ('href="/"', 'id="nav-hub"'),
-            ('href="/voice"', 'id="nav-voice"'),
-            ('href="/notes"', 'id="nav-notes"'),
-            (f'href="/{slug}/resume"', 'id="mode-cv"'),
-            (f'href="/{slug}/cover-letter"', 'id="mode-cover"'),
-        )
-        with urllib.request.urlopen(f"{self.base}/{slug}/cover-letter", timeout=10) as response:
-            html = response.read().decode()
-        self.assertIn('data-page="cover"', html)
-        self.assertIn('class="site-nav"', html)
-        for href, chip_id in expected:
-            self.assertIn(href, html)
-            self.assertIn(chip_id, html)
-        self.assertNotIn("<!-- site-nav -->", html)
-        for path in (f"/{slug}", f"/{slug}/resume", f"/{slug}/write"):
+        for path, page_id in (
+            (f"/{slug}", "write"),
+            (f"/{slug}/resume", "write"),
+            (f"/{slug}/write", "write"),
+            (f"/{slug}/letter", "letter"),
+        ):
             with self.subTest(path=path):
                 page = self.fetch(path)
-                self.assertIn('data-page="write"', page)
+                self.assertIn(f'data-page="{page_id}"', page)
                 self.assertIn("/static/ui/write-page.js", page)
                 self.assertNotIn("pico", page.lower())
                 self.assertNotIn('class="site-nav"', page)
@@ -564,21 +602,14 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn("function emptyState()", script)
 
     def test_every_page_shares_one_set_of_design_tokens(self):
-        """Cover letter still shares base.css; CV paths use the redesign tokens."""
-        with urllib.request.urlopen(f"{self.base}/cover-letter", timeout=10) as response:
-            page = response.read().decode()
-        self.assertIn("/static/base.css", page)
-        self.assertNotRegex(page, r"--pico-font-size\s*:")
-        self.assertNotRegex(page, r"--(green|accent)\s*:")
-        self.assertNotIn("&#8592;", page)
-        with urllib.request.urlopen(f"{self.base}/static/base.css", timeout=10) as response:
-            css = response.read().decode()
-        self.assertIn("--pico-font-size: 15px", css)
-        self.assertIn("--control-height", css)
+        """Write and letter use redesign tokens; Pico base.css is not on them."""
         slug = self.get("/api/apps")["current"]
-        write = self.fetch(f"/{slug}/write")
-        self.assertIn("/static/ui/tokens.css", write)
-        self.assertNotIn("/static/base.css", write)
+        for path in (f"/{slug}/write", f"/{slug}/letter"):
+            with self.subTest(path=path):
+                page = self.fetch(path)
+                self.assertIn("/static/ui/tokens.css", page)
+                self.assertNotIn("/static/base.css", page)
+                self.assertNotIn("pico", page.lower())
 
     def test_voice_and_notes_paths_serve_their_own_page(self):
         """Routed now; each answers 200 as soon as its page lands (Tasks 5-6)."""
@@ -881,7 +912,7 @@ class ApplicationApiTests(unittest.TestCase):
 
     def test_the_old_document_paths_redirect_into_the_open_application(self):
         slug = self.get("/api/apps")["current"]
-        for path, tail in (("/resume", "write"), ("/cover-letter", "cover-letter")):
+        for path, tail in (("/resume", "write"), ("/cover-letter", "letter")):
             with self.subTest(path=path):
                 with urllib.request.urlopen(f"{self.base}{path}", timeout=10) as response:
                     self.assertEqual(response.url, f"{self.base}/{slug}/{tail}")
@@ -899,15 +930,16 @@ class ApplicationApiTests(unittest.TestCase):
         self.assertIn(f'data-app="{slug}"', page)
         self.assertIn("/static/ui/write-page.js", page)
         self.assertNotIn("pico", page.lower())
-        # /resume is Write now; cover letter is the last Pico page.
+        # /resume is Write; /cover-letter lands on the letter workbench.
         with urllib.request.urlopen(f"{self.base}/{slug}/resume", timeout=10) as response:
             resume = response.read().decode()
         self.assertIn("/static/ui/write-page.js", resume)
         self.assertNotIn("pico", resume.lower())
         with urllib.request.urlopen(f"{self.base}/{slug}/cover-letter", timeout=10) as response:
             cover = response.read().decode()
-        self.assertIn("pico", cover.lower())
-        self.assertIn("/static/chat.js", cover)
+        self.assertIn('data-page="letter"', cover)
+        self.assertIn("/static/ui/write-page.js", cover)
+        self.assertNotIn("pico", cover.lower())
         with self.assertRaises(urllib.error.HTTPError) as caught:
             urllib.request.urlopen(f"{self.base}/no-such-application/write", timeout=10)
         self.assertEqual(caught.exception.code, 404)
@@ -956,8 +988,12 @@ class ApplicationApiTests(unittest.TestCase):
         self.post("/api/apps", {"action": "track", "slug": slug, "track": "Engineering"})
         apps = {a["slug"]: a for a in self.get("/api/apps")["applications"]}
         self.assertEqual(apps[slug]["track"], "Engineering")
+        # Edit dialog may keep a short custom label; empty is refused.
+        self.post("/api/apps", {"action": "track", "slug": slug, "track": "Wizard"})
+        apps = {a["slug"]: a for a in self.get("/api/apps")["applications"]}
+        self.assertEqual(apps[slug]["track"], "Wizard")
         with self.assertRaises(urllib.error.HTTPError) as caught:
-            self.post("/api/apps", {"action": "track", "slug": slug, "track": "Wizard"})
+            self.post("/api/apps", {"action": "track", "slug": slug, "track": "  "})
         self.assertEqual(caught.exception.code, 400)
 
     def test_deleting_an_unknown_application_is_refused(self):
@@ -1389,6 +1425,21 @@ class LibraryApiTests(unittest.TestCase):
                 with self.assertRaises(urllib.error.HTTPError) as caught:
                     self.post("/api/library", {"action": "slot", "app": slug, **payload})
                 self.assertEqual(caught.exception.code, 400)
+
+    def test_cast_scores_each_experience_role(self):
+        slug = self.new()
+        posting = "product roadmap discovery"
+        self.post("/api/chat/history", {"messages": [], "job_description": posting, "app": slug})
+        keywords.save(self.root / "applications" / slug / "keywords.json",
+                      posting=posting, terms=["roadmap", "product"], entries={})
+        got = self.post("/api/library", {"action": "cast", "app": slug})
+        self.assertIn("roles", got)
+        self.assertGreaterEqual(len(got["roles"]), 1)
+        role = got["roles"][0]
+        for key in ("index", "hits", "total", "off", "recommend_off", "path", "left"):
+            self.assertIn(key, role)
+        self.assertTrue(role["path"].startswith("sections."))
+        self.assertEqual(got["total"], 2)
 
     def test_gaps_are_checked_against_notes_and_past_cvs(self):
         line = self.past_line("Mentored 3 software engineering interns at MKEL.")
