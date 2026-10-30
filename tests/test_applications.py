@@ -72,8 +72,10 @@ class WorkspaceTests(unittest.TestCase):
         tagged = self.space.set_track(app.slug, "Product")
         self.assertEqual(tagged.track, "Product")
         self.assertEqual(self.space.list()[0].track, "Product")
+        custom = self.space.set_track(app.slug, "Wizard")
+        self.assertEqual(custom.track, "Wizard")
         with self.assertRaises(ApplicationError):
-            self.space.set_track(app.slug, "Wizard")
+            self.space.set_track(app.slug, "  ")
 
     def test_a_copy_inherits_the_source_track(self):
         first = self.space.create("Meta — RPM")

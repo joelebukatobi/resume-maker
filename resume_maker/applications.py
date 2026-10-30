@@ -37,6 +37,7 @@ MAX_NAME = 120
 # from the newest live application of the same track, so a Product CV and an
 # Engineering CV stay separate lineages.
 TRACKS = ("Product", "Engineering", "Data", "Design", "Other")
+MAX_TRACK = 40
 # What a new application is called until the job description names it.
 UNNAMED = "Untitled application"
 # The files an application owns. The key is how the rest of the program asks
@@ -336,9 +337,15 @@ class Workspace:
             (self.root / CURRENT).unlink(missing_ok=True)
 
     def set_track(self, slug: str, track: str) -> Application:
-        """Label an application's role type, by hand or from the posting."""
-        if track not in TRACKS:
-            raise ApplicationError(f"unknown track: {track!r}")
+        """Label an application's role type, by hand or from the posting.
+
+        The known :data:`TRACKS` are the usual choices (and what identify
+        writes). The edit dialog may also keep a short custom label so a
+        niche role type is not forced into Other.
+        """
+        track = " ".join(str(track).split())[:MAX_TRACK]
+        if not track:
+            raise ApplicationError("give the application a track")
         folder, archived = self.find(slug)
         meta = json.loads((folder / META).read_text(encoding="utf-8"))
         meta["track"] = track
