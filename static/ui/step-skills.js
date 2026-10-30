@@ -1,19 +1,13 @@
-// Step 3, Skills: the tools on this CV, by label, as chips.
+// Step 3, Skills: one section turn, auto-accepted like the old chat yes.
 //
-// The tools come from his skills list in notes.md (POST /api/library slot,
-// the list the skills turn is given, posting first) plus whatever the CV
-// already names. On means on this CV. An empty skills section runs the same
-// skills turn the chat ran after a paste; Next is his yes. Adding a tool
-// writes it to the skills list for every CV after this one.
+// Same tailor phase the Pico chat ran. Skeleton + strip progress while it
+// writes; chips show the result. Refresh re-runs the turn.
 
-import { api, el, stepAction, toast } from "./dom.js";
+import { api, el, stepAction, stepSkeleton, toast } from "./dom.js";
 
-// Names compared without case, spacing or "&" against "and".
 const norm = (name) => String(name).toLowerCase().replace(/&/g, "and").replace(/\s+/g, " ").trim();
 const same = (a, b) => norm(a) === norm(b);
 
-// A CV skills line split at its commas, but not the ones inside brackets:
-// "JavaScript (Node, React), SQL" is two tools, not three.
 export function splitTools(text) {
   const out = [];
   let depth = 0;
@@ -28,9 +22,6 @@ export function splitTools(text) {
   return out.map((t) => t.trim()).filter(Boolean);
 }
 
-// Which of his listed tools a CV line names, and what it names that the
-// list does not. "Jira and Confluence" is both of those tools when he lists
-// them separately; "CI/CD & Linux" stays one when he lists it as one.
 export function readLine(text, listed) {
   const named = [];
   const extra = [];
@@ -78,32 +69,24 @@ export async function drawSkills(ctx) {
     return;
   }
 
-  host.replaceChildren(el("div", { class: "measure-list" }, [
-    el("h1", { class: "title", text: "Skills" }),
-    el("p", { class: "meta", text: "Loading your skills list…" }),
-  ]));
-
-  let listed = {};
-  try {
-    listed = (await api("/api/library", {
-      action: "slot", phase: "skills", app: ctx.app, job_description: ctx.history.job_description,
-    })).skills || {};
-  } catch (error) {
-    toast(`Could not load your skills list: ${error.message}`, "error");
-  }
-
   const posting = String(ctx.history.job_description || "").toLowerCase();
   const section = ctx.documents.cv.sections[at];
   const items = section.items || [];
-  const empty = items.every((item) => !splitTools(item.text).length);
-  const groups = items.map((item) => groupFrom(item, listed, {
-    fallbackOn: (name) => posting.includes(name.toLowerCase()),
-  }));
+  let listed = {};
+  let groups = [];
   const body = el("div", { class: "groups" });
+  const lead = el("p", {
+    class: "lead",
+    text: "Choosing skills for this posting from your notes and past CVs.",
+  });
+  const nextButton = stepAction("button", { type: "button", "aria-label": "Next" }, "right");
+  nextButton.disabled = true;
 
   function paint() {
     body.replaceChildren(...groups.map((group, g) => {
-      const input = el("input", { class: "input input-sm", id: `add-${g}`, type: "text", placeholder: "Add a skill" });
+      const input = el("input", {
+        class: "input input-sm", id: `add-${g}`, type: "text", placeholder: "Add a skill",
+      });
       const add = el("button", { class: "btn btn-sm", type: "button", text: "Add" });
       const addSkill = async () => {
         const skill = input.value.trim();
@@ -121,7 +104,9 @@ export async function drawSkills(ctx) {
         }
       };
       add.addEventListener("click", addSkill);
-      input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); addSkill(); } });
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") { event.preventDefault(); addSkill(); }
+      });
       const on = group.tools.filter((t) => t.on).length;
       return el("section", { class: "group" }, [
         el("div", { class: "group-head" }, [
@@ -133,42 +118,16 @@ export async function drawSkills(ctx) {
           onclick: () => { tool.on = !tool.on; group.changed = true; paint(); },
         }))),
         el("div", { class: "group-add inline-form" }, [
-          el("label", { class: "visually-hidden", for: `add-${g}`, text: `Add a skill to ${group.label}` }),
+          el("label", {
+            class: "visually-hidden", for: `add-${g}`,
+            text: `Add a skill to ${group.label}`,
+          }),
           input, add,
         ]),
       ]);
     }));
   }
 
-  async function propose() {
-    const found = (await ctx.askSection("skills"))
-      .filter((p) => typeof p.text === "string" && p.path.startsWith(`sections.${at}.items.`));
-    for (const p of found) {
-      const match = /^sections\.\d+\.items\.(\d+)\.text$/.exec(p.path);
-      if (!match) continue;
-      const index = Number(match[1]);
-      if (!items[index]) continue;
-      items[index].text = p.text.trim();
-      // Keep every skill in his list for this label; only the on/off
-      // state follows the recommendation.
-      groups[index] = groupFrom(items[index], listed, { changed: true });
-    }
-    if (!found.length) throw new Error("No skills recommendation came back. Pick skills by hand.");
-    if (body.isConnected) paint();
-  }
-
-  // Empty skills: the same turn the chat ran after a paste. Lines stay off
-  // the saved CV until Next.
-  if (empty) {
-    host.replaceChildren(el("div", { class: "measure-list" }, [
-      el("h1", { class: "title", text: "Skills" }),
-      el("p", { class: "meta", text: "Choosing skills for this posting…" }),
-    ]));
-    try { await propose(); }
-    catch (error) { toast(error.message, "error"); }
-  }
-
-  const nextButton = stepAction("button", { type: "button", "aria-label": "Next" }, "right");
   nextButton.addEventListener("click", async () => {
     nextButton.disabled = true;
     try {
@@ -189,7 +148,7 @@ export async function drawSkills(ctx) {
   host.replaceChildren(el("div", { class: "measure-list" }, [
     el("header", { class: "page-head" }, [
       el("h1", { class: "title", text: "Skills" }),
-      el("p", { class: "lead", text: "Everything from your notes and past CVs. Blue ones are the match for this posting - tap to change." }),
+      lead,
     ]),
     body,
     foot([
@@ -198,6 +157,70 @@ export async function drawSkills(ctx) {
       stepAction("a", { href: "#bullets", "aria-label": "Skip" }, "skip"),
     ]),
   ]));
-  paint();
-  ctx.setRefresh(propose);
+  body.replaceChildren(stepSkeleton(4));
+
+  async function fill() {
+    lead.textContent = "Choosing skills for this posting from your notes and past CVs.";
+    nextButton.disabled = true;
+    body.replaceChildren(stepSkeleton(4));
+    if (ctx.setStepProgress) ctx.setStepProgress(0, 1);
+    try {
+      try {
+        listed = (await api("/api/library", {
+          action: "slot", phase: "skills", app: ctx.app,
+          job_description: ctx.history.job_description,
+        })).skills || {};
+      } catch (error) {
+        toast(`Could not load your skills list: ${error.message}`, "error");
+        listed = {};
+      }
+      groups = items.map((item) => groupFrom(item, listed, {
+        fallbackOn: (name) => posting.includes(name.toLowerCase()),
+      }));
+      const found = (await ctx.askSection("skills"))
+        .filter((p) => typeof p.text === "string" && p.path.startsWith(`sections.${at}.items.`));
+      for (const p of found) {
+        const match = /^sections\.\d+\.items\.(\d+)\.text$/.exec(p.path);
+        if (!match) continue;
+        const index = Number(match[1]);
+        if (!items[index]) continue;
+        items[index].text = p.text.trim();
+        groups[index] = groupFrom(items[index], listed, { changed: true });
+      }
+      if (!found.length) throw new Error("No skills recommendation came back. Pick skills by hand.");
+      lead.textContent = "Everything from your notes and past CVs. Blue ones are the match for this posting - tap to change.";
+    } catch (error) {
+      toast(error.message, "error");
+      if (!groups.length) {
+        groups = items.map((item) => groupFrom(item, listed, {
+          fallbackOn: (name) => posting.includes(name.toLowerCase()),
+        }));
+      }
+      lead.textContent = "Tap skills on or off. Refresh to ask the model again.";
+    } finally {
+      if (ctx.setStepProgress) ctx.setStepProgress(1, 1);
+      paint();
+      nextButton.disabled = false;
+    }
+  }
+
+  ctx.setRefresh(fill);
+  if (ctx.consumeAutoFill && ctx.consumeAutoFill("skills")) await fill();
+  else {
+    lead.textContent = "Everything from your notes and past CVs. Blue ones are the match for this posting - tap to change.";
+    try {
+      listed = (await api("/api/library", {
+        action: "slot", phase: "skills", app: ctx.app,
+        job_description: ctx.history.job_description,
+      })).skills || {};
+    } catch (error) {
+      toast(`Could not load your skills list: ${error.message}`, "error");
+      listed = {};
+    }
+    groups = items.map((item) => groupFrom(item, listed, {
+      fallbackOn: (name) => posting.includes(name.toLowerCase()),
+    }));
+    paint();
+    nextButton.disabled = false;
+  }
 }

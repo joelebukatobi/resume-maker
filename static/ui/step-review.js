@@ -80,9 +80,17 @@ function setPath(doc, path, text) {
 
 export async function drawReview(ctx) {
   const host = ctx.host;
-  const payload = { ...ctx.documents, document: "cv", app: ctx.app };
+  const kind = ctx.mode === "cover" ? "cover" : "cv";
+  const doc = kind === "cover" ? ctx.documents.cover : ctx.documents.cv;
+  const payload = { ...ctx.documents, document: kind, app: ctx.app };
+  const saveDoc = kind === "cover" ? ctx.saveCover : ctx.saveCv;
+  const label = kind === "cover" ? "cover letter" : "CV";
 
-  const frame = el("iframe", { class: "paper-frame", title: "Your CV", sandbox: "allow-scripts" });
+  const frame = el("iframe", {
+    class: "paper-frame",
+    title: kind === "cover" ? "Your cover letter" : "Your CV",
+    sandbox: "allow-scripts",
+  });
   const checks = el("div", { class: "checks" }, [el("p", { class: "meta", text: "Measuring the page…" })]);
   const coverage = el("div", { class: "coverage" }, [el("p", { class: "meta", text: "Counting…" })]);
   const side = el("div", { class: "review-side" });
@@ -160,12 +168,15 @@ export async function drawReview(ctx) {
     bumpZoom(event.deltaY > 0 ? -0.1 : 0.1);
   }, { passive: false });
 
-  const app = encodeURIComponent(ctx.app);
-
   async function applyProposal(path, text) {
     if (!path || typeof text !== "string") throw new Error("That proposal has no field to change.");
-    setPath(ctx.documents.cv, path, text);
-    await ctx.saveCv();
+    // Appending a new letter paragraph when the path is past the end.
+    if (kind === "cover" && /^paragraphs\.\d+$/.test(path)) {
+      const index = Number(path.slice("paragraphs.".length));
+      while ((doc.paragraphs || (doc.paragraphs = [])).length <= index) doc.paragraphs.push("");
+    }
+    setPath(doc, path, text);
+    await saveDoc();
     await reload();
   }
 
@@ -175,7 +186,7 @@ export async function drawReview(ctx) {
     catch (e) { return el("p", { class: "meta", text: "Could not read that proposal." }); }
     const path = String(parsed.path || "");
     const text = String(parsed.text || "");
-    const before = getPath(ctx.documents.cv, path);
+    const before = getPath(doc, path);
     const node = el("div", { class: "card chat-card" }, [
       el("p", { class: "eyebrow", text: path || "Proposal" }),
       before != null && before !== text
@@ -191,7 +202,7 @@ export async function drawReview(ctx) {
         try {
           await applyProposal(path, text);
           done("Applied");
-          toast("Applied to the CV.");
+          toast(`Applied to the ${label}.`);
         } catch (error) {
           event.target.disabled = false;
           toast(error.message, "error");
@@ -227,7 +238,9 @@ export async function drawReview(ctx) {
     const log = el("div", { class: "chat-log", "aria-live": "polite" }, [empty]);
     const box = el("textarea", {
       class: "chat-input", rows: "3", id: "review-chat-input",
-      placeholder: "Ask for a change - a bullet, the summary, a skill…",
+      placeholder: kind === "cover"
+        ? "Ask for a change - a paragraph, the greeting…"
+        : "Ask for a change - a bullet, the summary, a skill…",
     });
     const mic = el("button", {
       class: "icon-btn", type: "button", "aria-label": "Dictate", title: "Dictate",
@@ -270,7 +283,7 @@ export async function drawReview(ctx) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            document: "cv", doc: ctx.documents.cv, app: ctx.app,
+            document: kind, doc, app: ctx.app,
             provider: connected.provider, model: connected.model,
             job_description: ctx.history.job_description,
             wanted: ctx.terms && ctx.terms.current ? ctx.terms.keywords : [],
@@ -338,14 +351,18 @@ export async function drawReview(ctx) {
       side.replaceChildren(mountChat());
       return;
     }
-    side.replaceChildren(
+    const blocks = [
       el("section", { class: "rail-block" }, [el("p", { class: "eyebrow", text: "Language" }), coverage]),
       el("section", { class: "rail-block" }, [el("p", { class: "eyebrow", text: "Before you send" }), checks]),
       el("section", { class: "rail-block" }, [
         el("p", { class: "eyebrow", text: "Changes" }),
         el("div", { class: "rows" }, [
           el("div", {}, [
-            el("span", { text: "Ask the model to adjust a line" }),
+            el("span", {
+              text: kind === "cover"
+                ? "Ask the model to adjust a paragraph"
+                : "Ask the model to adjust a line",
+            }),
             el("a", {
               href: "#change", text: "Change",
               onclick: (event) => { event.preventDefault(); chatting = true; paintSide(); },
@@ -353,23 +370,19 @@ export async function drawReview(ctx) {
           ]),
         ]),
       ]),
-      el("section", { class: "rail-block" }, [
-        el("p", { class: "eyebrow", text: "Cover letter" }),
-        el("div", { class: "rows" }, [
-          el("div", {}, [
-            el("span", { text: "Do you need a cover letter" }),
-            el("a", { href: `/${app}/cover-letter`, text: "Create" }),
-          ]),
-        ]),
-      ]),
-    );
+    ];
+    // Cover letter is its own mode now — no Create link on CV Review.
+    side.replaceChildren(...blocks);
   }
 
   host.replaceChildren(el("div", { class: "review" }, [
     el("div", { class: "review-main" }, [
       el("header", { class: "page-head" }, [
         el("h1", { class: "title", text: "Review" }),
-        el("p", { class: "lead", text: "Check it, then save." }),
+        el("p", {
+          class: "lead",
+          text: kind === "cover" ? "Check the letter, then save." : "Check it, then save.",
+        }),
       ]),
       paperWrap,
     ]),
@@ -398,10 +411,15 @@ export async function drawReview(ctx) {
 
     try {
       const scored = await api("/api/match", {
-        document: "cv", doc: ctx.documents.cv, job_description: ctx.history.job_description, app: ctx.app,
+        document: kind, doc, job_description: ctx.history.job_description, app: ctx.app,
       });
       if (scored.needs_list || scored.score === null) {
-        coverage.replaceChildren(el("p", { class: "meta", text: "Read the posting's terms on step 1 first." }));
+        coverage.replaceChildren(el("p", {
+          class: "meta",
+          text: kind === "cover"
+            ? "Read the posting's terms on Resume → Job Description first."
+            : "Read the posting's terms on step 1 first.",
+        }));
       } else {
         missing = scored.missing || [];
         const total = (scored.matched || []).length + missing.length;

@@ -1,9 +1,9 @@
-// Step 5, Additional: each Additional Information line, edited in place or
-// swapped for another of his. The others are the lines the round would show
-// the model (POST /api/library slot) or new ones from one additional turn.
-// Refresh in the step strip re-runs that turn against the posting.
+// Step 5, Additional: one section turn, auto-accepted like the old chat yes.
+//
+// Same tailor phase the Pico chat ran. Skeleton + strip progress while it
+// writes; then edit / swap. Refresh re-runs the turn.
 
-import { api, el, icon, stepAction, toast } from "./dom.js";
+import { api, el, icon, stepAction, stepSkeleton, toast } from "./dom.js";
 
 export async function drawAdditional(ctx) {
   const host = ctx.host;
@@ -23,10 +23,15 @@ export async function drawAdditional(ctx) {
   const items = ctx.documents.cv.sections[at].items || [];
   const lines = items.map((item) => String(item.text || ""));
   let others = [];
-  let loading = true;
   let open = null;
   let dirty = false;
   const body = el("div", { class: "bullets" });
+  const lead = el("p", {
+    class: "lead",
+    text: "Writing additional lines for this posting from your notes and past CVs.",
+  });
+  const nextButton = stepAction("button", { type: "button", "aria-label": "Next" }, "right");
+  nextButton.disabled = true;
 
   function swap(index, other) {
     const was = lines[index];
@@ -35,6 +40,30 @@ export async function drawAdditional(ctx) {
     if (was.trim()) others.unshift({ text: was, origin: "Swapped out" });
     dirty = true;
     paint();
+  }
+
+  function acceptProposals(found) {
+    let placed = 0;
+    for (const p of found) {
+      const text = String(p.text || "").trim();
+      const match = /^sections\.\d+\.items\.(\d+)\.text$/.exec(p.path || "");
+      if (!text || !match) continue;
+      const index = Number(match[1]);
+      if (Number.isInteger(index) && index >= 0 && index < lines.length) {
+        const was = String(lines[index] || "").trim();
+        if (was && was !== text && !others.some((o) => o.text === was) && !lines.includes(was)) {
+          others.unshift({ text: was, origin: "Previous" });
+        }
+        lines[index] = text;
+        placed += 1;
+        dirty = true;
+        continue;
+      }
+      if (!lines.includes(text) && !others.some((o) => o.text === text)) {
+        others.unshift({ text, origin: "Recommended" });
+      }
+    }
+    return placed;
   }
 
   function row(item, index) {
@@ -46,37 +75,42 @@ export async function drawAdditional(ctx) {
         el("p", { class: "eyebrow", text: item.label || "Line" }),
         ...(isOpen
           ? [(() => {
-            const box = el("textarea", { class: "input", rows: String(Math.min(8, Math.max(2, Math.ceil(text.length / 80) + 1))),
-              "aria-label": item.label || "This line" });
+            const box = el("textarea", {
+              class: "input",
+              rows: String(Math.min(8, Math.max(2, Math.ceil(text.length / 80) + 1))),
+              "aria-label": item.label || "This line",
+            });
             box.value = text;
             box.addEventListener("input", () => { lines[index] = box.value; dirty = true; });
             return box;
           })()]
-          : [el("p", { class: text.trim() ? "bullet-text" : "bullet-text is-empty",
-            text: text.trim() || "Empty. Open it to pick a line or write one." })]),
+          : [el("p", {
+            class: text.trim() ? "bullet-text" : "bullet-text is-empty",
+            text: text.trim() || "Empty. Open it to pick a line or write one.",
+          })]),
       ]),
       el("button", {
-        class: "icon-btn", type: "button", "aria-expanded": String(isOpen),
+        class: "icon-btn icon-btn-round", type: "button", "aria-expanded": String(isOpen),
         "aria-label": isOpen ? "Close this line" : "Edit or swap this line",
         onclick: () => { open = isOpen ? null : index; paint(); },
-      }, [icon(isOpen ? "up" : "down")]),
+      }, [icon(isOpen ? "up" : "down", 18)]),
     ]);
     if (!isOpen) return el("div", { class: "bullet" }, [head]);
     const choices = others.filter((o) => !lines.includes(o.text));
     return el("div", { class: "bullet is-expanded" }, [head, el("div", { class: "alts" }, [
       el("p", { class: "eyebrow", text: "Others you have written" }),
-      ...(loading
-        ? [el("p", { class: "meta", text: "Loading your past lines…" })]
-        : choices.length
-          ? choices.map((other) => el("div", { class: "alt" }, [
-            el("div", { class: "alt-body" }, [
-              el("p", { class: "alt-text", text: other.text }),
-              el("p", { class: "meta", text: other.origin }),
-            ]),
-            el("button", { class: "icon-btn", type: "button", "aria-label": "Use this line",
-              onclick: () => swap(index, other) }, [icon("check")]),
-          ]))
-          : [el("p", { class: "meta", text: "No other lines yet." })]),
+      ...(choices.length
+        ? choices.map((other) => el("div", { class: "alt" }, [
+          el("div", { class: "alt-body" }, [
+            el("p", { class: "alt-text", text: other.text }),
+            el("p", { class: "meta", text: other.origin }),
+          ]),
+          el("button", {
+            class: "icon-btn icon-btn-round", type: "button", "aria-label": "Use this line",
+            onclick: () => swap(index, other),
+          }, [icon("check", 18)]),
+        ]))
+        : [el("p", { class: "meta", text: "No other lines yet." })]),
     ])]);
   }
 
@@ -84,36 +118,6 @@ export async function drawAdditional(ctx) {
     body.replaceChildren(...items.map(row));
   }
 
-  function takeProposals(found, origin) {
-    let placed = 0;
-    for (const p of found) {
-      const text = String(p.text || "").trim();
-      const match = /^sections\.\d+\.items\.(\d+)\.text$/.exec(p.path || "");
-      if (!text || !match) continue;
-      const index = Number(match[1]);
-      if (Number.isInteger(index) && index >= 0 && index < lines.length && !lines[index].trim()) {
-        lines[index] = text;
-        placed += 1;
-        dirty = true;
-        continue;
-      }
-      if (!lines.includes(text) && !others.some((o) => o.text === text)) {
-        others.unshift({ text, origin });
-      }
-    }
-    return placed;
-  }
-
-  async function propose() {
-    const found = await ctx.askSection("additional");
-    const placed = takeProposals(found, "Recommended for this posting");
-    if (!found.length) throw new Error("No new lines came back. Try again.");
-    if (placed) toast(`${placed} ${placed === 1 ? "line" : "lines"} recommended.`);
-    else toast(`${found.length} other ${found.length === 1 ? "line" : "lines"} for this posting.`);
-    paint();
-  }
-
-  const nextButton = stepAction("button", { type: "button", "aria-label": "Next" }, "right");
   nextButton.addEventListener("click", async () => {
     nextButton.disabled = true;
     try {
@@ -133,7 +137,7 @@ export async function drawAdditional(ctx) {
   host.replaceChildren(el("div", { class: "measure-list" }, [
     el("header", { class: "page-head" }, [
       el("h1", { class: "title", text: "Additional" }),
-      el("p", { class: "lead", text: "Recommended for this posting. Open a line to change it, or swap in another." }),
+      lead,
     ]),
     body,
     foot([
@@ -142,25 +146,64 @@ export async function drawAdditional(ctx) {
       stepAction("a", { href: "#review", "aria-label": "Skip" }, "skip"),
     ]),
   ]));
-  paint();
-  ctx.setRefresh(propose);
+  body.replaceChildren(stepSkeleton(3));
 
-  try {
-    const slot = await api("/api/library", {
-      action: "slot", phase: "additional", app: ctx.app, job_description: ctx.history.job_description,
-    });
-    for (const text of slot.lines || []) {
-      const line = text.trim();
-      if (line && !lines.includes(line)) others.push({ text: line, origin: "From a past CV" });
+  async function fill() {
+    lead.textContent = "Writing additional lines for this posting from your notes and past CVs.";
+    nextButton.disabled = true;
+    body.replaceChildren(stepSkeleton(3));
+    if (ctx.setStepProgress) ctx.setStepProgress(0, 1);
+    try {
+      try {
+        const slot = await api("/api/library", {
+          action: "slot", phase: "additional", app: ctx.app,
+          job_description: ctx.history.job_description,
+        });
+        for (const text of slot.lines || []) {
+          const line = text.trim();
+          if (line && !lines.includes(line) && !others.some((o) => o.text === line)) {
+            others.push({ text: line, origin: "From a past CV" });
+          }
+        }
+      } catch (error) {
+        toast(`Could not load past lines: ${error.message}`, "error");
+      }
+      const found = await ctx.askSection("additional");
+      const placed = acceptProposals(found);
+      if (!found.length) throw new Error("No new lines came back. Try again.");
+      if (placed) toast(`${placed} ${placed === 1 ? "line" : "lines"} placed.`);
+      lead.textContent = "Recommended for this posting. Open a line to change it, or swap in another.";
+    } catch (error) {
+      toast(error.message, "error");
+      lead.textContent = "Open a line to change it, or refresh to ask the model again.";
+    } finally {
+      if (ctx.setStepProgress) ctx.setStepProgress(1, 1);
+      paint();
+      nextButton.disabled = false;
     }
-  } catch (error) {
-    toast(`Could not load past lines: ${error.message}`, "error");
   }
-  loading = false;
-  paint();
-  // Empty lines: the same additional turn the chat ran after a paste.
-  if (!lines.some((line) => line.trim())) {
-    try { await propose(); }
-    catch (error) { toast(error.message, "error"); }
+
+  ctx.setRefresh(fill);
+  if (ctx.consumeAutoFill && ctx.consumeAutoFill("additional")) await fill();
+  else {
+    lead.textContent = lines.some((line) => line.trim())
+      ? "Recommended for this posting. Open a line to change it, or swap in another."
+      : "Nothing written yet. Refresh to draft from your notes and past CVs.";
+    try {
+      const slot = await api("/api/library", {
+        action: "slot", phase: "additional", app: ctx.app,
+        job_description: ctx.history.job_description,
+      });
+      for (const text of slot.lines || []) {
+        const line = text.trim();
+        if (line && !lines.includes(line) && !others.some((o) => o.text === line)) {
+          others.push({ text: line, origin: "From a past CV" });
+        }
+      }
+    } catch (error) {
+      toast(`Could not load past lines: ${error.message}`, "error");
+    }
+    paint();
+    nextButton.disabled = false;
   }
 }

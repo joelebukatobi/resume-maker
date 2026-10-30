@@ -1,12 +1,15 @@
-// Step 4, Bullets: every role on the CV, every bullet, one screen.
+// Step 4, Bullets: cast first, then write every on-CV role's bullets.
 //
-// A bullet opens in place to be edited, or swapped for another line: his
-// past lines for that job, as the round would show the model (POST
-// /api/library slot), or new ones from one bullets turn of the round. A
-// swapped-out line stays in the list so it can be swapped back. Nothing is
-// saved until Next, and then the whole CV is saved once.
+// Cast: rank roles from past lines vs frozen terms; he toggles On / Off; Next.
+//
+// Then, without chat accepts: one bullets turn per on role (JD + notes + voice
+// + past CVs), proposals auto-applied, progress under the step strip. He
+// corrects by hand here, or later in Review chat. Refresh re-runs the fill.
 
-import { api, el, icon, stepAction, toast } from "./dom.js";
+import { api, el, icon, stepAction, stepSkeleton, toast } from "./dom.js";
+
+// Settled per application for this Write visit; Back from edit reopens cast.
+let castSettledFor = "";
 
 // Which of the posting's frozen terms a line carries, for the line under it.
 export function covers(text, terms) {
@@ -31,16 +34,26 @@ function coverageMeta(text, terms, origin) {
   )));
 }
 
+function title(entry) {
+  return [entry.sub_left, entry.left].filter(Boolean).join(" - ") || "Role";
+}
+
+function when(entry) {
+  return [entry.sub_right, entry.right].filter(Boolean).join(" · ");
+}
+
+function foot(extra) {
+  return el("div", { class: "step-foot" }, [
+    stepAction("a", { href: "#skills", "aria-label": "Back" }, "left"), ...extra,
+  ]);
+}
+
 export async function drawBullets(ctx) {
   const host = ctx.host;
   const at = ctx.sectionIndex("EXPERIENCE");
-  const terms = ctx.terms && ctx.terms.current ? ctx.terms.keywords : [];
-  const foot = (extra) => el("div", { class: "step-foot" }, [
-    stepAction("a", { href: "#skills", "aria-label": "Back" }, "left"), ...extra,
-  ]);
   if (at < 0) {
     host.replaceChildren(el("div", { class: "measure-list" }, [
-      el("h1", { class: "title", text: "Bullets" }),
+      el("h1", { class: "title", text: "Work History" }),
       el("p", { class: "lead", text: "This CV has no experience section." }),
       foot([stepAction("a", { href: "#additional", "aria-label": "Next" }, "right")]),
     ]));
@@ -48,31 +61,134 @@ export async function drawBullets(ctx) {
   }
 
   const entries = ctx.documents.cv.sections[at].entries || [];
-  // The roles on this CV, each with its bullets and the lines it could use.
+  if (castSettledFor !== ctx.app) {
+    await drawCast(ctx, at, entries);
+    return;
+  }
+  await drawEdit(ctx, at, entries);
+}
+
+async function drawCast(ctx, at, entries) {
+  const host = ctx.host;
+  const body = el("div", { class: "cast-list" });
+  const nextButton = stepAction("button", { type: "button", "aria-label": "Next" }, "right");
+  nextButton.disabled = true;
+
+  host.replaceChildren(el("div", { class: "measure-list" }, [
+    el("header", { class: "page-head" }, [
+      el("h1", { class: "title", text: "Work History" }),
+      el("p", {
+        class: "lead",
+        text: "Which jobs print on this CV. Ranked from your past lines against the posting.",
+      }),
+    ]),
+    body,
+    foot([nextButton]),
+  ]));
+  body.replaceChildren(el("p", { class: "meta", text: "Ranking roles against the posting…" }));
+
+  let roles = [];
+  try {
+    const got = await api("/api/library", {
+      action: "cast", app: ctx.app,
+      job_description: ctx.history.job_description,
+    });
+    roles = (got.roles || []).map((row) => {
+      const entry = entries[row.index];
+      return {
+        entry,
+        index: row.index,
+        path: row.path,
+        hits: row.hits || 0,
+        total: row.total || 0,
+        // Start from the application's recommendation, not the last save.
+        on: !row.recommend_off,
+        recommend_off: !!row.recommend_off,
+        was_off: !!row.off,
+      };
+    }).filter((role) => role.entry);
+  } catch (error) {
+    toast(error.message, "error");
+    // Fall back to whatever is already on the CV so he is not stuck.
+    roles = entries.map((entry, index) => ({
+      entry, index, path: `sections.${at}.entries.${index}`,
+      hits: 0, total: 0, on: !entry.off, recommend_off: !!entry.off, was_off: !!entry.off,
+    }));
+  }
+
+  function paint() {
+    if (!roles.length) {
+      body.replaceChildren(el("p", { class: "meta", text: "No experience roles on this CV." }));
+      return;
+    }
+    body.replaceChildren(...roles.map((role) => {
+      const meta = [];
+      if (role.total) {
+        meta.push(`answers ${role.hits} of ${role.total}`);
+      }
+      const matches = role.on === !role.recommend_off;
+      if (matches && role.on) meta.push("recommended");
+      else if (!matches) meta.push(role.recommend_off ? "recommended off" : "recommended on");
+      const toggle = el("button", {
+        class: "switch", type: "button", role: "switch",
+        "aria-checked": String(role.on),
+        "aria-label": role.on ? `Keep ${title(role.entry)} on the CV` : `Put ${title(role.entry)} on the CV`,
+        onclick: () => { role.on = !role.on; paint(); },
+      });
+      return el("div", { class: `cast-row${role.on ? "" : " is-off"}` }, [
+        el("div", { class: "cast-body" }, [
+          el("p", { class: "role-name", text: title(role.entry) }),
+          el("p", {
+            class: "meta",
+            text: [when(role.entry), ...meta].filter(Boolean).join(" · "),
+          }),
+        ]),
+        toggle,
+      ]);
+    }));
+  }
+
+  paint();
+  nextButton.disabled = false;
+  nextButton.addEventListener("click", async () => {
+    if (roles.length && !roles.some((r) => r.on)) {
+      toast("Keep at least one role on the CV.", "error");
+      return;
+    }
+    nextButton.disabled = true;
+    try {
+      for (const role of roles) {
+        if (role.on) delete role.entry.off;
+        else role.entry.off = true;
+      }
+      await ctx.saveCv();
+      castSettledFor = ctx.app;
+      await drawBullets(ctx);
+    } catch (error) {
+      toast(error.message, "error");
+      nextButton.disabled = false;
+    }
+  });
+}
+
+async function drawEdit(ctx, at, entries) {
+  const host = ctx.host;
+  const terms = ctx.terms && ctx.terms.current ? ctx.terms.keywords : [];
   const roles = entries
     .map((entry, index) => ({ entry, index, path: `sections.${at}.entries.${index}` }))
     .filter((role) => !role.entry.off)
     .map((role) => ({
       ...role,
       lines: [...(role.entry.bullets || [])],
-      others: [],           // [{ text, origin }]
+      others: [],
       room: (role.entry.bullets || []).length || 3,
-      loading: true,
+      pending: false,  // skeleton only while a fill turn is running for this role
+      loading: false,
     }));
 
-  let open = null;          // "role:bullet" of the bullet being edited
+  let open = null;
   let dirty = false;
   const body = el("div", { class: "roles" });
-
-  // The frame's own fields: sub_left is the title, left the employer,
-  // sub_right the dates, right the place.
-  function title(entry) {
-    return [entry.sub_left, entry.left].filter(Boolean).join(" - ") || "Role";
-  }
-
-  function when(entry) {
-    return [entry.sub_right, entry.right].filter(Boolean).join(" · ");
-  }
 
   function swap(role, bullet, other) {
     const was = role.lines[bullet];
@@ -174,39 +290,38 @@ export async function drawBullets(ctx) {
     return el("div", { class: "bullet is-expanded" }, [head, list]);
   }
 
-  function takeProposals(role, found, origin) {
-    let placed = 0;
+  // Same as clicking Accept on every proposal in the old chat: put each
+  // returned line on its bullet path; anything else stays under Others.
+  function acceptProposals(role, found) {
+    const byIndex = [];
+    const extras = [];
     for (const p of found) {
       const text = String(p.text || "").trim();
       if (!text || !p.path.startsWith(`${role.path}.bullets.`)) continue;
       const index = Number(p.path.slice(`${role.path}.bullets.`.length));
-      if (Number.isInteger(index) && index >= 0) {
-        while (role.lines.length <= index) role.lines.push("");
-        if (!String(role.lines[index] || "").trim()) {
-          role.lines[index] = text;
-          placed += 1;
-          dirty = true;
-          continue;
-        }
+      if (Number.isInteger(index) && index >= 0) byIndex[index] = text;
+      else extras.push(text);
+    }
+    const room = Math.max(role.room, byIndex.length, role.lines.length);
+    while (role.lines.length < room) role.lines.push("");
+    for (let i = 0; i < room; i += 1) {
+      const next = byIndex[i];
+      if (!next) continue;
+      const was = String(role.lines[i] || "").trim();
+      if (was && was !== next
+          && !role.others.some((o) => o.text === was)
+          && !role.lines.includes(was)) {
+        role.others.unshift({ text: was, origin: "Previous" });
       }
+      role.lines[i] = next;
+      dirty = true;
+    }
+    for (const text of extras) {
       if (!role.lines.includes(text) && !role.others.some((o) => o.text === text)) {
-        role.others.unshift({ text, origin });
+        role.others.unshift({ text, origin: "Recommended" });
       }
     }
-    return placed;
-  }
-
-  async function proposeRole(role) {
-    try {
-      const found = await ctx.askSection("bullets", { entry: role.path });
-      const placed = takeProposals(role, found, "Recommended");
-      if (!found.length) throw new Error("No new lines came back. Try again.");
-      if (placed) toast(`${placed} ${placed === 1 ? "line" : "lines"} recommended for this job.`);
-      else toast(`${found.length} other ${found.length === 1 ? "line" : "lines"} for this job.`);
-      paint();
-    } catch (error) {
-      toast(error.message, "error");
-    }
+    return byIndex.filter(Boolean).length;
   }
 
   function roleBlock(role, r) {
@@ -215,23 +330,42 @@ export async function drawBullets(ctx) {
       el("div", { class: "role-head" }, [
         el("div", { class: "role-title-row" }, [
           el("p", { class: "role-name", text: title(role.entry) }),
-          el("button", {
+          role.pending ? null : el("button", {
             class: "icon-btn icon-btn-round", type: "button", "aria-label": "Add a bullet",
             onclick: () => addBullet(role, r),
           }, [icon("plus", 18)]),
         ]),
-        el("p", { class: "meta", text: [when(role.entry), `room for ${role.room}`].filter(Boolean).join(" · ") }),
+        el("p", {
+          class: "meta",
+          text: role.pending
+            ? [when(role.entry), "writing…"].filter(Boolean).join(" · ")
+            : [when(role.entry), `room for ${role.room}`].filter(Boolean).join(" · "),
+        }),
       ]),
-      el("div", { class: "bullets" }, [
-        ...Array.from({ length: count }, (_, b) => row(role, r, b)),
-      ]),
+      role.pending
+        ? stepSkeleton(Math.max(2, Math.min(role.room || 3, 4)))
+        : el("div", { class: "bullets" }, [
+          ...Array.from({ length: count }, (_, b) => row(role, r, b)),
+        ]),
     ]);
   }
 
   function paint() {
+    if (!roles.length) {
+      body.replaceChildren(el("p", {
+        class: "meta",
+        text: "No roles are on this CV. Go back to turn one on.",
+      }));
+      return;
+    }
     body.replaceChildren(...roles.map(roleBlock));
   }
 
+  const backButton = stepAction("button", { type: "button", "aria-label": "Back" }, "left");
+  backButton.addEventListener("click", () => {
+    castSettledFor = "";
+    drawBullets(ctx);
+  });
   const nextButton = stepAction("button", { type: "button", "aria-label": "Next" }, "right");
   nextButton.addEventListener("click", async () => {
     nextButton.disabled = true;
@@ -251,40 +385,117 @@ export async function drawBullets(ctx) {
   });
   window.onbeforeunload = (event) => { if (dirty) event.preventDefault(); };
 
+  const hasLines = roles.some((role) => role.lines.some((line) => String(line || "").trim()));
+  const lead = el("p", {
+    class: "lead",
+    text: hasLines
+      ? "Recommended for this posting. Open a line to change it, or swap in another."
+      : "Nothing written yet. Refresh to draft from your notes and past CVs.",
+  });
   host.replaceChildren(el("div", { class: "measure-list" }, [
     el("header", { class: "page-head" }, [
-      el("h1", { class: "title", text: "Bullets" }),
-      el("p", { class: "lead", text: "Recommended for this posting. Open a line to change it, or swap in another." }),
+      el("h1", { class: "title", text: "Work History" }),
+      lead,
     ]),
     body,
-    foot([
+    el("div", { class: "step-foot" }, [
+      backButton,
       nextButton,
+      ctx.sectionRefresh(),
       stepAction("a", { href: "#additional", "aria-label": "Skip" }, "skip"),
     ]),
   ]));
   paint();
 
-  // His past lines for each job, then the same bullets turn the chat ran on
-  // an empty role. Lines stay off the saved CV until Next.
-  for (const role of roles) {
-    try {
-      const slot = await api("/api/library", {
-        action: "slot", phase: "bullets", entry: role.path, app: ctx.app,
-        job_description: ctx.history.job_description,
-      });
-      // The room the round gives this job, from the base CV and its budget.
-      role.room = slot.room || role.room;
-      for (const text of slot.lines || []) {
-        const line = text.trim();
-        if (line && !role.lines.includes(line) && !role.others.some((o) => o.text === line)) {
-          role.others.push({ text: line, origin: "Past" });
+  // Pico's accept-accept-accept, without the clicks. Only on reload or the
+  // foot refresh — not when he just opens the Bullets tab.
+  async function fillAll() {
+    if (!roles.length) {
+      lead.textContent = "No roles are on this CV.";
+      return;
+    }
+    lead.textContent = "Writing bullets for this posting from your notes and past CVs.";
+    nextButton.disabled = true;
+    for (const role of roles) {
+      role.pending = true;
+      role.loading = false;
+      role.others = [];
+    }
+    paint();
+    if (ctx.setStepProgress) ctx.setStepProgress(0, roles.length);
+    let done = 0;
+    let placedTotal = 0;
+    for (const role of roles) {
+      try {
+        const slot = await api("/api/library", {
+          action: "slot", phase: "bullets", entry: role.path, app: ctx.app,
+          job_description: ctx.history.job_description,
+        });
+        role.room = slot.room || role.room;
+        for (const text of slot.lines || []) {
+          const line = text.trim();
+          if (line && !role.lines.includes(line) && !role.others.some((o) => o.text === line)) {
+            role.others.push({ text: line, origin: "Past" });
+          }
         }
+      } catch (error) {
+        toast(`Could not load past lines for ${title(role.entry)}: ${error.message}`, "error");
+      }
+      try {
+        // Same Pico bullets turn: JD + notes + voice + library lines for this job.
+        const found = await ctx.askSection("bullets", { entry: role.path });
+        placedTotal += acceptProposals(role, found);
+        if (!found.length) {
+          toast(`No new lines came back for ${title(role.entry)}.`, "error");
+        }
+      } catch (error) {
+        toast(`${title(role.entry)}: ${error.message}`, "error");
+      }
+      role.pending = false;
+      done += 1;
+      if (ctx.setStepProgress) ctx.setStepProgress(done, roles.length);
+      paint();
+    }
+    if (placedTotal) {
+      toast(`${placedTotal} ${placedTotal === 1 ? "line" : "lines"} placed across ${roles.length} ${roles.length === 1 ? "role" : "roles"}.`);
+    }
+    try {
+      if (dirty) {
+        for (const role of roles) {
+          role.entry.bullets = role.lines.map((t) => String(t || "").trim()).filter(Boolean);
+        }
+        await ctx.saveCv();
+        dirty = false;
       }
     } catch (error) {
-      toast(`Could not load past lines for ${title(role.entry)}: ${error.message}`, "error");
+      toast(error.message, "error");
     }
-    role.loading = false;
+    lead.textContent = "Recommended for this posting. Open a line to change it, or swap in another.";
+    nextButton.disabled = false;
+    if (ctx.setStepProgress) ctx.setStepProgress(0, 0);
+  }
+
+  ctx.setRefresh(fillAll);
+  if (ctx.consumeAutoFill && ctx.consumeAutoFill("bullets")) await fillAll();
+  else {
+    // Past lines for swap, no model turn.
+    for (const role of roles) {
+      try {
+        const slot = await api("/api/library", {
+          action: "slot", phase: "bullets", entry: role.path, app: ctx.app,
+          job_description: ctx.history.job_description,
+        });
+        role.room = slot.room || role.room;
+        for (const text of slot.lines || []) {
+          const line = text.trim();
+          if (line && !role.lines.includes(line) && !role.others.some((o) => o.text === line)) {
+            role.others.push({ text: line, origin: "Past" });
+          }
+        }
+      } catch (error) {
+        toast(`Could not load past lines for ${title(role.entry)}: ${error.message}`, "error");
+      }
+    }
     paint();
-    if (!role.lines.some((line) => String(line || "").trim())) await proposeRole(role);
   }
 }

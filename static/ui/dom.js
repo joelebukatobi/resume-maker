@@ -116,6 +116,19 @@ export function icon(name, size = 18, stroke = 1.5) {
   return svg;
 }
 
+/** Placeholder rows while a Write step talks to the model. */
+export function stepSkeleton(rows = 3) {
+  return el("div", {
+    class: "step-skeleton",
+    "aria-busy": "true",
+    "aria-live": "polite",
+    "aria-label": "Loading",
+  }, Array.from({ length: rows }, () => el("div", { class: "step-skeleton-row" }, [
+    el("span", { class: "step-skeleton-line" }),
+    el("span", { class: "step-skeleton-line is-short" }),
+  ])));
+}
+
 export async function api(path, body) {
   const options = body === undefined
     ? {}
