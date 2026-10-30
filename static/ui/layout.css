@@ -46,7 +46,7 @@ app-nav {
 }
 
 .nav-link[aria-current="page"] {
-  color: var(--text);
+  color: var(--action-text);
   font-weight: 500;
 }
 
@@ -138,6 +138,29 @@ app-nav {
   flex: 999 1 640px;
   min-width: 0;
   padding: 40px var(--gutter);
+}
+
+/* Applications: main fills the viewport under the nav so the pager can
+   sit in the middle of the leftover space below the table. */
+body[data-page="hub"] .shell {
+  height: 100vh;
+  overflow: hidden;
+}
+
+body[data-page="hub"] .main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-bottom: 0;
+}
+
+body[data-page="hub"] .main > .table {
+  flex: 0 0 auto;
+}
+
+body[data-page="hub"] .apps-pager:not([hidden]) {
+  margin-block: auto;
 }
 
 /* With the rail gone, the workbench column sits in the middle. */
@@ -284,14 +307,14 @@ app-nav {
   background: var(--action-fill);
 }
 
-/* Two row-heights reserved so « n » never forces a page scrollbar. */
+/* Compact « n » strip — tall enough for the icon buttons, not a full table row. */
 .apps-pager {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-sm);
-  min-height: calc(2 * 52px);
-  margin-top: 0;
+  min-height: 0;
+  padding: var(--space-xxs) 0;
 }
 
 .apps-pager[hidden] { display: none; }
@@ -645,26 +668,51 @@ app-nav {
 
 /* A full-width table of rows. */
 
-.table { width: 100%; }
+.table {
+  width: 100%;
+  table-layout: fixed;
+}
 
 .table th {
   text-align: left;
-  padding: var(--space-xs) var(--space-sm) var(--space-xs) 0;
+  /* Same horizontal inset as td so labels sit on the column text. */
+  padding: var(--space-sm) var(--space-sm) var(--space-sm) 0;
+  color: var(--text-secondary);
+  background: var(--raised);
+  border-top: 1px solid var(--hairline-strong);
   border-bottom: 1px solid var(--hairline-strong);
 }
 
+.table th.eyebrow,
+.table thead .eyebrow {
+  color: var(--text-secondary);
+}
+
 .table td {
-  padding: var(--space-md) var(--space-sm) var(--space-md) 0;
+  padding: var(--space-sm) var(--space-sm) var(--space-sm) 0;
   vertical-align: middle;
   border-bottom: 1px solid var(--hairline);
 }
 
 .table tbody tr.app-row { cursor: pointer; }
-.table tbody tr:hover td { background: var(--hover-overlay); }
+.table tbody tr.app-row:nth-child(even of .app-row) td {
+  background: var(--surface);
+}
+.table tbody tr.app-row:hover td {
+  background: var(--action-tint);
+}
 .table .group-row td { padding-top: var(--space-xl); border-bottom: 0; background: none; }
 .table .is-archived td { color: var(--text-muted); }
 .table .empty-row { padding: var(--space-xl) 0; }
 
+.col-num { width: 40px; }
+.table th.col-num,
+.table td.col-num {
+  padding-left: var(--space-sm);
+}
+
+.col-company { width: 200px; }
+.col-role { width: 400px; }
 .col-track { width: 140px; }
 .col-date { width: 140px; }
 .col-link { width: 100px; }
@@ -678,6 +726,15 @@ app-nav {
 .table td .meta {
   font-size: 14px;
   line-height: 20px;
+}
+
+.table td.col-company,
+.table td.col-company .app-name,
+.table td.col-role,
+.table td.col-role .app-role {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-name,
@@ -694,8 +751,6 @@ app-nav {
 .is-archived .app-name,
 .is-archived .app-role,
 .is-archived .app-posting { color: var(--text-muted); }
-
-.app-current { margin-left: var(--space-sm); }
 
 .row-actions {
   display: flex;
@@ -741,6 +796,29 @@ app-nav {
   padding: var(--space-xs) var(--gutter);
   background: var(--ground);
   border-bottom: 1px solid var(--hairline);
+}
+
+/* Same line as the strip border: blue fill grows along it, no second rule. */
+.steps-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.steps-progress[hidden] { display: none; }
+
+.steps-progress > span {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: var(--action-fill);
+  transition: width 200ms ease;
 }
 
 .steps-links {
@@ -828,10 +906,22 @@ app-nav {
   display: block;
   max-width: min(560px, 100%);
   margin-inline: auto;
+  text-align: center;
+  min-width: 0;
+  font-size: inherit;
+  line-height: inherit;
+  color: var(--text);
+}
+
+.app-title-name {
+  display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: center;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
 }
 
 .app-title-sep {
@@ -841,6 +931,11 @@ app-nav {
   opacity: 0.65;
   margin: 0 0.15em;
   vertical-align: 0.05em;
+}
+
+.letter-paras {
+  display: flex;
+  flex-direction: column;
 }
 
 .posting-read {
@@ -1032,6 +1127,36 @@ textarea.input.posting-own {
 
 .group-add { padding: 0 var(--space-md) var(--space-md); }
 .group-add .input { min-width: 180px; }
+
+/* Cast (roles on/off) before bullet lines. */
+
+.cast-list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--hairline);
+}
+
+.cast-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-md) 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.cast-row.is-off .role-name,
+.cast-row.is-off .meta { color: var(--text-muted); }
+
+.cast-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xxs);
+}
+
+.cast-body .role-name { margin: 0; }
 
 /* Roles and their bullets. */
 
@@ -1387,7 +1512,7 @@ textarea.input.bullet-own {
   overflow: visible;
   background: var(--raised);
   border: 1px solid var(--hairline-strong);
-  border-radius: var(--radius-control);
+  border-radius: 12px;
 }
 
 .modal-head {
@@ -1645,30 +1770,45 @@ textarea.input.bullet-own {
   width: 100%;
 }
 
-.settings-contact {
+.settings-contacts {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.settings-contact {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 3.25rem 3.25rem 2.5rem;
   align-items: center;
   gap: var(--space-sm);
 }
 
-.settings-contact .input {
-  flex: 1 1 140px;
-  min-width: 0;
-  width: auto;
+.settings-contact.is-head .meta {
+  margin: 0;
 }
 
-.settings-contact .chip {
-  flex: 0 0 auto;
-  height: 40px;
-  padding: 8px 12px;
+.settings-contact-place {
+  text-align: center;
+}
+
+.settings-contact .input {
+  width: 100%;
+  min-width: 0;
+}
+
+.settings-contact .switch {
+  justify-self: center;
 }
 
 .settings-contact .icon-btn {
-  flex: 0 0 auto;
   width: 40px;
   height: 40px;
-  margin-left: auto;
+  justify-self: end;
+  border-radius: var(--radius-full);
+}
+
+.settings-contact .icon-btn:hover {
+  border-radius: var(--radius-full);
 }
 
 .settings-foot .btn {
