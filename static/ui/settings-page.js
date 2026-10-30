@@ -104,7 +104,7 @@ async function main() {
   });
   let dirty = false;
 
-  const contactBody = el("div", { class: "settings-stack" });
+  const contactBody = el("div", { class: "settings-contacts" });
   const paperBody = el("div", { class: "settings-stack" });
   const saveButton = el("button", {
     class: "btn btn-primary", type: "button", text: "Save",
@@ -125,8 +125,35 @@ async function main() {
 
   function markDirty() { dirty = true; }
 
+  function placeSwitch(label, on, set) {
+    return el("button", {
+      class: "switch",
+      type: "button",
+      role: "switch",
+      "aria-checked": String(on),
+      "aria-label": label,
+      onclick: () => { set(!on); markDirty(); paintContacts(); },
+    });
+  }
+
+  function contactHead() {
+    return el("div", {
+      class: "settings-contact is-head",
+      "aria-hidden": "true",
+    }, [
+      el("span", { class: "meta", text: "Text" }),
+      el("span", { class: "meta", text: "Link" }),
+      el("span", { class: "meta settings-contact-place", text: "CV" }),
+      el("span", { class: "meta settings-contact-place", text: "Letter" }),
+      el("span", { class: "settings-contact-gap" }),
+    ]);
+  }
+
   function contactRow(item, index) {
-    const text = el("input", { class: "input", type: "text", "aria-label": "Contact text" });
+    const text = el("input", {
+      class: "input", type: "text", placeholder: "email, phone, …",
+      "aria-label": "Contact text",
+    });
     text.value = item.text;
     text.addEventListener("input", () => { item.text = text.value; markDirty(); });
 
@@ -140,24 +167,21 @@ async function main() {
       markDirty();
     });
 
-    function placeChip(label, on, set) {
-      return el("button", {
-        class: "chip",
-        type: "button",
-        text: label,
-        "aria-pressed": String(on),
-        onclick: () => { set(!on); markDirty(); paintContacts(); },
-      });
-    }
-
-    text.placeholder = "Text";
-    href.placeholder = "Link";
-
+    const onCv = item.header !== false;
+    const onLetter = !!item.footer;
     return el("div", { class: "settings-contact" }, [
       text,
       href,
-      placeChip("CV", item.header !== false, (v) => { item.header = v; }),
-      placeChip("Letter", !!item.footer, (v) => { item.footer = v; }),
+      placeSwitch(
+        onCv ? "Hide from CV" : "Show on CV",
+        onCv,
+        (v) => { item.header = v; },
+      ),
+      placeSwitch(
+        onLetter ? "Hide from Letter" : "Show on Letter",
+        onLetter,
+        (v) => { item.footer = v; },
+      ),
       el("button", {
         class: "icon-btn", type: "button", "aria-label": "Remove contact item",
         onclick: () => {
@@ -170,7 +194,7 @@ async function main() {
   }
 
   function paintContacts() {
-    contactBody.replaceChildren(...contact.map(contactRow));
+    contactBody.replaceChildren(contactHead(), ...contact.map(contactRow));
   }
 
   addContact.addEventListener("click", () => {
