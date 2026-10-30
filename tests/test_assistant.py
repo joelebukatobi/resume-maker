@@ -253,8 +253,11 @@ class AssistantTests(unittest.TestCase):
         self.assertIn("paragraphs.1", letter)          # the next one is writable
         self.assertIn("placeholder, not an opening", letter)
         self.assertIn("one piece of writing", letter)
+        self.assertIn("one printed page", letter)      # same one-page guard as Pico voice
+        self.assertIn("400 words", letter)
         cv = assistant.system_prompt("cv", self.cv)
         self.assertNotIn("one piece of writing", cv)   # the CV is not a letter
+        self.assertNotIn("400 words", cv)
 
     def test_a_cv_session_is_not_told_how_to_write_a_letter(self):
         """What the user hit: a full cover letter arrived in an answer block in

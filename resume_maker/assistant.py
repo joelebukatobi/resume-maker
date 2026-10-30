@@ -241,6 +241,10 @@ _LETTER_RULES = """\
   every paragraph in the same round, first to last, so the letter is shaped as
   a whole. A paragraph proposed on its own into a letter written for another
   posting leaves a letter that reads like two letters.
+- The letter must fit on one printed page. Write about three or four short
+  paragraphs in total (the greeting opens the first), under about 400 words.
+  Prefer fewer stronger claims over a second page. Cut a weaker claim before
+  you add length. Never spill onto page two to include everything.
 - In a cover letter, write "[Company]" and "[Role]" rather than the real
   company name or job title. They are filled in on export."""
 _CV_ONLY_RULES = """\
