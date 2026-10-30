@@ -2,20 +2,32 @@
 //
 // Light DOM, so the shared atoms style it. Children marked data-slot="middle"
 // sit centred (a page's search); every other child is an action on the right.
-// The theme button sits last and remembers the choice in this browser.
-// Models opens the provider/model dialog next to My Experience.
+// Left: Applications, and Resume / Cover Letter when an app is open. Right:
+// Application Tone · My Experience · Models, then the theme toggle and JO.
+// The theme button sits last among chrome and remembers the choice in this browser.
 
 import { el, icon } from "./dom.js";
 import { openModels } from "./models.js";
 
-const LINKS = [
+const LEFT = [
   ["applications", "/", "Applications"],
-  ["voice", "/voice", "Tone"],
+];
+
+const RIGHT = [
+  ["voice", "/voice", "Application Tone"],
   ["notes", "/notes", "My Experience"],
 ];
 
 function currentTheme() {
   return document.documentElement.dataset.theme === "light" ? "light" : "dark";
+}
+
+function hereOf(nav) {
+  const page = document.body.dataset.page || "";
+  if (page === "write") return "resume";
+  if (page === "letter") return "cover";
+  if (page === "hub") return "applications";
+  return nav.getAttribute("current") || page;
 }
 
 class AppNav extends HTMLElement {
@@ -24,13 +36,38 @@ class AppNav extends HTMLElement {
     this.built = true;
     const middle = [...this.children].filter((c) => c.dataset.slot === "middle");
     const actions = [...this.children].filter((c) => c.dataset.slot !== "middle");
-    const here = this.getAttribute("current");
+    const here = hereOf(this);
+    const app = document.body.dataset.app || "";
 
     this.setAttribute("role", "navigation");
     this.setAttribute("aria-label", "Main");
 
-    const links = el("div", { class: "nav-links" }, [
-      ...LINKS.map(([id, href, label]) => el("a", {
+    const left = [
+      ...LEFT.map(([id, href, label]) => el("a", {
+        class: "nav-link", href, text: label, "aria-current": id === here ? "page" : null,
+      })),
+    ];
+    if (app) {
+      left.push(
+        el("a", {
+          class: "nav-link",
+          href: `/${encodeURIComponent(app)}/write`,
+          text: "Resume",
+          "aria-current": here === "resume" ? "page" : null,
+        }),
+        el("a", {
+          class: "nav-link",
+          href: `/${encodeURIComponent(app)}/letter`,
+          text: "Cover Letter",
+          "aria-current": here === "cover" ? "page" : null,
+        }),
+      );
+    }
+
+    const links = el("div", { class: "nav-links" }, left);
+
+    const side = el("div", { class: "nav-links" }, [
+      ...RIGHT.map(([id, href, label]) => el("a", {
         class: "nav-link", href, text: label, "aria-current": id === here ? "page" : null,
       })),
       el("button", {
@@ -56,7 +93,7 @@ class AppNav extends HTMLElement {
     this.replaceChildren(
       links,
       el("div", { class: "nav-middle" }, middle),
-      el("div", { class: "nav-actions" }, [...actions, this.toggle, profile]),
+      el("div", { class: "nav-actions" }, [side, ...actions, this.toggle, profile]),
     );
   }
 
