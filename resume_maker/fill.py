@@ -121,20 +121,21 @@ def _sections(cv: Mapping[str, Any], word: str, kind: str) -> Iterable[tuple[int
             yield i, section
 
 
+def _role_hits(page: _Page, entry: dict) -> int:
+    """How many frozen terms this role's best past lines can answer."""
+    slot = ("bullets", company(entry.get("left")))
+    room = len(entry.get("bullets") or []) or 1
+    best = [line.text for line, score in page.index.rank(slot, page.terms)
+            if page.verdict(line) == "pass"][:room]
+    return len(set().union(*(_answers(t, page.terms) for t in best))) if best else 0
+
+
 def _cast(page: _Page, entries: list[dict], at: int) -> None:
     """Which roles print. An off role comes on when it answers more of the
     posting than the weakest role showing, and that role goes off."""
     if not page.terms:
         return
-
-    def hits(entry: dict) -> int:
-        slot = ("bullets", company(entry.get("left")))
-        room = len(entry.get("bullets") or []) or 1
-        best = [line.text for line, score in page.index.rank(slot, page.terms)
-                if page.verdict(line) == "pass"][:room]
-        return len(set().union(*(_answers(t, page.terms) for t in best))) if best else 0
-
-    scored = [(hits(e), i) for i, e in enumerate(entries)]
+    scored = [(_role_hits(page, e), i) for i, e in enumerate(entries)]
     while True:
         shown = [(h, i) for h, i in scored if not entries[i].get("off")]
         hidden = [(h, i) for h, i in scored if entries[i].get("off")]
@@ -150,6 +151,34 @@ def _cast(page: _Page, entries: list[dict], at: int) -> None:
                                    f"sections.{at}.entries.{i}.off",
                                    f"{entries[i].get('left', '')} turned {verb}: "
                                    f"answers {h} of {len(page.terms)}"))
+
+
+def suggest_cast(entries: list[dict], index: Index, terms: list[str],
+                 verdicts: Mapping[str, str]) -> list[dict[str, Any]]:
+    """Score each experience entry for this posting and recommend on/off.
+
+    Does not mutate ``entries``. Same swap rule as ``_cast``: a hidden role
+    that answers more than the weakest shown role is recommended on, and that
+    weakest role is recommended off. Hits count how many frozen terms the
+    role's best past (notes-backed) lines cover.
+    """
+    page = _Page(index, list(terms), verdicts, {}, {})
+    trial = [{**entry, "off": bool(entry.get("off")),
+              "bullets": list(entry.get("bullets") or [])} for entry in entries]
+    hits = [_role_hits(page, entry) for entry in trial]
+    if page.terms:
+        _cast(page, trial, at=0)
+    total = len(page.terms)
+    return [
+        {
+            "index": i,
+            "hits": hits[i],
+            "total": total,
+            "off": bool(entries[i].get("off")),
+            "recommend_off": bool(trial[i].get("off")),
+        }
+        for i in range(len(entries))
+    ]
 
 
 def fill(base_cv: dict, index: Index, terms: list[str], verdicts: Mapping[str, str],

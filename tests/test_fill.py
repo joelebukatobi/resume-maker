@@ -167,6 +167,23 @@ class FillTests(unittest.TestCase):
         self.assertTrue(entries[0].get("off"))
         self.assertIn("cast", {c.kind for c in cards})
 
+    def test_suggest_cast_recommends_without_mutating(self):
+        base = make_cv(entries=[job("AMAZON", [ROADMAP_A]),
+                                job("FORDHAM", ["Advised students."], off=True)])
+        cvs = {"a": make_cv(entries=[job("FORDHAM", ["Ran go-to-market workshops for "
+                                                     "agentic workflows."])])}
+        lines = library.collect(base, cvs, {})
+        index = library.Index(lines)
+        verdicts = {line.text: "pass" for line in lines}
+        entries = section(base, "EXPERIENCE")["entries"]
+        before = [bool(e.get("off")) for e in entries]
+        scored = fill.suggest_cast(
+            entries, index, ["go-to-market", "agentic workflows"], verdicts)
+        self.assertEqual([bool(e.get("off")) for e in entries], before)
+        self.assertFalse(scored[1]["recommend_off"])
+        self.assertTrue(scored[0]["recommend_off"])
+        self.assertGreater(scored[1]["hits"], scored[0]["hits"])
+
 
     def test_an_over_long_bullet_is_swapped_for_a_shorter_one(self):
         long = ("Coordinated with client and internal teams across three time zones "
