@@ -4,18 +4,12 @@ Things agreed or noticed but not built. `HANDOFF.md` is the running log of what
 happened; this file is what is still owed. One heading per item, newest first.
 Delete an item when it ships and log it in `COMMITS.md`.
 
-## Pick lines before Bullets
-
-Wanted as a substep inside Bullets (not a seventh strip chip). A cards-based
-pick UI was tried and reverted 2026-10-29. Still owed in the existing list
-language (marker + text + meta), not option cards.
-
 ## Pico retirement — cover letter holdout
 
-CV routes (`/`, `/resume`, `/write`) serve the redesign. Pico still loads for
-`/{app}/cover-letter` via `static/index.html` (plus `/review`, `base.css`,
-`chat.css`, `_nav.html`). Full retirement means rebuilding the letter editor
-on the native UI, then deleting those files and the CDN link.
+`/{app}/letter` is the native Letter → Review workbench (Resume | Cover letter
+in the nav). `/{app}/cover-letter` redirects there. Full Pico delete still
+means removing `static/index.html` + chat.css / base.css / `_nav.html` once
+nothing else loads them (e.g. `/review`).
 
 ## Job description from a link
 
@@ -38,13 +32,12 @@ He dislikes the gaps and notes cards as drawn (2026-10-27, twice noted). Mid
 green `#4f7356` with near-white text was the stopgap. Undecided what replaces
 them. Chat now sits under the measure; redesign when that flow has been used.
 
-## Cast step (not in Write strip)
+## Cast inside Bullets (shipping)
 
-In the old section-by-section round, **cast** was the phase that chose which
-roles print on the CV (`entry.off`). Write's strip is Posting → Summary →
-Skills → Bullets → Additional → Review. Cast was never added as a strip step.
-Not requested for build right now — Roles still toggle in the old editor.
-Revisit if he wants show/hide jobs inside Write.
+Cast is a Bullets substep before the lines: `/api/library` action `cast`
+ranks roles from past CV lines against frozen keywords (`fill.suggest_cast`);
+On/Off chips; Next writes `entry.off` then opens bullet edit. Not a seventh
+strip chip.
 
 ## Smaller, still open
 
