@@ -51,15 +51,16 @@ PAGES = {
     "/review": ("review.html", "review"),
 }
 # The documents hang off the application they belong to.
-# The CV path is the Write workbench. Cover letter still uses the old editor
-# (last Pico consumer) until that page is rebuilt.
+# CV → Write workbench; cover letter → same shell at /letter (Pico /cover-letter
+# redirects there).
 DOCUMENT_PAGES = {
     "": "write",
     "resume": "write",
     "write": "write",
-    "cover-letter": "cover",
+    "letter": "letter",
+    "cover-letter": "letter",
 }
-DOCUMENT_FILES = {"write": "write.html"}
+DOCUMENT_FILES = {"write": "write.html", "letter": "write.html"}
 
 MAX_BODY = 1 << 20  # 1 MiB is far more than any CV needs.
 MAX_IMPORT_BODY = 8 << 20  # a 5 MB file, base64 encoded
@@ -263,7 +264,7 @@ class EditorHandler(BaseHTTPRequestHandler):
                 return self._error(HTTPStatus.NOT_FOUND, str(exc))
         if route == "/cover-letter":
             try:
-                return self._redirect(f"/{self._workspace.current}/cover-letter")
+                return self._redirect(f"/{self._workspace.current}/letter")
             except ApplicationError as exc:
                 return self._error(HTTPStatus.NOT_FOUND, str(exc))
         document_page = self._document_page(route)
@@ -1246,6 +1247,8 @@ class EditorHandler(BaseHTTPRequestHandler):
             return self._review(action)
         if action == "slot":
             return self._slot(payload)
+        if action == "cast":
+            return self._cast(payload)
         with _LIBRARY_LOCK:
             decisions = library.Decisions.load(self._library_path)
             self._decide(action, payload, text, decisions)
@@ -1266,6 +1269,52 @@ class EditorHandler(BaseHTTPRequestHandler):
             raise ValueError(f"no lines for {phase!r}")
         shown, room, where = self._section_lines(phase, payload)
         self._json(HTTPStatus.OK, {"phase": phase, "lines": shown, "room": room, "where": where})
+
+    def _cast(self, payload: dict[str, Any]) -> None:
+        """Which experience roles should print for this posting.
+
+        Scores each role from past CV lines the notes back, against the
+        frozen keyword list. Returns hits and a recommended off flag; the
+        page decides and writes ``entry.off`` when he says Next.
+        """
+        slug = str(payload.get("app") or "")
+        paths = self._paths(slug)
+        try:
+            cv = json.loads(paths["cv"].read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"could not read CV: {exc}") from exc
+        at = next((i for i, s in enumerate(cv.get("sections") or [])
+                   if isinstance(s, dict) and s.get("type") == "entries"
+                   and "EXPERIENCE" in str(s.get("heading") or "").upper()), -1)
+        if at < 0:
+            return self._json(HTTPStatus.OK, {"roles": [], "total": 0})
+        entries = list((cv["sections"][at].get("entries") or []))
+        _, notes = self._voice_and_notes()
+        _, lines, decisions = self._history()
+        terms = keywords.load(paths["keywords"])["keywords"]
+        mine = [line for line in lines if line.slot[0] == "bullets"]
+        try:
+            verdicts = library.check(mine, notes, decisions, support=jev.support)
+            self._keep_learned(decisions)
+        except jev.JevError:
+            def no_jev(pairs):
+                raise jev.JevError("not reachable")
+            verdicts = library.check(mine, notes, decisions, support=no_jev)
+        scored = fill.suggest_cast(entries, library.Index(mine), terms, verdicts)
+        roles = []
+        for row in scored:
+            entry = entries[row["index"]]
+            if not isinstance(entry, dict):
+                continue
+            roles.append({
+                **row,
+                "path": f"sections.{at}.entries.{row['index']}",
+                "left": entry.get("left") or "",
+                "sub_left": entry.get("sub_left") or "",
+                "sub_right": entry.get("sub_right") or "",
+                "right": entry.get("right") or "",
+            })
+        self._json(HTTPStatus.OK, {"roles": roles, "total": len(terms)})
 
     def _decide(self, action: Any, payload: dict[str, Any], text: str,
                 decisions: library.Decisions) -> None:
