@@ -25,6 +25,10 @@ export async function drawLetter(ctx) {
   if (!Array.isArray(cover.paragraphs)) cover.paragraphs = [];
   let dirty = false;
   let open = null;
+  function markDirty() {
+    dirty = true;
+    if (ctx.touchDraft) ctx.touchDraft();
+  }
   const body = el("div", { class: "letter-paras" });
   const lead = el("p", {
     class: "lead",
@@ -59,7 +63,7 @@ export async function drawLetter(ctx) {
               box.value = text || "";
               box.addEventListener("input", () => {
                 cover.paragraphs[index] = box.value;
-                dirty = true;
+                markDirty();
               });
               return box;
             })()]
@@ -116,7 +120,7 @@ export async function drawLetter(ctx) {
       const found = await ctx.askLetter();
       const placed = acceptProposals(cover, found);
       if (!placed) throw new Error("No paragraphs came back. Try again.");
-      dirty = true;
+      markDirty();
       await ctx.saveCover();
       dirty = false;
       toast(`${placed} ${placed === 1 ? "paragraph" : "paragraphs"} placed.`);

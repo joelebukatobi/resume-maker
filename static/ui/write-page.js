@@ -10,6 +10,7 @@
 
 import { agent, APP, withApp } from "./agent.js";
 import { api, el, icon, stepAction, toast } from "./dom.js";
+import { dropDraft, keepDraft, pendingDraft } from "./draft.js";
 import { drawAdditional } from "./step-additional.js";
 import { drawBullets } from "./step-bullets.js";
 import { drawLetter } from "./step-letter.js";
@@ -319,6 +320,10 @@ async function loadScore() {
   paintScoreNode();
 }
 
+function touchDraft() {
+  keepDraft(appId(), documents);
+}
+
 function setStepProgress(done, total) {
   const bar = $("steps") && $("steps").querySelector("[data-step-progress]");
   if (!bar) return;
@@ -530,11 +535,13 @@ function parseProposals(reply) {
       const parsed = JSON.parse(match[1]);
       if (parsed && typeof parsed.path === "string") found.push(parsed);
     } catch (e) { /* not a proposal */ }
+  dropDraft(appId());
   }
   return found;
 }
 
 async function askSection(phase, extra = {}) {
+  dropDraft(appId());
   const model = await agent().catch(() => null);
   if (!model) throw new Error("Connect a model first.");
   const response = await fetch("/api/chat", {
@@ -601,10 +608,11 @@ const sectionIndex = (word) => (documents.cv.sections || []).findIndex(
 
 function context() {
   return {
-    app: APP, mode: MODE, documents, history, terms,
-    saveCv, saveCover, askSection, askLetter, sectionIndex,
-    setRefresh, sectionRefresh, setStepProgress, consumeAutoFill,
-    host: $("step"), next: (id) => { location.hash = `#${id}`; },
+    app: APP, mode: MODE, documents, history, terms, lastFit,
+    saveCv, saveCover, askSection, askTurn, askLetter, sectionIndex,
+    setRefresh, setFitRefresh: (fn) => { fitRefresh = fn; }, sectionRefresh, setStepProgress, consumeAutoFill,
+    touchDraft, rateFit, loadFit, saveFit, fitKey, fitStale, appId,
+    host: $("step"), next: (id) => { markFill(id); location.hash = `#${id}`; },
   };
 }
 
@@ -681,6 +689,22 @@ function paintAppTitle(name) {
         document.createTextNode(found[1]),
         el("span", { class: "app-title-sep", text: "-" }),
         document.createTextNode(found[2]),
+  if (docs) {
+    const draft = pendingDraft(appId(), docs);
+    if (draft) {
+      documents = {
+        ...docs,
+        cv: draft.cv,
+        cover: draft.cover || docs.cover,
+        theme: draft.theme || docs.theme,
+        cover_theme: draft.cover_theme || docs.cover_theme,
+      };
+      const when = draft.at
+        ? new Date(draft.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        : "";
+      toast(when ? `Restored unsaved changes from ${when}.` : "Restored unsaved changes.");
+    }
+  }
       ]),
     );
     return;

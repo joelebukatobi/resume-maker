@@ -189,19 +189,23 @@ async function drawEdit(ctx, at, entries) {
   let open = null;
   let dirty = false;
   const body = el("div", { class: "roles" });
+  function markDirty() {
+    dirty = true;
+    if (ctx.touchDraft) ctx.touchDraft();
+  }
 
   function swap(role, bullet, other) {
     const was = role.lines[bullet];
     role.lines[bullet] = other.text;
     role.others = role.others.filter((o) => o !== other);
     if (was && was.trim()) role.others.unshift({ text: was, origin: "Swapped out" });
-    dirty = true;
+    markDirty();
     paint();
   }
 
   function addBullet(role, r) {
     role.lines.push("");
-    dirty = true;
+    markDirty();
     open = `${r}:${role.lines.length - 1}`;
     paint();
   }
@@ -213,7 +217,7 @@ async function drawEdit(ctx, at, entries) {
     const held = lines[bullet];
     lines[bullet] = lines[to];
     lines[to] = held;
-    dirty = true;
+    markDirty();
     if (open === `${r}:${bullet}`) open = `${r}:${to}`;
     else if (open === `${r}:${to}`) open = `${r}:${bullet}`;
     paint();
@@ -254,7 +258,10 @@ async function drawEdit(ctx, at, entries) {
             "aria-label": "This bullet",
           });
           box.value = text;
-          box.addEventListener("input", () => { role.lines[bullet] = box.value; dirty = true; });
+          box.addEventListener("input", () => {
+            role.lines[bullet] = box.value;
+            markDirty();
+          });
           box.addEventListener("change", () => paint());
           return box;
         })(), coverageMeta(text, terms)]
@@ -314,7 +321,7 @@ async function drawEdit(ctx, at, entries) {
         role.others.unshift({ text: was, origin: "Previous" });
       }
       role.lines[i] = next;
-      dirty = true;
+      markDirty();
     }
     for (const text of extras) {
       if (!role.lines.includes(text) && !role.others.some((o) => o.text === text)) {

@@ -543,6 +543,10 @@ class SetupApiTests(unittest.TestCase):
             script = response.read().decode()
         self.assertIn("function renderMarkdown(", script)
         self.assertIn("function setView(", script)
+        draft = self.fetch("/static/ui/draft.js")
+        self.assertIn("resume-maker.draft.", draft)
+        self.assertIn("function keepDraft", draft)
+        self.assertIn("function pendingDraft", draft)
         self.assertIn("innerHTML", script)  # must mention the rule…
         # …as a ban: build nodes, never assign HTML from file content.
         self.assertRegex(script, r"never\s+innerHTML")

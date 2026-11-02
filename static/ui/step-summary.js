@@ -90,7 +90,13 @@ export async function drawSummary(ctx) {
     }));
   }
 
-  own.addEventListener("input", paint);
+  own.addEventListener("input", () => {
+    paint();
+    if (own.value.trim() && ctx.touchDraft) {
+      section.text = fold(own.value);
+      ctx.touchDraft();
+    }
+  });
 
   const lead = el("p", {
     class: "lead",

@@ -32,13 +32,17 @@ export async function drawAdditional(ctx) {
   });
   const nextButton = stepAction("button", { type: "button", "aria-label": "Next" }, "right");
   nextButton.disabled = true;
+  function markDirty() {
+    dirty = true;
+    if (ctx.touchDraft) ctx.touchDraft();
+  }
 
   function swap(index, other) {
     const was = lines[index];
     lines[index] = other.text;
     others = others.filter((o) => o !== other);
     if (was.trim()) others.unshift({ text: was, origin: "Swapped out" });
-    dirty = true;
+    markDirty();
     paint();
   }
 
@@ -56,7 +60,7 @@ export async function drawAdditional(ctx) {
         }
         lines[index] = text;
         placed += 1;
-        dirty = true;
+        markDirty();
         continue;
       }
       if (!lines.includes(text) && !others.some((o) => o.text === text)) {
@@ -81,7 +85,7 @@ export async function drawAdditional(ctx) {
               "aria-label": item.label || "This line",
             });
             box.value = text;
-            box.addEventListener("input", () => { lines[index] = box.value; dirty = true; });
+            box.addEventListener("input", () => { lines[index] = box.value; markDirty(); });
             return box;
           })()]
           : [el("p", {
