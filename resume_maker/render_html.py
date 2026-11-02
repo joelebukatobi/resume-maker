@@ -211,8 +211,8 @@ function measure() {
   });
   var payload = { offenders: offenders, over: over };
   var report = document.getElementById('overflow-report');
-  if (report) { report.textContent = JSON.stringify(offenders); }
-  document.title = 'OVERFLOW:' + JSON.stringify(payload);
+  // Read back by export_pdf. Never the title: that prints into the PDF.
+  if (report) { report.textContent = JSON.stringify(payload); }
   // The preview runs in a sandboxed iframe with no same-origin access, so
   // the measurement is posted out rather than read back through the DOM.
   if (window.parent !== window) {

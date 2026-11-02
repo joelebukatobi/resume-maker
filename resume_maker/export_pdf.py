@@ -27,7 +27,7 @@ _CANDIDATES = (
     "microsoft-edge",
 )
 
-_TITLE = re.compile(r"<title>OVERFLOW:(?P<payload>\{.*?\})</title>", re.S)
+_REPORT = re.compile(r'<pre id="overflow-report" hidden="">(?P<payload>\{.*?\})</pre>', re.S)
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,7 +145,7 @@ class Browser:
                 ],
                 timeout=timeout,
             )
-        match = _TITLE.search(result.stdout.decode("utf-8", "replace"))
+        match = _REPORT.search(result.stdout.decode("utf-8", "replace"))
         if not match:
             raise ExportError("could not measure the page; browser returned no report")
         try:

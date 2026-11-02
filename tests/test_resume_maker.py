@@ -361,6 +361,27 @@ class CoverLetterTests(unittest.TestCase):
             CoverLetter.from_mapping({"role": "x", "extra": 1})
 
 
+class PdfMeasurementTest(unittest.TestCase):
+    """The page's report must not travel in the title: Chrome prints the title
+    into the PDF, where a recruiter's viewer shows it."""
+
+    def test_the_report_is_read_back_and_never_set_as_the_title(self):
+        from resume_maker.export_pdf import Browser
+        from resume_maker.render_html import _MEASURE_SCRIPT
+
+        self.assertNotIn("document.title", _MEASURE_SCRIPT)
+        dumped = ('<title>Joel</title><pre id="overflow-report" hidden="">'
+                  '{"offenders":[],"over":[{"label":"A &amp; B","bullet":2,"lines":3,"allowed":2}]}'
+                  "</pre>")
+
+        class Dump(Browser):
+            def _run(self, args, *, timeout):
+                return type("Result", (), {"stdout": dumped.encode()})
+
+        found = Dump("chrome").measure("<html></html>").over_budget[0]
+        self.assertEqual((found.label, found.bullet), ("A & B", 2))
+
+
 if __name__ == "__main__":
     unittest.main()
 
