@@ -4,12 +4,24 @@ Things agreed or noticed but not built. `HANDOFF.md` is the running log of what
 happened; this file is what is still owed. One heading per item, newest first.
 Delete an item when it ships and log it in `COMMITS.md`.
 
-## Pico retirement — cover letter holdout
+## Public site and first-run onboarding
 
-`/{app}/letter` is the native Letter → Review workbench (Resume | Cover letter
-in the nav). `/{app}/cover-letter` redirects there. Full Pico delete still
-means removing `static/index.html` + chat.css / base.css / `_nav.html` once
-nothing else loads them (e.g. `/review`).
+Front-facing marketing site that explains the tool, then signup through SSO
+login. First run ingests what only the person can provide and starts the rest
+from defaults:
+
+- **CV** — import an existing resume (no starter). Seeds the documents new
+  applications inherit.
+- **Experience bank** (notes) — no starter; their facts only.
+- **Application Tone** (voice) — role starters available.
+- **Paper / layout style** — defaults now; later multiple CV and letter looks
+  (serif vs sans, header placement, etc.). Style choice drives how documents
+  render.
+
+Starters for taste and presentation; no starters for who they are or what they
+have done. Settings > Base Files already uploads the CV, letter, notes and voice;
+onboarding can reuse it. Local workbench keeps draft autosave, Review coaching
+pane, and Settings structure editors first.
 
 ## Job description from a link
 
@@ -24,20 +36,17 @@ text, and returns it for review before it becomes the posting — never applied
 straight, since a fetch can quietly return a cookie wall. Stdlib only, per the
 no-dependency constraint.
 
-**Next up** after Settings / Bullets pick / swap (2026-10-29).
+## Pico retirement — leftover shell
 
-## Gaps and notes cards — redesign
+Native Letter and Write are live. Full Pico delete still means removing
+`static/index.html` + chat.css / base.css / `_nav.html` once nothing else loads
+them (e.g. `/review` library page).
 
-He dislikes the gaps and notes cards as drawn (2026-10-27, twice noted). Mid
-green `#4f7356` with near-white text was the stopgap. Undecided what replaces
-them. Chat now sits under the measure; redesign when that flow has been used.
+## Gaps and notes cards — visual redesign
 
-## Cast inside Bullets (shipping)
-
-Cast is a Bullets substep before the lines: `/api/library` action `cast`
-ranks roles from past CV lines against frozen keywords (`fill.suggest_cast`);
-On/Off chips; Next writes `entry.off` then opens bullet edit. Not a seventh
-strip chip.
+Interaction for gaps/ask moves into the Review right pane; notes Keep stays in
+chat. The old mid-green card look is still owed a redesign when that flow has
+been used.
 
 ## Smaller, still open
 
