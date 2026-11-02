@@ -1,10 +1,10 @@
-// Settings: bio, contacts, paper theme, and Models.
-// JO in the nav opens this page. Keys stay on the server; Models reuses the
-// existing dialog. Bio writes to both CV and letter so header/footer picks
-// share one list.
+// Settings: Bio (name, contacts, paper), Education, Work History, Base Files.
+// JO opens this page. Tabs mirror Write. Structure editors change the current
+// application's CV skeleton (employer, school, dates); Write still owns
+// posting-driven wording. Models lives in the main nav.
 
-import { api, el, icon, toast } from "./dom.js";
-import { openModels } from "./models.js";
+import { agent } from "./agent.js";
+import { api, download, el, icon, toast } from "./dom.js";
 import { bespokeSelect } from "./select.js";
 
 const LETTER = { w: 8.5, h: 11 };
@@ -12,6 +12,159 @@ const A4 = { w: 210 / 25.4, h: 297 / 25.4 };
 
 function $(id) {
   return document.getElementById(id);
+}
+
+const BASE_FILES = {
+  cv: {
+    label: "CV",
+    backup: "cv-backup.json",
+    warning: "This replaces your base CV and can't be undone. Applications you've already made keep their copies.",
+  },
+  cover: {
+    label: "Cover Letter",
+    backup: "cover-letter-backup.json",
+    warning: "This replaces your base letter and can't be undone. Applications you've already made keep their copies.",
+  },
+  voice: {
+    label: "Voice",
+    backup: "voice-backup.md",
+    warning: "This replaces your current voice and can't be undone.",
+  },
+  notes: {
+    label: "Notes",
+    backup: "notes-backup.md",
+    warning: "This replaces your current notes, including your saved answers, and can't be undone.",
+  },
+};
+
+function readBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",", 2)[1] || "");
+    reader.onerror = () => reject(new Error("Could not read that file."));
+    reader.readAsDataURL(file);
+  });
+}
+
+// Back up or skip, then the new file goes in. Resolves true once replaced.
+function confirmReplace(key, current, apply) {
+  const { label, backup, warning } = BASE_FILES[key];
+  return new Promise((resolve) => {
+    const error = el("p", { class: "meta" });
+    const close = (done) => { dialog.close(); dialog.remove(); resolve(done); };
+    const replace = async (button) => {
+      button.disabled = true;
+      try {
+        await apply();
+        close(true);
+      } catch (failure) {
+        button.disabled = false;
+        error.textContent = failure.message;
+      }
+    };
+    const cancel = el("button", {
+      class: "btn btn-sm", type: "button", text: "Cancel", onclick: () => close(false),
+    });
+    const dialog = el("dialog", { class: "modal" }, [
+      el("div", { class: "modal-card" }, [
+        el("header", { class: "modal-head" }, [
+          el("div", { class: "modal-intro" }, [
+            el("h2", { class: "card-title modal-title", text: `Replace ${label}` }),
+          ]),
+          el("button", {
+            class: "modal-close", type: "button", "aria-label": "Close",
+            onclick: () => close(false),
+          }, [icon("xmark", 16)]),
+        ]),
+        el("hr", { class: "modal-rule" }),
+        el("p", { class: "meta", text: warning }),
+        error,
+        el("footer", { class: "modal-foot" }, [
+          el("span", { class: "spacer" }),
+          cancel,
+          el("button", {
+            class: "btn btn-sm", type: "button", text: "Skip",
+            onclick: (event) => replace(event.currentTarget),
+          }),
+          el("button", {
+            class: "btn btn-sm btn-primary", type: "button", text: "Download Backup",
+            onclick: (event) => {
+              download(backup, current);
+              replace(event.currentTarget);
+            },
+          }),
+        ]),
+      ]),
+    ]);
+    dialog.addEventListener("cancel", (event) => { event.preventDefault(); close(false); });
+    document.body.append(dialog);
+    dialog.showModal();
+    cancel.focus();
+  });
+}
+
+// A CV or letter is turned into a document by one model call, made only once
+// the warning is answered. Notes and voice are plain text and cost nothing.
+async function uploadFor(key, file) {
+  if (key === "cv" || key === "cover") {
+    const model = await agent().catch(() => null);
+    if (!model) throw new Error("Connect a model first.");
+    const current = (await api("/api/setup/base", { action: "read" }))[key];
+    const encoded = await readBase64(file);
+    return {
+      current: JSON.stringify(current, null, 2),
+      apply: async () => {
+        const { doc } = await api("/api/import", {
+          document: key, doc: current, filename: file.name, file: encoded,
+          provider: model.provider, model: model.model,
+        });
+        await api("/api/setup/base", { document: key, doc });
+      },
+    };
+  }
+  // Plain text is read here: the extractor stops at 60,000 characters.
+  const { text } = /\.(md|txt)$/i.test(file.name)
+    ? { text: await file.text() }
+    : await api("/api/setup/extract", { filename: file.name, file: await readBase64(file) });
+  if (!text.trim()) throw new Error("That file has no text in it.");
+  return {
+    current: (await api("/api/setup"))[key] || "",
+    apply: () => api(`/api/setup/${key}`, { text }),
+  };
+}
+
+function baseFileRow(key) {
+  const { label } = BASE_FILES[key];
+  const input = el("input", {
+    type: "file",
+    accept: key === "cv" || key === "cover" ? ".txt,.docx,.pdf" : ".md,.txt,.docx,.pdf",
+    hidden: true,
+    "aria-label": `Upload ${label}`,
+  });
+  const button = el("button", {
+    class: "btn btn-sm", type: "button", text: "Upload", onclick: () => input.click(),
+  });
+  input.addEventListener("change", async () => {
+    const file = input.files[0];
+    input.value = "";
+    if (!file) return;
+    button.disabled = true;
+    try {
+      // Read first, so a file that cannot be used never reaches the warning.
+      const { current, apply } = await uploadFor(key, file);
+      if (current.trim()) {
+        if (!await confirmReplace(key, current, apply)) return;
+      } else {
+        await apply();
+      }
+      toast(`${label} replaced.`);
+    } catch (error) {
+      toast(error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+  return el("div", {}, [el("span", { text: label }), el("span", {}, [input, button])]);
 }
 
 function pageSizeOf(theme) {
@@ -52,10 +205,6 @@ function initials(name) {
 function paintProfile(name) {
   const node = document.querySelector(".nav-profile");
   if (node) node.textContent = initials(name);
-}
-
-function rule() {
-  return el("hr", { class: "settings-rule" });
 }
 
 async function main() {
@@ -106,9 +255,6 @@ async function main() {
 
   const contactBody = el("div", { class: "settings-contacts" });
   const paperBody = el("div", { class: "settings-stack" });
-  const saveButton = el("button", {
-    class: "btn btn-primary", type: "button", text: "Save",
-  });
   const addContact = el("button", {
     class: "icon-btn", type: "button", "aria-label": "Add contact item",
   }, [icon("plus", 18)]);
@@ -125,14 +271,18 @@ async function main() {
 
   function markDirty() { dirty = true; }
 
-  function placeSwitch(label, on, set) {
+  function placeSwitch(label, on, set, after) {
     return el("button", {
       class: "switch",
       type: "button",
       role: "switch",
       "aria-checked": String(on),
       "aria-label": label,
-      onclick: () => { set(!on); markDirty(); paintContacts(); },
+      onclick: () => {
+        set(!on);
+        markDirty();
+        if (after) after();
+      },
     });
   }
 
@@ -176,11 +326,13 @@ async function main() {
         onCv ? "Hide from CV" : "Show on CV",
         onCv,
         (v) => { item.header = v; },
+        paintContacts,
       ),
       placeSwitch(
         onLetter ? "Hide from Letter" : "Show on Letter",
         onLetter,
         (v) => { item.footer = v; },
+        paintContacts,
       ),
       el("button", {
         class: "icon-btn", type: "button", "aria-label": "Remove contact item",
@@ -296,8 +448,8 @@ async function main() {
     }).filter((item) => item.text);
   }
 
-  async function save() {
-    saveButton.disabled = true;
+  async function save(button) {
+    if (button) button.disabled = true;
     try {
       const name = nameBox.value.trim();
       cv.name = name;
@@ -315,69 +467,209 @@ async function main() {
     } catch (error) {
       toast(error.message, "error");
     } finally {
-      saveButton.disabled = false;
+      if (button) button.disabled = false;
     }
   }
 
-  saveButton.addEventListener("click", () => save());
   window.onbeforeunload = (event) => { if (dirty) event.preventDefault(); };
 
   paintContacts();
   paintProfile(nameBox.value);
 
-  host.replaceChildren(
-    el("header", { class: "page-head" }, [
-      el("h1", { class: "title", text: "Settings" }),
-      el("p", {
-        class: "lead",
-        text: "Your name, contact details, and the paper the CV and letter print on.",
-      }),
-    ]),
+  function sectionIndex(word) {
+    return (cv.sections || []).findIndex(
+      (s) => String(s.heading || "").toUpperCase().includes(word));
+  }
 
-    el("section", { class: "settings-block", "aria-labelledby": "settings-bio" }, [
-      el("h2", { class: "eyebrow", id: "settings-bio", text: "Bio" }),
-      field("Name", nameBox),
-    ]),
-
-    rule(),
-
-    el("section", { class: "settings-block", "aria-labelledby": "settings-contacts" }, [
-      el("div", { class: "settings-block-head" }, [
-        el("h2", { class: "eyebrow", id: "settings-contacts", text: "Contacts" }),
-        addContact,
+  function entryFields(entry, labels, onInput = markDirty) {
+    const box = (label, key) => {
+      const input = el("input", {
+        class: "input", type: "text", "aria-label": label,
+      });
+      input.value = entry[key] || "";
+      input.addEventListener("input", () => {
+        entry[key] = input.value;
+        onInput();
+      });
+      return field(label, input);
+    };
+    // Two rows, two page-height inputs each (same .input atom as Bio).
+    return el("div", { class: "settings-entry" }, [
+      el("div", { class: "settings-grid" }, [
+        box(labels[0], "left"),
+        box(labels[1], "right"),
       ]),
-      el("p", {
-        class: "meta settings-lead",
-        text: "Toggle CV or Letter on each line to choose where it prints: under your name on the resume, or under the sign-off on the cover letter.",
-      }),
-      contactBody,
-    ]),
-
-    rule(),
-
-    el("section", { class: "settings-block", "aria-labelledby": "settings-paper" }, [
-      el("h2", { class: "eyebrow", id: "settings-paper", text: "Paper" }),
-      paperBody,
-    ]),
-
-    rule(),
-
-    el("section", { class: "settings-block", "aria-labelledby": "settings-models" }, [
-      el("div", { class: "settings-block-head" }, [
-        el("h2", { class: "eyebrow", id: "settings-models", text: "Models" }),
-        el("button", {
-          class: "doc-action", type: "button", text: "Open Models",
-          onclick: () => openModels(),
-        }),
+      el("div", { class: "settings-grid" }, [
+        box(labels[2], "sub_left"),
+        box(labels[3], "sub_right"),
       ]),
-      el("p", {
-        class: "meta settings-lead",
-        text: "Provider, key, and model. Keys stay on this machine and never reach the browser.",
-      }),
-    ]),
+    ]);
+  }
 
-    el("div", { class: "settings-foot" }, [saveButton]),
+  function entriesPanel(word, empty, labels) {
+    const at = sectionIndex(word);
+    const body = el("div", { class: "settings-entries" });
+    const blank = () => ({ left: "", right: "", sub_left: "", sub_right: "", bullets: [] });
+    // The empty card at the end. It joins the CV only when its check is pressed.
+    let draft = blank();
+
+    function draftCard(section) {
+      const add = el("button", {
+        class: "icon-btn", type: "button", "aria-label": "Add entry", hidden: true,
+        onclick: () => {
+          section.entries.push(draft);
+          draft = blank();
+          markDirty();
+          paint();
+        },
+      }, [icon("check", 16)]);
+      const filled = () => ["left", "right", "sub_left", "sub_right"]
+        .every((key) => String(draft[key] || "").trim());
+      return el("div", { class: "card settings-entry-card" }, [
+        el("div", { class: "settings-entry-head" }, [
+          el("h3", { class: "eyebrow", text: "New entry" }),
+          el("div", { class: "settings-entry-actions" }, [add]),
+        ]),
+        entryFields(draft, labels, () => { add.hidden = !filled(); }),
+      ]);
+    }
+
+    function paint() {
+      if (at < 0) {
+        body.replaceChildren(el("p", { class: "meta", text: empty }));
+        return;
+      }
+      const section = cv.sections[at];
+      if (!Array.isArray(section.entries)) section.entries = [];
+      const rows = section.entries.map((entry, index) => el("div", { class: "card settings-entry-card" }, [
+        el("div", { class: "settings-entry-head" }, [
+          el("h3", {
+            class: "eyebrow",
+            text: entry.left || entry.sub_left || `Entry ${index + 1}`,
+          }),
+          el("div", { class: "settings-entry-actions" }, [
+            el("button", {
+              class: "icon-btn", type: "button", "aria-label": "Remove entry",
+              onclick: () => {
+                section.entries.splice(index, 1);
+                markDirty();
+                paint();
+              },
+            }, [icon("xmark", 16)]),
+          ]),
+        ]),
+        entryFields(entry, labels),
+      ]));
+      body.replaceChildren(...rows, draftCard(section));
+    }
+    paint();
+    return body;
+  }
+
+  const educationBody = entriesPanel(
+    "EDUCATION",
+    "This CV has no Education section yet.",
+    ["School", "Location", "Degree", "Dates"],
   );
+  const workBody = entriesPanel(
+    "EXPERIENCE",
+    "This CV has no Experience section yet.",
+    ["Organisation", "Location", "Role", "Dates"],
+  );
+
+  // Same strip slot as Write's Job Description / Professional Summary / …
+  const TABS = [
+    ["bio", "Bio"],
+    ["education", "Education"],
+    ["work", "Work History"],
+    ["base", "Base Files"],
+  ];
+  const panel = el("div", { class: "settings-panel" });
+
+  function tabId() {
+    const wanted = location.hash.slice(1);
+    return TABS.some(([id]) => id === wanted) ? wanted : "bio";
+  }
+
+  function paintSteps(here) {
+    const at = TABS.findIndex(([id]) => id === here);
+    const links = el("div", { class: "steps-links" }, TABS.map(([id, label], index) => el("a", {
+      class: index < at ? "step is-done" : "step",
+      href: `#${id}`,
+      "aria-current": id === here ? "step" : null,
+      text: `${index + 1} ${label}`,
+    })));
+    const saveBtn = el("button", {
+      class: "steps-score-item", type: "button", text: "Save",
+      "aria-label": "Save settings",
+      onclick: (event) => save(event.currentTarget),
+    });
+    $("steps").replaceChildren(links, el("div", { class: "steps-aside" }, [saveBtn]));
+  }
+
+  function paintTab() {
+    const here = tabId();
+    paintSteps(here);
+    if (here === "bio") {
+      panel.replaceChildren(
+        el("header", { class: "page-head" }, [
+          el("h1", { class: "title", text: "Bio" }),
+          el("p", {
+            class: "lead",
+            text: "Your name and the contact lines that print on the CV and letter.",
+          }),
+        ]),
+        field("Name", nameBox),
+        el("div", { class: "settings-block-head settings-contacts-head" }, [
+          el("h2", { class: "eyebrow", text: "Contacts" }),
+          addContact,
+        ]),
+        el("p", {
+          class: "meta settings-lead",
+          text: "Toggle CV or Letter on each line to choose where it prints: under your name on the resume, or under the sign-off on the cover letter.",
+        }),
+        contactBody,
+        el("div", { class: "settings-block-head settings-contacts-head" }, [
+          el("h2", { class: "eyebrow", text: "Paper" }),
+        ]),
+        paperBody,
+      );
+    } else if (here === "education") {
+      panel.replaceChildren(
+        el("header", { class: "page-head" }, [
+          el("h1", { class: "title", text: "Education" }),
+          el("p", {
+            class: "lead",
+            text: "Schools and degrees on this application's CV. Bullet wording still happens in Write.",
+          }),
+        ]),
+        educationBody,
+      );
+    } else if (here === "base") {
+      panel.replaceChildren(
+        el("header", { class: "page-head" }, [
+          el("h1", { class: "title", text: "Base Files" }),
+          el("p", { class: "lead", text: "Upload a file to replace what the model works from." }),
+        ]),
+        el("div", { class: "rows" }, Object.keys(BASE_FILES).map(baseFileRow)),
+      );
+    } else {
+      panel.replaceChildren(
+        el("header", { class: "page-head" }, [
+          el("h1", { class: "title", text: "Work History" }),
+          el("p", {
+            class: "lead",
+            text: "Employers, titles, and dates. Write still fills the bullets.",
+          }),
+        ]),
+        workBody,
+      );
+    }
+  }
+
+  window.addEventListener("hashchange", paintTab);
+  host.replaceChildren(panel);
+  paintTab();
 }
 
 main();

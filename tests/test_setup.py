@@ -350,17 +350,34 @@ class SetupApiTests(unittest.TestCase):
         self.assertEqual(copy.read_text(), copied)              # applications keep their copies
 
     def test_settings_page_is_built_on_the_redesign(self):
-        """JO opens Settings: bio, contacts, paper theme, Models."""
+        """JO opens Settings: Bio (with Paper), Education, Work History."""
         page = self.assert_redesigned("/settings", "settings", "settings-page.js")
         self.assertIn('id="settings"', page)
+        self.assertIn('<span class="app-title-name">Settings</span>', page)  # titled in the nav
         settings = self.fetch("/static/ui/settings-page.js")
+        self.assertIn('["base", "Base Files"]', settings)
+        self.assertIn("including your saved answers, and can't be undone", settings)
+        self.assertIn("Download Backup", settings)
         self.assertIn('"/api/document"', settings)
         self.assertIn('"/api/fonts"', settings)
         self.assertIn('"/api/save"', settings)
         self.assertIn("build: false", settings)
-        self.assertIn("openModels", settings)
+        self.assertNotIn("openModels", settings)  # Models lives in the main nav
         self.assertIn('text: "Contacts"', settings)
-        self.assertIn("settings-rule", settings)
+        self.assertIn('["bio", "Bio"]', settings)
+        self.assertIn('["education", "Education"]', settings)
+        self.assertIn('["work", "Work History"]', settings)
+        self.assertNotIn('["paper", "Paper"]', settings)  # both sit under Bio
+        self.assertNotIn('["models", "Models"]', settings)
+        self.assertIn('text: "Paper"', settings)
+        self.assertIn("paintSteps", settings)          # same strip as Write steps
+        self.assertIn('class: "steps-links"', settings)
+        self.assertIn('id="steps"', page)              # strip lives in the shell header
+        self.assertIn('data-app="', page)              # current app → Resume / Cover Letter nav
+        self.assertIn("EDUCATION", settings)
+        self.assertIn("EXPERIENCE", settings)
+        self.assertIn('"aria-label": "Add entry"', settings)   # the empty card's check
+        self.assertNotIn("entry.off", settings)                # on/off lives in Bullets
         self.assertNotIn("Appearance", settings)
         self.assertNotIn("font.note", settings)
         self.assertIn('text: "Text"', settings)    # contact column head
@@ -371,8 +388,7 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn('role: "switch"', settings)
         self.assertIn("coverMatch", settings)  # letter footer ticks come from cover.json
         self.assertIn("Add contact item", settings)  # + in the Contacts head
-        self.assertIn("settings-foot", settings)     # one Save after Models
-        self.assertIn('class: "btn btn-primary"', settings)
+        self.assertIn("steps-score-item", settings)  # Save on the steps strip
         self.assertNotIn('class: "chip"', settings)  # switches, not chips
         self.assertNotIn('type: "checkbox"', settings)
         self.assertIn("bespokeSelect", settings)  # Paper Size + Font, same as Models

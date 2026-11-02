@@ -380,6 +380,7 @@ body[data-page="hub"] .apps-pager:not([hidden]) {
 }
 
 .rows > *:last-child { border-bottom: 0; }
+.settings-panel .rows > * { align-items: center; }
 
 .rail-block + .rail-block { margin-top: var(--space-xl); }
 .rail-block .eyebrow { margin-bottom: var(--space-md); }
@@ -1802,6 +1803,68 @@ textarea.input.bullet-own {
 
 .settings-contact .icon-btn {
   width: 40px;
+.settings-panel { min-height: 12rem; }
+
+.settings-contacts-head {
+  align-items: center;
+  margin-top: var(--space-lg);
+}
+
+/* The + must not make this head taller than a head with no button. */
+.settings-contacts-head .icon-btn {
+  margin-block: -1rem;
+}
+
+.settings-entries {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.settings-entry-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.settings-entry-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.settings-entry-head .eyebrow { margin: 0; }
+
+.settings-entry-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex: none;
+}
+
+.settings-entry-actions .icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-full);
+}
+
+.settings-entry-actions .icon-btn:hover {
+  border-radius: var(--radius-full);
+}
+
+.settings-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+/* Two inputs to a row, each half the card. */
+.settings-entry .settings-grid {
+  margin: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
   height: 40px;
   justify-self: end;
   border-radius: var(--radius-full);
@@ -1823,7 +1886,8 @@ textarea.input.bullet-own {
 
 @media (max-width: 560px) {
   .settings-grid,
-  .settings-grid-3 { grid-template-columns: 1fr; }
+  .settings-grid-3,
+  .settings-entry .settings-grid { grid-template-columns: 1fr; }
 }
 
 .modal #models-key {

@@ -17,15 +17,15 @@
 </head>
 <body data-page="">
 <div class="shell">
-  <app-nav current="settings"></app-nav>
+  <app-nav current="settings">
+    <span data-slot="middle" class="app-title"><span class="app-title-name">Settings</span></span>
+  </app-nav>
+
+  <nav class="steps" id="steps" aria-label="Settings"></nav>
 
   <div class="page">
     <main class="main">
       <div class="measure" id="settings">
-        <header class="page-head">
-          <h1 class="title">Settings</h1>
-          <p class="lead">Your name, contact details, and the paper the CV and letter print on.</p>
-        </header>
         <p class="meta" id="status">Loading…</p>
       </div>
     </main>
