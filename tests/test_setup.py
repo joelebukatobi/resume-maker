@@ -336,6 +336,19 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn("{ append: note }", notes)               # a kept note is appended
         self.assertIn("{ skill: { label: s.label, tool: s.tool } }", notes)
 
+    def test_base_upload_replaces_only_the_root_document(self):
+        root = Path(self.tmp.name)
+        was = (root / "cv.json").read_text()
+        slug = self.get("/api/apps")["current"]
+        copy = root / "applications" / slug / "cv.json"
+        copied = copy.read_text()
+        self.addCleanup((root / "cv.json").write_text, was)
+        read = self.post("/api/setup/base", {"action": "read"})
+        self.assertEqual(read["cv"], json.loads(was))
+        self.post("/api/setup/base", {"document": "cv", "doc": {**read["cv"], "name": "New Base"}})
+        self.assertEqual(json.loads((root / "cv.json").read_text())["name"], "New Base")
+        self.assertEqual(copy.read_text(), copied)              # applications keep their copies
+
     def test_settings_page_is_built_on_the_redesign(self):
         """JO opens Settings: bio, contacts, paper theme, Models."""
         page = self.assert_redesigned("/settings", "settings", "settings-page.js")

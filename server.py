@@ -352,6 +352,7 @@ class EditorHandler(BaseHTTPRequestHandler):
             "/api/setup/voice": self._setup_voice,
             "/api/setup/notes": self._setup_notes,
             "/api/setup/extract": self._setup_extract,
+            "/api/setup/base": self._setup_base,
             "/api/llm/key": self._key,
             "/api/match": self._match,
             "/api/keywords": self._keywords,
@@ -647,6 +648,19 @@ class EditorHandler(BaseHTTPRequestHandler):
             str(payload.get("filename", "")), assistant.decode_upload(str(payload.get("file", "")))
         )
         self._json(HTTPStatus.OK, {"text": text})
+
+    def _setup_base(self, payload: dict[str, Any]) -> None:
+        """Read the root CV and letter new applications are copied from, or
+        replace one. Applications already made keep their own copies."""
+        base = self._workspace.base
+        if payload.get("action") == "read":
+            return self._json(HTTPStatus.OK, {
+                "cv": _read_json(Path(base["cv"])), "cover": _read_json(Path(base["cover"])),
+            })
+        kind = self._document_kind(payload.get("document"))
+        doc = self._checked_document(kind, payload.get("doc"))
+        _atomic_write(Path(base[kind]), json.dumps(doc, indent=2, ensure_ascii=False))
+        self._json(HTTPStatus.OK, {"saved": True})
 
     def _transcribe(self, payload: dict[str, Any]) -> None:
         """A 16 kHz WAV recorded in the browser, transcribed on this machine.
