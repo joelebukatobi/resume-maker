@@ -26,6 +26,11 @@ let editCustom = null;
 let editCustomWrap = null;
 let editCompany = null;
 let editRole = null;
+let deleteDialog = null;
+let deleteSlug = "";
+let deleteName = null;
+let deleteNote = null;
+let deleteConfirm = null;
 
 const open = (slug) => `/${encodeURIComponent(slug)}/write`;
 const go = (slug) => { window.location.href = open(slug); };
@@ -221,23 +226,83 @@ function openEdit(app) {
   editCompany.select();
 }
 
+async function confirmDelete() {
+  deleteConfirm.disabled = true;
+  deleteNote.textContent = "";
+  try {
+    await call({ action: "delete", slug: deleteSlug });
+    deleteDialog.close();
+    await load();
+  } catch (error) {
+    deleteNote.textContent = error.message;
+  } finally {
+    deleteConfirm.disabled = false;
+  }
+}
+
+function buildDelete() {
+  if (deleteDialog) return;
+  deleteName = el("p", { class: "meta modal-lead" });
+  deleteNote = el("p", { class: "meta" });
+  deleteConfirm = el("button", {
+    class: "btn btn-sm btn-danger", type: "button", text: "Delete",
+    onclick: confirmDelete,
+  });
+  const cancel = el("button", {
+    class: "btn btn-sm", type: "button", text: "Cancel",
+    onclick: () => deleteDialog.close(),
+  });
+  deleteDialog = el("dialog", { class: "modal" }, [
+    el("div", { class: "modal-card" }, [
+      el("header", { class: "modal-head" }, [
+        el("div", { class: "modal-intro" }, [
+          el("h2", { class: "card-title modal-title", text: "Delete application" }),
+          deleteName,
+        ]),
+        el("button", {
+          class: "modal-close", type: "button", "aria-label": "Close",
+          onclick: () => deleteDialog.close(),
+        }, [icon("xmark", 16)]),
+      ]),
+      el("hr", { class: "modal-rule" }),
+      el("p", { class: "meta", text: "Its CV, letter and chat cannot be recovered." }),
+      deleteNote,
+      el("footer", { class: "modal-foot" }, [
+        el("span", { class: "spacer" }),
+        cancel,
+        deleteConfirm,
+      ]),
+    ]),
+  ]);
+  deleteDialog.addEventListener("click", (event) => {
+    if (event.target === deleteDialog) deleteDialog.close();
+  });
+  document.body.append(deleteDialog);
+}
+
+function openDelete(app) {
+  buildDelete();
+  deleteSlug = app.slug;
+  deleteName.textContent = app.name || "Untitled application";
+  deleteNote.textContent = "";
+  deleteDialog.showModal();
+  // Enter or Space on open must not delete.
+  deleteDialog.querySelector(".modal-foot .btn").focus();
+}
+
 function actionsFor(app) {
   const live = !app.archived;
   return el("div", { class: "row-actions" }, [
     actionBtn("Edit", "edit", async () => { openEdit(app); }),
     actionBtn("Duplicate", "copy", async () => {
-      const name = window.prompt("Name the copy", `${app.name} (copy)`);
-      if (name) go((await call({ action: "create", name, source: app.slug })).application.slug);
+      await call({ action: "create", name: `${app.name} (copy)`, source: app.slug });
+      await load();
     }),
     actionBtn(live ? "Archive" : "Restore", "archive", async () => {
       await call({ action: live ? "archive" : "restore", slug: app.slug });
       await load();
     }),
-    actionBtn("Delete", "trash", async () => {
-      if (!window.confirm(`Delete "${app.name}" for good? Its CV, letter and chat cannot be recovered.`)) return;
-      await call({ action: "delete", slug: app.slug });
-      await load();
-    }, true),
+    actionBtn("Delete", "trash", async () => { openDelete(app); }, true),
   ]);
 }
 

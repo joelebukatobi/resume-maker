@@ -139,6 +139,19 @@ select:focus-visible,
   border-color: var(--action-fill-pressed);
 }
 
+.btn-danger {
+  color: #FFFFFF;
+  background: var(--risk);
+  border-color: var(--risk);
+}
+
+.btn-danger:hover {
+  color: #FFFFFF;
+  background: var(--risk);
+  border-color: var(--risk);
+  filter: brightness(0.9);
+}
+
 .btn-sm {
   height: 32px;
   padding: 6px 12px;

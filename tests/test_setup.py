@@ -402,7 +402,9 @@ class SetupApiTests(unittest.TestCase):
         for name in ('"edit"', '"copy"', '"archive"', '"trash"'):
             self.assertIn(name, apps)  # row icons, not a kebab menu
         self.assertNotIn("kebab", apps)
-        self.assertIn("window.confirm", apps)                  # delete asks first
+        self.assertNotIn("window.confirm", apps)               # delete asks in a dialog
+        self.assertIn("openDelete(app)", apps)
+        self.assertNotIn("window.prompt", apps)                # duplicate just copies the row
         # Hub opens land on the workbench; /resume is Write too.
         self.assertIn("`/${encodeURIComponent(slug)}/write`", apps)
         self.assertNotIn("window.location.href = `/${encodeURIComponent(slug)}`", apps)
