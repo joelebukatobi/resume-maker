@@ -41,6 +41,7 @@ let history = { messages: [], job_description: "" };
 let terms = null;   // the /api/keywords state, once known
 let documents = null; // /api/document: the cv, the letter and both themes
 let refreshHandler = null; // current step's "run this section again"
+let fitRefresh = null; // what Overall Fit also runs on this step
 let lastFit = null; // model's fit reading for this CV + posting
 
 // Pressing Next is the only thing that starts a step's model fill by itself.
@@ -108,6 +109,7 @@ function loadFit() {
 }
 
 function saveFit(value) {
+  // Keep strengths/gaps for the Review pane; score alone used to be stored.
   lastFit = { ...value, mode: fitMode() };
   try { localStorage.setItem(fitStore(), JSON.stringify(lastFit)); }
   catch (e) { /* optional */ }
@@ -258,7 +260,7 @@ async function refreshOneScore(kind) {
   lockScoreChip(kind);
   const started = Date.now();
   try {
-    if (kind === "fit") await rateFit();
+    if (kind === "fit") await Promise.all([rateFit(), fitRefresh && fitRefresh()]);
     else await loadPostingScore();
     // Keyword match can finish in one frame; keep the dash up briefly.
     const wait = 320 - (Date.now() - started);
@@ -311,9 +313,15 @@ async function rateFit() {
   });
   saveFit({
     score: Math.round(Number(data.score)),
+    strengths: Array.isArray(data.strengths) ? data.strengths : [],
+    gaps: Array.isArray(data.gaps) ? data.gaps : [],
     key: fitKey(),
     at: Date.now(),
   });
+}
+
+function touchDraft() {
+  keepDraft(appId(), documents);
 }
 
 async function loadScore() {
@@ -329,10 +337,6 @@ async function loadScore() {
   paintScoreNode(); // this mode's cached scores first; then refresh language
   await loadPostingScore();
   paintScoreNode();
-}
-
-function touchDraft() {
-  keepDraft(appId(), documents);
 }
 
 function setStepProgress(done, total) {
@@ -360,6 +364,7 @@ function setStepProgress(done, total) {
 function paintSteps(here) {
   const at = STEPS.findIndex(([id]) => id === here);
   refreshHandler = null;
+  fitRefresh = null;
   const links = el("div", { class: "steps-links" }, STEPS.map(([id, label], index) => el("a", {
     class: index < at ? "step is-done" : "step",
     href: `#${id}`,
@@ -503,12 +508,12 @@ async function begin(text, button) {
   try {
     history = { ...history, job_description: fresh };
     await api("/api/chat/history", { ...history, app: APP });
+    markFill("summary");
     if (unnamed()) {
       const found = await api("/api/apps", {
         action: "identify", slug: APP, job_description: fresh,
         provider: model.provider, model: model.model,
       });
-    markFill("summary");
       location.replace(`/${encodeURIComponent(found.application.slug)}/write#summary`);
       return;
     }
@@ -530,11 +535,13 @@ async function begin(text, button) {
 // Saving writes the JSON only; the files are built at Review.
 async function saveCv() {
   await api("/api/save", { ...documents, document: "cv", app: APP, build: false });
+  dropDraft(appId());
   await loadScore();
 }
 
 async function saveCover() {
   await api("/api/save", { ...documents, document: "cover", app: APP, build: false });
+  dropDraft(appId());
   await loadScore();
 }
 
@@ -549,13 +556,15 @@ function parseProposals(reply) {
       const parsed = JSON.parse(match[1]);
       if (parsed && typeof parsed.path === "string") found.push(parsed);
     } catch (e) { /* not a proposal */ }
-  dropDraft(appId());
   }
   return found;
 }
 
 async function askSection(phase, extra = {}) {
-  dropDraft(appId());
+  return parseProposals(await askTurn(phase, extra));
+}
+
+async function askTurn(phase, extra = {}) {
   const model = await agent().catch(() => null);
   if (!model) throw new Error("Connect a model first.");
   const response = await fetch("/api/chat", {
@@ -576,16 +585,12 @@ async function askSection(phase, extra = {}) {
   }
   const [reply, failed] = (await response.text()).split(String.fromCharCode(0));
   if (failed) throw new Error(failed);
-  return parseProposals(reply);
+  return reply;
 }
 
 // Cover letter: same chat plumbing as Pico (letter rules + voice + notes +
 // JD), one turn that proposes every paragraph; we auto-accept.
 async function askLetter() {
-  return parseProposals(await askTurn(phase, extra));
-}
-
-async function askTurn(phase, extra = {}) {
   const model = await agent().catch(() => null);
   if (!model) throw new Error("Connect a model first.");
   const response = await fetch("/api/chat", {
@@ -614,7 +619,7 @@ async function askTurn(phase, extra = {}) {
   }
   const [reply, failed] = (await response.text()).split(String.fromCharCode(0));
   if (failed) throw new Error(failed);
-  return reply;
+  return parseProposals(reply);
 }
 
 const sectionIndex = (word) => (documents.cv.sections || []).findIndex(
@@ -647,15 +652,15 @@ function drawPending(id) {
 
 function route() {
   const here = current();
+  // A Next that was abandoned for another tab does not fire later.
+  try {
+    if (sessionStorage.getItem(FILL_NEXT) !== here) sessionStorage.removeItem(FILL_NEXT);
+  } catch (e) { /* nothing marked */ }
   window.onbeforeunload = null;
   window.onmessage = null;
   paintSteps(here);
   // Cover letter shares the posting; it never has its own paste step.
   if (MODE === "cover") {
-  // A Next that was abandoned for another tab does not fire later.
-  try {
-    if (sessionStorage.getItem(FILL_NEXT) !== here) sessionStorage.removeItem(FILL_NEXT);
-  } catch (e) { /* nothing marked */ }
     if (!posting()) {
       location.replace(`/${encodeURIComponent(APP)}/write#posting`);
       return;
@@ -684,6 +689,22 @@ async function start() {
     api(withApp("/api/document")).catch(() => null),
   ]);
   documents = docs;
+  if (docs) {
+    const draft = pendingDraft(appId(), docs);
+    if (draft) {
+      documents = {
+        ...docs,
+        cv: draft.cv,
+        cover: draft.cover || docs.cover,
+        theme: draft.theme || docs.theme,
+        cover_theme: draft.cover_theme || docs.cover_theme,
+      };
+      const when = draft.at
+        ? new Date(draft.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        : "";
+      toast(when ? `Restored unsaved changes from ${when}.` : "Restored unsaved changes.");
+    }
+  }
   history = {
     messages: Array.isArray(loaded.messages) ? loaded.messages : [],
     job_description: typeof loaded.job_description === "string" ? loaded.job_description : "",
@@ -707,22 +728,6 @@ function paintAppTitle(name) {
         document.createTextNode(found[1]),
         el("span", { class: "app-title-sep", text: "-" }),
         document.createTextNode(found[2]),
-  if (docs) {
-    const draft = pendingDraft(appId(), docs);
-    if (draft) {
-      documents = {
-        ...docs,
-        cv: draft.cv,
-        cover: draft.cover || docs.cover,
-        theme: draft.theme || docs.theme,
-        cover_theme: draft.cover_theme || docs.cover_theme,
-      };
-      const when = draft.at
-        ? new Date(draft.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-        : "";
-      toast(when ? `Restored unsaved changes from ${when}.` : "Restored unsaved changes.");
-    }
-  }
       ]),
     );
     return;

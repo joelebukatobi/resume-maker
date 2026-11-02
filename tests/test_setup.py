@@ -534,9 +534,19 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn("resume-maker.lang.", page)              # Language Fit is per Resume / letter
         self.assertIn("typeof lastFit.score === \"number\"", page)  # paint saved score; never key-blank
         self.assertIn("function fitStale", page)
+        self.assertIn("strengths:", page)                      # Fit detail kept for Review pane
+        self.assertIn("gaps:", page)
+        self.assertIn("./draft.js", page)
+        self.assertIn("pendingDraft", page)
+        self.assertIn("touchDraft", page)
+        self.assertIn("dropDraft", page)
         self.assertIn("Save PDF and DOCX to this application", page)
         self.assertIn("saveDocuments", page)
         self.assertIn("build: true", page)                     # strip Save rebuilds out/
+        draft = self.fetch("/static/ui/draft.js")
+        self.assertIn("resume-maker.draft.", draft)
+        self.assertIn("function keepDraft", draft)
+        self.assertIn("function pendingDraft", draft)
         review = self.fetch("/static/ui/step-review.js")
         self.assertNotIn("Do you need a cover letter", review)
         self.assertIn('kind === "cover"', review)
@@ -547,7 +557,34 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn("resume-zoom-delta", review)
         self.assertNotIn("Download PDF", review)
         self.assertIn("of ${total} Terms", review)
-        self.assertIn('text: "Change"', review)
+        self.assertIn("term-list", review)                     # covered / missing keywords
+        self.assertIn("is-covered", review)
+        self.assertNotIn('"Overall Fit"', review)              # the strip already shows it
+        self.assertNotIn('text: "Ask"', review)                # the question needs no title
+        self.assertNotIn("Before You Send", review)
+        self.assertNotIn("This is one page", review)           # says something only on a problem
+        self.assertIn('"This runs to "', review)               # the page in words, red or green
+        self.assertIn('" lines spare."', review)
+        self.assertIn('ctx.askTurn("gaps")', review)           # finished CV checked on arrival
+        self.assertIn("ctx.setFitRefresh(runGapCheck)", review)  # and again from Overall Fit
+        self.assertNotIn("Check the CV against the posting\"]", review)
+        self.assertIn("applyRemoval", review)                  # remove and show cards apply
+        self.assertIn("applyShown", review)
+        self.assertNotIn("cannot be applied from here", review)
+        self.assertIn("`I have done ${term}`", review)         # check and X, no worded buttons
+        self.assertIn("`I have not done ${term}`", review)
+        self.assertIn('send("answer"', review)
+        self.assertIn('send("decline"', review)
+        self.assertIn("line: `I have not done ${term}.`", review)  # a clean line in notes.md
+        for card in ("answerCard", "gapsCard", "offerCard"):    # the chat's cards
+            self.assertIn(card, review)
+        self.assertIn('"/api/setup/voice"', review)
+        self.assertIn("{ skill: { label: parsed.label", review)
+        self.assertIn("navigator.clipboard.writeText", review)
+        self.assertIn('"/api/chat/history"', review)           # the chat survives a reload
+        self.assertIn("!m.pipeline", review)                   # drafting rounds stay out of it
+        self.assertIn('"/api/setup/notes"', review)
+        self.assertIn('"Change", () => openChat()', review)
         self.assertIn("applyProposal", review)
         self.assertIn('"/api/chat"', review)
         self.assertIn("attachDictate", review)
@@ -572,10 +609,6 @@ class SetupApiTests(unittest.TestCase):
             script = response.read().decode()
         self.assertIn("function renderMarkdown(", script)
         self.assertIn("function setView(", script)
-        draft = self.fetch("/static/ui/draft.js")
-        self.assertIn("resume-maker.draft.", draft)
-        self.assertIn("function keepDraft", draft)
-        self.assertIn("function pendingDraft", draft)
         self.assertIn("innerHTML", script)  # must mention the rule…
         # …as a ban: build nodes, never assign HTML from file content.
         self.assertRegex(script, r"never\s+innerHTML")

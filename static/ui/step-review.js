@@ -1,7 +1,10 @@
 // Step 6, Review: the page as it will be sent, what to check, and a change
 // chat. The page is /api/preview; language is /api/match; Save on the strip
-// rebuilds out/. Make a Change opens a wider rail that talks to /api/chat;
-// accepted ```proposal``` blocks write into the CV and refresh the page.
+// rebuilds out/. The right rail shows the terms in green or amber, a question
+// for each unanswered term, the gaps in the finished CV, and the page in words
+// when it runs long or has lines to spare. Make a Change opens
+// chat, saved per application; the model's cards only suggest, and nothing is
+// written until he presses the card's button.
 
 import { agent } from "./agent.js";
 import { attachDictate } from "./dictate.js";
@@ -9,6 +12,7 @@ import { api, el, icon, toast } from "./dom.js";
 import { renderMarkdown } from "./markdown.js";
 
 const STREAM_ERROR = String.fromCharCode(0);
+const MAX_TURNS = 200; // the server refuses a longer history
 const BLOCK = /```(proposal|answer|notes|voice|gaps|ask|skill)\s*([\s\S]*?)```/g;
 
 // Scrollbar + wheel zoom inside the preview (wheel events hit the iframe, not the parent).
@@ -57,6 +61,24 @@ window.addEventListener('wheel', function (event) {
 }, { passive: false });
 </script>`;
 
+// The no that goes into his notes, in his voice rather than the question's.
+function negative(question) {
+  const asked = String(question).trim().replace(/[?.]+$/, "");
+  for (const [pattern, opening] of [
+    [/^do you have\b/i, "I do not have"],
+    [/^do you\b/i, "I do not"],
+    [/^have you ever\b/i, "I have never"],
+    [/^have you\b/i, "I have not"],
+    [/^are you\b/i, "I am not"],
+    [/^can you\b/i, "I cannot"],
+    [/^did you\b/i, "I did not"],
+    [/^any\b/i, "I have no"],
+  ]) {
+    if (pattern.test(asked)) return `${asked.replace(pattern, opening)}.`;
+  }
+  return `Not mine. ${asked}.`;
+}
+
 function scoreBand(n) {
   if (n >= 75) return "is-high";
   if (n >= 50) return "is-mid";
@@ -78,6 +100,44 @@ function setPath(doc, path, text) {
   parent[last] = text;
 }
 
+// Only a role can be switched on or off: a bullet or a heading has no such state.
+function canShow(doc, path) {
+  const parts = pathParts(path);
+  const last = parts.pop();
+  if (typeof last !== "number" || parts[parts.length - 1] !== "entries") return false;
+  const entry = getPath(doc, path);
+  return Boolean(entry) && typeof entry === "object" && !Array.isArray(entry);
+}
+
+// Only something in a list can be removed. Deleting a field of an object leaves
+// it missing a key the document requires, and every later save fails.
+function canRemove(doc, path) {
+  const parts = pathParts(path);
+  const last = parts.pop();
+  const parent = parts.reduce((node, key) => (node == null ? undefined : node[key]), doc);
+  return Array.isArray(parent) && typeof last === "number" && last < parent.length;
+}
+
+function removePath(doc, path) {
+  const parts = pathParts(path);
+  const last = parts.pop();
+  parts.reduce((node, key) => node[key], doc).splice(last, 1);
+}
+
+const ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+  "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
+const TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
+
+function inWords(n) {
+  if (n < 20) return ONES[n];
+  if (n >= 100) return String(n);
+  return TENS[Math.floor(n / 10)] + (n % 10 ? `-${ONES[n % 10]}` : "");
+}
+
+function gapQuestions(raw) {
+  return raw.split("\n").map((line) => line.replace(/^[-*\d.\s]+/, "").trim()).filter(Boolean);
+}
+
 export async function drawReview(ctx) {
   const host = ctx.host;
   const kind = ctx.mode === "cover" ? "cover" : "cv";
@@ -91,35 +151,205 @@ export async function drawReview(ctx) {
     title: kind === "cover" ? "Your cover letter" : "Your CV",
     sandbox: "allow-scripts",
   });
-  const checks = el("div", { class: "checks" }, [el("p", { class: "meta", text: "Measuring the page…" })]);
+  const checks = el("p", { class: "rail-block meta review-check" });
   const coverage = el("div", { class: "coverage" }, [el("p", { class: "meta", text: "Counting…" })]);
+  const termsList = el("div", { class: "term-list" });
+  const askBlock = el("div", { class: "ask-list" });
   const side = el("div", { class: "review-side" });
+  const gapsBlock = el("section", { class: "rail-block" });
+  const changeRows = el("div", { class: "rows" });
+  const gapStore = `resume-maker.gaps.${ctx.appId ? ctx.appId() : ctx.app}`;
   let pages = null;
   let room = 0;
+  let gaps = null; // what the last check of the finished CV found; null before one
+  let checkingGaps = false;
   let issues = [];
   let missing = [];
+  let matched = [];
+  let keywordMap = (ctx.terms && ctx.terms.map) || {};
   let previewZoom = 1;
   let chatting = false;
 
-  function check(done, text) {
-    return el("div", { class: "check" }, [el("span", { class: done ? "dot dot-backed" : "dot dot-open" }), el("span", { text })]);
+  // Silent unless something needs fixing: too long, or a warning from the page.
+  function paintChecks() {
+    const notes = issues.map((issue) => String(issue.message || "").trim().replace(/\.?$/, "."));
+    checks.textContent = notes.join(" ");
   }
 
-  function paintChecks() {
-    const rows = [];
-    if (pages !== null) {
-      rows.push(pages > 1
-        ? check(false, `runs to ${pages} pages`)
-        : check(true, room > 0
-          ? `one page, ${room} ${room === 1 ? "line" : "lines"} spare`
-          : "one page, full"));
+  function openChat(text = "") {
+    if (!chatting) { chatting = true; paintSide(); }
+    const input = document.getElementById("review-chat-input");
+    if (text) input.value = [input.value.trim(), text].filter(Boolean).join("\n");
+    input.focus();
+  }
+
+  function changeRow(content, label, onclick) {
+    return el("div", {}, [
+      el("span", {}, content),
+      el("a", {
+        href: "#change", text: label,
+        onclick: (event) => { event.preventDefault(); onclick(); },
+      }),
+    ]);
+  }
+
+  // The page in words: too long is red, lines to spare are green, full says nothing.
+  function fitSentence() {
+    if (pages > 1) {
+      return ["This runs to ", el("span", { class: "fit-over", text: inWords(pages) }), " pages."];
     }
-    for (const issue of issues) rows.push(check(false, String(issue.message || "").toLowerCase()));
-    for (const term of missing.slice(0, 5)) rows.push(check(false, `${term} not covered`));
-    if (pages !== null && !issues.length && !missing.length && pages <= 1) {
-      rows.push(check(true, "nothing left to fix"));
+    if (pages === 1 && room > 0) {
+      return ["You have ", el("span", { class: "fit-spare", text: inWords(room) }),
+        room === 1 ? " line spare." : " lines spare."];
     }
-    checks.replaceChildren(...(rows.length ? rows : [el("p", { class: "meta", text: "measuring the page…" })]));
+    return null;
+  }
+
+  function paintChanges() {
+    const fit = fitSentence();
+    changeRows.replaceChildren(...[
+      fit ? changeRow(fit, "Change", () => openChat()) : null,
+      changeRow([kind === "cover"
+        ? "Ask the model to adjust a paragraph"
+        : "Ask the model to adjust a line"], "Change", () => openChat())
+    ].filter(Boolean));
+  }
+
+  function loadGaps() {
+    try { return JSON.parse(localStorage.getItem(gapStore) || "null"); }
+    catch (e) { return null; }
+  }
+
+  function saveGaps() {
+    try { localStorage.setItem(gapStore, JSON.stringify({ key: ctx.fitKey(), gaps })); }
+    catch (e) { /* the list just won't survive a reload */ }
+  }
+
+  // Everything to answer in one section: the posting's terms that are not on
+  // the page, then what the last read of the finished CV found.
+  function paintGaps() {
+    const found = (gaps || []).map((gap) => gapRow(gap, (settled) => {
+      if (settled) gaps = gaps.filter((other) => other !== gap);
+      saveGaps();
+    }));
+    const quiet = gaps && !gaps.length && !askBlock.childElementCount;
+    gapsBlock.replaceChildren(
+      el("p", { class: "eyebrow", text: "Gaps" }),
+      askBlock,
+      ...found,
+      ...(checkingGaps ? [el("p", { class: "meta", text: "Checking the CV against the posting…" })] : []),
+      ...(quiet && !checkingGaps ? [el("p", { class: "meta", text: "Nothing missing." })] : []),
+    );
+    gapsBlock.hidden = !checkingGaps && !gaps && !askBlock.childElementCount;
+  }
+
+  // One paid model turn, then the notes check. Run on arriving by Next or from
+  // Overall Fit, never on opening the page, so a reload costs nothing.
+  async function runGapCheck() {
+    if (checkingGaps) return;
+    checkingGaps = true;
+    paintGaps();
+    try {
+      const said = await ctx.askTurn("gaps");
+      const block = /```gaps\s*([\s\S]*?)```/.exec(said);
+      const questions = block ? gapQuestions(block[1]) : [];
+      // If the notes check cannot run, every question is still asked.
+      const found = questions.length
+        ? await api("/api/gaps", { action: "check", questions })
+          .catch(() => questions.map((question) => ({ question, status: "open" })))
+        : [];
+      gaps = found.filter((gap) => gap.status !== "covered");
+      saveGaps();
+    } catch (error) {
+      toast(error.message, "error");
+    } finally {
+      checkingGaps = false;
+      paintGaps();
+    }
+  }
+
+  function paintTerms() {
+    if (!matched.length && !missing.length) {
+      termsList.replaceChildren(el("p", { class: "meta", text: "No frozen terms yet." }));
+      return;
+    }
+    const term = (text, kind, status) => el("span", { class: `term ${kind}`, title: status }, [
+      text,
+      el("span", { class: "visually-hidden", text: ` (${status})` }),
+    ]);
+    termsList.replaceChildren(
+      ...matched.map((text) => term(text, "is-covered", "Covered")),
+      ...missing.map((text) => term(text, "is-open",
+        (keywordMap[text] || {}).state === "declined" ? "You said no" : "Not on the page")),
+    );
+  }
+
+  // One keyword question: X records a no; the first check opens a box and the
+  // second keeps what is in it.
+  function askRow(term, question, onDone) {
+    const box = el("textarea", {
+      class: "input input-sm", rows: "2", hidden: true,
+      placeholder: "What you did, in a sentence",
+      "aria-label": `Answer for ${term}`,
+    });
+    const yes = el("button", {
+      class: "icon-btn icon-btn-round", type: "button", "aria-label": `I have done ${term}`,
+    }, [icon("check", 16)]);
+    const no = el("button", {
+      class: "icon-btn icon-btn-round", type: "button", "aria-label": `I have not done ${term}`,
+    }, [icon("xmark", 16)]);
+    async function send(action, extra, button) {
+      button.disabled = true;
+      try {
+        const model = await agent().catch(() => null);
+        const next = await api("/api/keywords", {
+          action, keyword: term, app: ctx.app, ...extra,
+          ...(model ? { provider: model.provider, model: model.model } : {}),
+        });
+        keywordMap = next.map || keywordMap;
+        if (ctx.terms) {
+          ctx.terms.map = keywordMap;
+          ctx.terms.skipped = next.skipped || ctx.terms.skipped;
+        }
+        toast(action === "answer" ? "Added to your notes." : "Noted as a no.");
+        onDone(action);
+      } catch (error) {
+        button.disabled = false;
+        toast(error.message, "error");
+      }
+    }
+    yes.addEventListener("click", () => {
+      if (box.hidden) {
+        box.hidden = false;
+        yes.setAttribute("aria-label", `Keep this answer for ${term}`);
+        box.focus();
+        return;
+      }
+      const sentence = box.value.trim();
+      if (!sentence) { toast("Say what you did, in a sentence.", "error"); return; }
+      send("answer", { sentence }, yes);
+    });
+    no.addEventListener("click", () => send("decline", { line: `I have not done ${term}.` }, no));
+    return el("div", { class: "ask-row" }, [
+      el("div", { class: "ask-head" }, [
+        el("p", { class: "ask-q", text: question }),
+        el("div", { class: "ask-actions" }, [no, yes]),
+      ]),
+      box,
+    ]);
+  }
+
+  function paintAsk() {
+    const open = missing.filter((term) => {
+      const state = (keywordMap[term] || {}).state;
+      return state !== "declined" && state !== "answered";
+    });
+    askBlock.replaceChildren(...open.map((term) => askRow(
+      term,
+      (keywordMap[term] || {}).say || `Have you done work that shows ${term}?`,
+      () => { paintAsk(); paintTerms(); },
+    )));
+    paintGaps();
   }
 
   function sendZoom() {
@@ -142,6 +372,7 @@ export async function drawReview(ctx) {
       pages = Number(event.data.count) || 1;
       room = Number(event.data.room) || 0;
       paintChecks();
+      paintChanges();
       sendZoom();
     } else if (event.data.type === "resume-zoom-delta") {
       bumpZoom(Number(event.data.delta) || 0);
@@ -180,43 +411,278 @@ export async function drawReview(ctx) {
     await reload();
   }
 
-  function proposalCard(raw) {
-    let parsed;
-    try { parsed = JSON.parse(raw); }
-    catch (e) { return el("p", { class: "meta", text: "Could not read that proposal." }); }
-    const path = String(parsed.path || "");
-    const text = String(parsed.text || "");
-    const before = getPath(doc, path);
+  async function applyRemoval(path) {
+    if (!canRemove(doc, path)) throw new Error("That line is no longer there.");
+    removePath(doc, path);
+    await saveDoc();
+    await reload();
+  }
+
+  async function applyShown(path, show) {
+    if (!canShow(doc, path)) throw new Error("That role is no longer there.");
+    const entry = getPath(doc, path);
+    if (show) delete entry.off;
+    else entry.off = true;
+    await saveDoc();
+    await reload();
+  }
+
+  async function copyText(text, button) {
+    try {
+      await navigator.clipboard.writeText(text);
+      const was = button.textContent;
+      button.textContent = "Copied";
+      setTimeout(() => { button.textContent = was; }, 1200);
+    } catch (error) {
+      toast("Could not copy. Select the text instead.", "error");
+    }
+  }
+
+  function saveChat() {
+    const all = ctx.history.messages;
+    if (all.length > MAX_TURNS) all.splice(0, all.length - MAX_TURNS);
+    return api("/api/chat/history", { ...ctx.history, app: ctx.app })
+      .catch((error) => toast(`Could not save this chat: ${error.message}`, "error"));
+  }
+
+  // A suggestion with a yes and a no. The answer is kept on the message, so the
+  // card reads the same after a reload and the model is not re-sent applied work.
+  function offerCard({ label, text, before, state, saved, keep, onResolve }) {
     const node = el("div", { class: "card chat-card" }, [
-      el("p", { class: "eyebrow", text: path || "Proposal" }),
-      before != null && before !== text
-        ? el("p", { class: "meta", text: `Was: ${String(before).slice(0, 180)}` })
-        : null,
+      el("p", { class: "eyebrow", text: label }),
+      before ? el("p", { class: "meta", text: before }) : null,
       el("p", { class: "chat-card-text", text }),
     ].filter(Boolean));
-    const actions = el("div", { class: "chat-card-actions" });
-    const done = (word) => actions.replaceChildren(el("span", { class: "meta", text: word }));
-    actions.append(
-      el("button", { class: "btn btn-sm btn-primary", type: "button", text: "Keep", onclick: async (event) => {
-        event.target.disabled = true;
-        try {
-          await applyProposal(path, text);
-          done("Applied");
-          toast(`Applied to the ${label}.`);
-        } catch (error) {
-          event.target.disabled = false;
-          toast(error.message, "error");
-        }
-      } }),
-      el("button", { class: "btn btn-sm", type: "button", text: "Skip", onclick: () => done("Skipped") }),
-    );
-    node.append(actions);
+    if (state) {
+      node.append(el("div", { class: "chat-card-actions" }, [
+        el("span", { class: "meta", text: state === "accepted" ? saved : "Skipped" }),
+      ]));
+      return node;
+    }
+    node.append(el("div", { class: "chat-card-actions" }, [
+      el("button", {
+        class: "btn btn-sm btn-primary", type: "button", text: "Keep",
+        onclick: async (event) => {
+          event.target.disabled = true;
+          try {
+            await keep();
+            toast(`${saved}.`);
+            onResolve("accepted");
+          } catch (error) {
+            event.target.disabled = false;
+            toast(error.message, "error");
+          }
+        },
+      }),
+      el("button", {
+        class: "btn btn-sm", type: "button", text: "Skip",
+        onclick: () => onResolve("dismissed"),
+      }),
+    ]));
     return node;
   }
 
-  function reply(content) {
+  function answerCard(text) {
+    return el("div", { class: "card chat-card" }, [
+      el("p", { class: "eyebrow", text: "Answer to Copy" }),
+      el("p", { class: "chat-card-text", text }),
+      el("div", { class: "chat-card-actions" }, [
+        el("button", {
+          class: "btn btn-sm btn-primary", type: "button", text: "Copy",
+          onclick: (event) => copyText(text, event.target),
+        }),
+      ]),
+    ]);
+  }
+
+  function gapRow(gap, onChange = () => {}) {
+    const row = el("div", { class: "ask-head" });
+    const settled = (line) => {
+      row.replaceChildren(
+        el("p", { class: "ask-q", text: line }),
+        el("span", { class: "meta", text: "In your notes" }),
+      );
+      onChange(true);
+    };
+    const act = (button, run) => async () => {
+      button.disabled = true;
+      try { await run(); } catch (error) {
+        button.disabled = false;
+        toast(error.message, "error");
+      }
+    };
+    if (gap.status === "past") {
+      const right = el("button", { class: "btn btn-sm", type: "button", text: "That's Right" });
+      const wrong = el("button", { class: "btn btn-sm", type: "button", text: "Not True" });
+      right.addEventListener("click", act(right, async () => {
+        await api("/api/gaps", { action: "confirm", line: gap.line });
+        settled(gap.line);
+      }));
+      wrong.addEventListener("click", act(wrong, async () => {
+        await api("/api/library", { action: "strike", text: gap.line });
+        gap.status = "open";
+        delete gap.line;
+        row.replaceWith(gapRow(gap, onChange));
+        onChange(false);
+      }));
+      row.append(
+        el("p", { class: "ask-q", text: `Your past CVs say: "${gap.line}" Is that right?` }),
+        el("div", { class: "ask-actions" }, [right, wrong]),
+      );
+      return row;
+    }
+    const no = el("button", {
+      class: "icon-btn icon-btn-round", type: "button", "aria-label": `No: ${gap.question}`,
+    }, [icon("xmark", 16)]);
+    no.addEventListener("click", act(no, async () => {
+      const line = negative(gap.question);
+      await api("/api/setup/notes", { append: line });
+      settled(line);
+    }));
+    // Yes needs his own words, so the question moves to the chat box.
+    const yes = el("button", {
+      class: "icon-btn icon-btn-round", type: "button", "aria-label": `Yes: ${gap.question}`,
+      onclick: () => openChat(gap.question),
+    }, [icon("check", 16)]);
+    row.append(
+      el("p", { class: "ask-q", text: gap.question }),
+      el("div", { class: "ask-actions" }, [no, yes]),
+    );
+    return row;
+  }
+
+  function gapsCard(raw, state, onResolve) {
+    const questions = gapQuestions(raw);
+    const list = el("div", { class: "ask-list" });
+    const node = el("div", { class: "card chat-card" }, [
+      el("p", { class: "eyebrow", text: "Gaps Against This Posting" }),
+      list,
+    ]);
+    if (state) {
+      list.replaceChildren(...questions.map((q) => el("p", { class: "ask-q", text: q })));
+      node.append(el("div", { class: "chat-card-actions" }, [
+        el("span", { class: "meta", text: "Skipped" }),
+      ]));
+      return node;
+    }
+    list.replaceChildren(el("p", { class: "meta", text: "Checking your notes and past CVs…" }));
+    node.append(el("div", { class: "chat-card-actions" }, [
+      el("button", {
+        class: "btn btn-sm", type: "button", text: "Copy",
+        onclick: (event) => copyText(questions.join("\n"), event.target),
+      }),
+      el("button", {
+        class: "btn btn-sm", type: "button", text: "Skip",
+        onclick: () => onResolve("dismissed"),
+      }),
+    ]));
+    // If the check cannot run, every question is still asked.
+    api("/api/gaps", { action: "check", questions })
+      .catch(() => questions.map((question) => ({ question, status: "open" })))
+      .then((found) => {
+        const asked = found.filter((gap) => gap.status !== "covered");
+        const covered = found.length - asked.length;
+        list.replaceChildren(
+          ...asked.map(gapRow),
+          ...(covered ? [el("p", {
+            class: "meta",
+            text: asked.length
+              ? `${covered} more already answered by your notes.`
+              : "Nothing to ask: your notes cover all of it.",
+          })] : []),
+        );
+      });
+    return node;
+  }
+
+  function cardFor(kind, raw, message, key) {
+    const state = (message.resolved || {})[key];
+    const onResolve = (result) => {
+      message.resolved = { ...(message.resolved || {}), [key]: result };
+      saveChat();
+      node.replaceWith(cardFor(kind, raw, message, key));
+    };
+    let node;
+    let parsed = null;
+    try { parsed = JSON.parse(raw); } catch (error) { /* plain text or a broken card */ }
+    if (kind === "proposal") {
+      if (parsed && typeof parsed.path === "string" && parsed.remove) {
+        const was = getPath(doc, parsed.path);
+        const line = typeof was === "string" ? was : (was && was.text) || "";
+        node = offerCard({
+          label: "Remove", state, onResolve,
+          text: !state && line ? line : "This line.",
+          saved: `Removed from the ${label}`,
+          keep: () => applyRemoval(parsed.path),
+        });
+        return node;
+      }
+      if (parsed && typeof parsed.path === "string" && typeof parsed.show === "boolean") {
+        const entry = getPath(doc, parsed.path);
+        const name = entry && entry.left ? String(entry.left).split(",")[0] : "This role";
+        node = offerCard({
+          label: parsed.show ? "Put On the CV" : "Take Off the CV", text: name, state, onResolve,
+          saved: parsed.show ? "Put on the CV" : "Taken off the CV",
+          keep: () => applyShown(parsed.path, parsed.show),
+        });
+        return node;
+      }
+      if (!parsed || typeof parsed.path !== "string" || typeof parsed.text !== "string") {
+        return el("p", { class: "chat-card-text", text: raw });
+      }
+      const path = parsed.path;
+      const text = parsed.text;
+      const was = getPath(doc, path);
+      node = offerCard({
+        label: path || "Proposal", text, state, onResolve,
+        before: !state && was != null && was !== text ? `Was: ${String(was).slice(0, 180)}` : "",
+        saved: `Applied to the ${label}`,
+        keep: () => applyProposal(path, text),
+      });
+    } else if (kind === "notes") {
+      node = offerCard({
+        label: "For Your Notes", text: raw, state, onResolve,
+        saved: "Added to your notes",
+        keep: () => api("/api/setup/notes", { append: raw, source: "assistant" }),
+      });
+    } else if (kind === "voice") {
+      node = offerCard({
+        label: "For Your Tone", text: raw, state, onResolve,
+        saved: "Added to your tone",
+        keep: () => api("/api/setup/voice", { append: raw }),
+      });
+    } else if (kind === "skill" && parsed && parsed.label && parsed.tool) {
+      node = offerCard({
+        label: "For Your Skills", text: `${parsed.label}: ${parsed.tool}`, state, onResolve,
+        saved: "Added to your skills",
+        keep: () => api("/api/setup/notes", { skill: { label: parsed.label, tool: parsed.tool } }),
+      });
+    } else if (kind === "ask" && parsed && parsed.keyword && parsed.question) {
+      node = el("div", { class: "card chat-card" }, [
+        el("p", { class: "eyebrow", text: parsed.keyword }),
+        state
+          ? el("p", { class: "chat-card-text", text: parsed.question })
+          : askRow(parsed.keyword, parsed.question, (action) => {
+            onResolve(action === "answer" ? "accepted" : "dismissed");
+            paintTerms();
+          }),
+        state ? el("span", {
+          class: "meta", text: state === "accepted" ? "Added to your notes" : "Noted as a no",
+        }) : null,
+      ].filter(Boolean));
+    } else if (kind === "gaps") {
+      node = gapsCard(raw, state, onResolve);
+    } else {
+      node = el("p", { class: "chat-card-text", text: raw });
+    }
+    return node;
+  }
+
+  function reply(message) {
     const node = el("div", { class: "chat-reply" });
+    const content = message.content;
     let last = 0;
+    let n = 0; // same numbering the server uses to drop resolved proposals
     const text = (part) => {
       if (!part.trim()) return;
       const box = el("div", { class: "md" });
@@ -226,8 +692,9 @@ export async function drawReview(ctx) {
     for (const match of content.matchAll(BLOCK)) {
       text(content.slice(last, match.index));
       last = match.index + match[0].length;
-      if (match[1] === "proposal") node.append(proposalCard(match[2]));
-      else text(match[0]);
+      const raw = match[2].trim();
+      if (match[1] === "answer") node.append(answerCard(raw));
+      else node.append(cardFor(match[1], raw, message, String(n++)));
     }
     text(content.slice(last));
     return node;
@@ -253,7 +720,10 @@ export async function drawReview(ctx) {
       class: "icon-btn review-chat-close", type: "button", "aria-label": "Close chat",
       onclick: () => { dictate.cancel(); chatting = false; paintSide(); },
     }, [icon("xmark", 16)]);
-    const messages = [];
+    if (!Array.isArray(ctx.history.messages)) ctx.history.messages = [];
+    // One file holds both documents and the old drafting rounds nobody typed.
+    const thread = () => ctx.history.messages.filter(
+      (m) => !m.pipeline && (m.document || "cv") === kind);
     let busy = false;
     let connected = null;
     const dictate = attachDictate({ button: mic, input: box });
@@ -271,7 +741,8 @@ export async function drawReview(ctx) {
       send.disabled = true;
       mic.disabled = true;
       box.value = "";
-      messages.push({ role: "user", content: question });
+      const asked = { role: "user", content: question, document: kind };
+      ctx.history.messages.push(asked);
       clearEmpty();
       log.append(el("p", { class: "chat-mine", text: question }));
       const live = el("p", { class: "chat-live meta", text: "Thinking…" });
@@ -287,7 +758,7 @@ export async function drawReview(ctx) {
             provider: connected.provider, model: connected.model,
             job_description: ctx.history.job_description,
             wanted: ctx.terms && ctx.terms.current ? ctx.terms.keywords : [],
-            messages,
+            messages: thread().map(({ role, content: said, resolved }) => ({ role, content: said, resolved })),
           }),
         });
         if (!response.ok) {
@@ -304,19 +775,30 @@ export async function drawReview(ctx) {
           log.scrollTop = log.scrollHeight;
         }
         const [said, failed] = content.split(STREAM_ERROR);
-        content = said;
-        messages.push({ role: "assistant", content });
-        live.replaceWith(reply(content));
+        if (!said.trim()) throw new Error(failed || "No reply came back. Try again.");
+        const answer = { role: "assistant", content: said, document: kind };
+        ctx.history.messages.push(answer);
+        live.replaceWith(reply(answer));
+        saveChat();
         if (failed) toast(failed, "error");
       } catch (error) {
         live.remove();
-        messages.pop();
+        ctx.history.messages.splice(ctx.history.messages.indexOf(asked), 1);
         toast(error.message, "error");
       } finally {
         busy = false;
         send.disabled = false;
         mic.disabled = false;
         log.scrollTop = log.scrollHeight;
+      }
+    }
+
+    if (thread().length) {
+      empty.remove();
+      for (const message of thread()) {
+        log.append(message.role === "user"
+          ? el("p", { class: "chat-mine", text: message.content })
+          : reply(message));
       }
     }
 
@@ -349,30 +831,29 @@ export async function drawReview(ctx) {
     side.classList.toggle("is-chat", chatting);
     if (chatting) {
       side.replaceChildren(mountChat());
+      const log = side.querySelector(".chat-log");
+      log.scrollTop = log.scrollHeight;
       return;
     }
     const blocks = [
-      el("section", { class: "rail-block" }, [el("p", { class: "eyebrow", text: "Language" }), coverage]),
-      el("section", { class: "rail-block" }, [el("p", { class: "eyebrow", text: "Before you send" }), checks]),
+      el("section", { class: "rail-block" }, [
+        el("p", { class: "eyebrow", text: "Language" }),
+        coverage,
+        termsList,
+      ]),
+      gapsBlock,
+      checks,
       el("section", { class: "rail-block" }, [
         el("p", { class: "eyebrow", text: "Changes" }),
-        el("div", { class: "rows" }, [
-          el("div", {}, [
-            el("span", {
-              text: kind === "cover"
-                ? "Ask the model to adjust a paragraph"
-                : "Ask the model to adjust a line",
-            }),
-            el("a", {
-              href: "#change", text: "Change",
-              onclick: (event) => { event.preventDefault(); chatting = true; paintSide(); },
-            }),
-          ]),
-        ]),
+        changeRows,
       ]),
     ];
-    // Cover letter is its own mode now — no Create link on CV Review.
     side.replaceChildren(...blocks);
+    paintChecks();
+    paintTerms();
+    paintAsk();
+    paintGaps();
+    paintChanges();
   }
 
   host.replaceChildren(el("div", { class: "review" }, [
@@ -388,7 +869,18 @@ export async function drawReview(ctx) {
     ]),
     side,
   ]));
+  if (kind === "cv") ctx.setFitRefresh(runGapCheck);
+  // A saved list stays while the posting is the same; a new posting drops it.
+  const postingKey = (key) => String(key).split("\n").slice(0, 3).join("\n");
+  const savedGaps = kind === "cv" ? loadGaps() : null;
+  if (savedGaps && postingKey(savedGaps.key) === postingKey(ctx.fitKey())) gaps = savedGaps.gaps;
   paintSide();
+  // Reaching Review by Next means the CV is finished: check it, unless this
+  // exact CV has been checked already.
+  if (kind === "cv" && ctx.consumeAutoFill("review")
+      && !(savedGaps && savedGaps.key === ctx.fitKey())) {
+    runGapCheck();
+  }
 
   async function reload() {
     pages = null;
@@ -414,6 +906,8 @@ export async function drawReview(ctx) {
         document: kind, doc, job_description: ctx.history.job_description, app: ctx.app,
       });
       if (scored.needs_list || scored.score === null) {
+        matched = [];
+        missing = [];
         coverage.replaceChildren(el("p", {
           class: "meta",
           text: kind === "cover"
@@ -421,21 +915,33 @@ export async function drawReview(ctx) {
             : "Read the posting's terms on step 1 first.",
         }));
       } else {
+        matched = scored.matched || [];
         missing = scored.missing || [];
-        const total = (scored.matched || []).length + missing.length;
+        const total = matched.length + missing.length;
         const score = Math.round(Number(scored.score));
         const band = scoreBand(score);
         coverage.replaceChildren(
           el("div", { class: "score-row" }, [
-            el("span", { class: "meta tnum", text: `${(scored.matched || []).length} of ${total} Terms` }),
+            el("span", { class: "meta tnum", text: `${matched.length} of ${total} Terms` }),
             el("span", { class: `meta tnum ${band}`, text: String(score) }),
           ]),
           el("div", { class: `meter ${band}`, role: "img", "aria-label": `Language ${score} of 100` }, [
             el("span", { style: `width: ${Math.max(0, Math.min(100, score))}%` }),
           ]),
         );
-        paintChecks();
       }
+      try {
+        const state = await api("/api/keywords", { action: "get", app: ctx.app });
+        keywordMap = state.map || {};
+        if (ctx.terms) {
+          ctx.terms.map = keywordMap;
+          ctx.terms.keywords = state.keywords || ctx.terms.keywords;
+          ctx.terms.current = state.current;
+        }
+      } catch (e) { /* map optional */ }
+      paintChecks();
+      paintTerms();
+      paintAsk();
     } catch (error) {
       coverage.replaceChildren(el("p", { class: "meta", text: `Could not count: ${error.message}` }));
     }
