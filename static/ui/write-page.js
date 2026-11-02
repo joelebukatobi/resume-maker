@@ -561,6 +561,10 @@ async function askSection(phase, extra = {}) {
 // Cover letter: same chat plumbing as Pico (letter rules + voice + notes +
 // JD), one turn that proposes every paragraph; we auto-accept.
 async function askLetter() {
+  return parseProposals(await askTurn(phase, extra));
+}
+
+async function askTurn(phase, extra = {}) {
   const model = await agent().catch(() => null);
   if (!model) throw new Error("Connect a model first.");
   const response = await fetch("/api/chat", {
@@ -589,7 +593,7 @@ async function askLetter() {
   }
   const [reply, failed] = (await response.text()).split(String.fromCharCode(0));
   if (failed) throw new Error(failed);
-  return parseProposals(reply);
+  return reply;
 }
 
 const sectionIndex = (word) => (documents.cv.sections || []).findIndex(
