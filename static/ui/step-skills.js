@@ -205,7 +205,8 @@ export async function drawSkills(ctx) {
   }
 
   ctx.setRefresh(fill);
-  if (ctx.consumeAutoFill && ctx.consumeAutoFill("skills")) await fill();
+  const empty = items.every((item) => !String(item.text || "").trim());
+  if (ctx.consumeAutoFill && ctx.consumeAutoFill("skills") && empty) await fill();
   else {
     lead.textContent = "Everything from your notes and past CVs. Blue ones are the match for this posting - tap to change.";
     try {

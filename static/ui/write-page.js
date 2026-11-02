@@ -43,11 +43,22 @@ let documents = null; // /api/document: the cv, the letter and both themes
 let refreshHandler = null; // current step's "run this section again"
 let lastFit = null; // model's fit reading for this CV + posting
 
-// JD model fill (skeleton + section turn) runs only from the foot refresh
-// button. Opening an app, reloading the page, or clicking a step tab never
-// starts it — those only show what is already saved.
-function consumeAutoFill(_step) {
-  return false;
+// Pressing Next is the only thing that starts a step's model fill by itself.
+// Opening an app, reloading the page, or clicking a step tab only shows what is
+// already saved. Kept in sessionStorage because naming a new application
+// reloads the page on the way to the summary.
+const FILL_NEXT = "resume-maker.fill-next";
+
+function markFill(step) {
+  try { sessionStorage.setItem(FILL_NEXT, step); } catch (e) { /* it just won't write */ }
+}
+
+function consumeAutoFill(step) {
+  try {
+    const marked = sessionStorage.getItem(FILL_NEXT) === step;
+    if (marked) sessionStorage.removeItem(FILL_NEXT);
+    return marked;
+  } catch (e) { return false; }
 }
 
 const posting = () => (history.job_description || "").trim();
@@ -426,7 +437,9 @@ function postingRead() {
     ]),
     box,
     el("div", { class: "step-foot" }, [
-      stepAction("a", { href: "#summary", "aria-label": "Continue" }, "right"),
+      stepAction("a", {
+        href: "#summary", "aria-label": "Continue", onclick: () => markFill("summary"),
+      }, "right"),
       sectionRefresh(),
     ]),
   ];
@@ -495,6 +508,7 @@ async function begin(text, button) {
         action: "identify", slug: APP, job_description: fresh,
         provider: model.provider, model: model.model,
       });
+    markFill("summary");
       location.replace(`/${encodeURIComponent(found.application.slug)}/write#summary`);
       return;
     }
@@ -638,6 +652,10 @@ function route() {
   paintSteps(here);
   // Cover letter shares the posting; it never has its own paste step.
   if (MODE === "cover") {
+  // A Next that was abandoned for another tab does not fire later.
+  try {
+    if (sessionStorage.getItem(FILL_NEXT) !== here) sessionStorage.removeItem(FILL_NEXT);
+  } catch (e) { /* nothing marked */ }
     if (!posting()) {
       location.replace(`/${encodeURIComponent(APP)}/write#posting`);
       return;

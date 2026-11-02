@@ -471,8 +471,8 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn("steps-progress", page)
         self.assertIn("refreshPostingTerms", page)
         self.assertIn("function consumeAutoFill", page)        # steps still call it
-        self.assertRegex(page, r"function consumeAutoFill\([^)]*\)\s*\{\s*return false;")
-        self.assertIn("setRefresh", page)                      # only the foot refresh runs the model
+        self.assertIn('markFill(id); location.hash', page)     # Next starts the fill, tabs do not
+        self.assertIn("setRefresh", page)
         self.assertIn("--measure-list: 960px", self.fetch("/static/ui/tokens.css"))
         additional = self.fetch("/static/ui/step-additional.js")
         self.assertIn('ctx.askSection("additional")', additional)

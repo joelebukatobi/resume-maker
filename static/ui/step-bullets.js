@@ -483,7 +483,8 @@ async function drawEdit(ctx, at, entries) {
   }
 
   ctx.setRefresh(fillAll);
-  if (ctx.consumeAutoFill && ctx.consumeAutoFill("bullets")) await fillAll();
+  const empty = roles.every((role) => !role.lines.some((line) => String(line || "").trim()));
+  if (ctx.consumeAutoFill && ctx.consumeAutoFill("bullets") && empty) await fillAll();
   else {
     // Past lines for swap, no model turn.
     for (const role of roles) {

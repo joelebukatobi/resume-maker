@@ -188,7 +188,8 @@ export async function drawAdditional(ctx) {
   }
 
   ctx.setRefresh(fill);
-  if (ctx.consumeAutoFill && ctx.consumeAutoFill("additional")) await fill();
+  const empty = lines.every((line) => !line.trim());
+  if (ctx.consumeAutoFill && ctx.consumeAutoFill("additional") && empty) await fill();
   else {
     lead.textContent = lines.some((line) => line.trim())
       ? "Recommended for this posting. Open a line to change it, or swap in another."
