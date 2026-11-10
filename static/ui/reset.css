@@ -69,157 +69,56 @@ table {
   display: none !important;
 }
 
-/* Scrollbars: 6px gray thumb, no arrows, no white track.
-   Do NOT set scrollbar-width/color on Chromium — that forces GTK arrows.
-   Thumb stays hidden until the surface is hovered or focused. */
-:where(
-  html,
-  body,
-  textarea,
-  .doc-body,
-  .doc-source,
-  .chat-log,
-  .main,
-  .measure,
-  .review-chat .chat-log,
-  .thin-scroll
-)::-webkit-scrollbar {
-  /* 6px thumb + more room from the right edge */
+/* Scrollbars, the same everywhere: a 6px gray thumb that is always shown, an
+   arrow at each end touching it, no track. Always shown on purpose: a thumb
+   restyled on hover makes Chromium redraw the bar mid-scroll, which stalls a
+   mouse wheel. Do NOT set scrollbar-width/color on Chromium; that forces GTK
+   arrows. */
+*::-webkit-scrollbar {
   width: 16px;
   height: 16px;
   background: transparent;
 }
 
-:where(
-  html,
-  body,
-  textarea,
-  .doc-body,
-  .doc-source,
-  .chat-log,
-  .main,
-  .measure,
-  .review-chat .chat-log,
-  .thin-scroll
-)::-webkit-scrollbar-button {
-  display: none !important;
-  width: 0 !important;
-  height: 0 !important;
-  background: transparent !important;
-  border: 0 !important;
+*::-webkit-scrollbar-button {
+  display: none;
 }
 
-:where(
-  html,
-  body,
-  textarea,
-  .doc-body,
-  .doc-source,
-  .chat-log,
-  .main,
-  .measure,
-  .review-chat .chat-log,
-  .thin-scroll
-)::-webkit-scrollbar-track,
-:where(
-  html,
-  body,
-  textarea,
-  .doc-body,
-  .doc-source,
-  .chat-log,
-  .main,
-  .measure,
-  .review-chat .chat-log,
-  .thin-scroll
-)::-webkit-scrollbar-track-piece {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  margin-block: 8px;
+*::-webkit-scrollbar-button:single-button {
+  display: block;
+  width: 16px;
+  height: 16px;
+  background: transparent no-repeat center / 8px 8px;
+  border: 0;
 }
 
-:where(
-  html,
-  body,
-  textarea,
-  .doc-body,
-  .doc-source,
-  .chat-log,
-  .main,
-  .measure,
-  .review-chat .chat-log,
-  .thin-scroll
-)::-webkit-scrollbar-corner {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
+*::-webkit-scrollbar-button:single-button:vertical:decrement {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Cpath d='M4 2 7 6H1z' fill='%239B9BA4'/%3E%3C/svg%3E");
 }
 
-:where(
-  html,
-  body,
-  textarea,
-  .doc-body,
-  .doc-source,
-  .chat-log,
-  .main,
-  .measure,
-  .review-chat .chat-log,
-  .thin-scroll
-)::-webkit-scrollbar-thumb {
-  background: transparent !important;
-  background-clip: padding-box !important;
-  /* ~5px clear of the right border; 6px visible thumb when shown */
-  border: 5px solid transparent !important;
+*::-webkit-scrollbar-button:single-button:vertical:increment {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Cpath d='M4 6 7 2H1z' fill='%239B9BA4'/%3E%3C/svg%3E");
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track-piece,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+*::-webkit-scrollbar-thumb {
+  /* 5px clear on each side leaves a 6px visible thumb. */
+  background: var(--text-secondary);
+  background-clip: padding-box;
+  border: 5px solid transparent;
   border-radius: 8px;
 }
 
-:where(
-  html,
-  body,
-  textarea,
-  .doc-body,
-  .doc-source,
-  .chat-log,
-  .main,
-  .measure,
-  .review-chat .chat-log,
-  .thin-scroll
-):is(:hover, :focus, :focus-within)::-webkit-scrollbar-thumb {
-  background: var(--text-secondary) !important;
-  background-clip: padding-box !important;
-}
-
 @supports not selector(::-webkit-scrollbar) {
-  :where(
-    html,
-    body,
-    textarea,
-    .doc-body,
-    .doc-source,
-    .chat-log,
-    .main,
-    .measure,
-    .review-chat .chat-log,
-    .thin-scroll
-  ) {
+  * {
     scrollbar-width: thin;
-    scrollbar-color: transparent transparent;
-  }
-
-  :where(
-    html,
-    body,
-    textarea,
-    .doc-body,
-    .doc-source,
-    .chat-log,
-    .main,
-    .measure,
-    .review-chat .chat-log,
-    .thin-scroll
-  ):is(:hover, :focus, :focus-within) {
     scrollbar-color: var(--text-secondary) transparent;
   }
 }

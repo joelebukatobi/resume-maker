@@ -387,23 +387,50 @@ body[data-page="hub"] .apps-pager:not([hidden]) {
 
 /* The toast: saved, failed, working. */
 
+/* Hangs under the tab strip, centred, the size of a tab. It slides out from
+   behind the strip, so it sits one layer below it. */
 .toast {
   position: fixed;
-  right: var(--gutter);
-  bottom: var(--gutter);
-  z-index: var(--layer-toast);
-  max-width: 360px;
-  padding: var(--space-sm) var(--space-md);
+  top: calc(var(--toast-top, var(--nav-height)) + var(--space-xs));
+  left: 50%;
+  z-index: calc(var(--layer-nav) - 2);
+  max-width: min(560px, calc(100vw - 2 * var(--space-md)));
+  padding: 6px 10px;
+  font-size: 13px;
+  line-height: 16px;
+  letter-spacing: 0.01em;
+  text-align: center;
   color: var(--text);
   background: var(--raised);
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-control);
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, calc(-100% - var(--space-md)));
+  transition: transform 200ms ease, opacity 200ms ease, visibility 0s 200ms;
+  cursor: default;
 }
 
+.toast.is-open {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+  transition: transform 200ms ease, opacity 200ms ease;
+}
+
+.toast[data-state="done"],
+.toast[data-state="warn"],
 .toast[data-state="error"] {
-  color: var(--open-tint-text);
-  background: var(--open-tint);
-  border-color: var(--open);
+  color: #FFFFFF;
+  border-color: transparent;
+}
+
+.toast[data-state="done"] { background: var(--backed); }
+.toast[data-state="warn"] { background: var(--open); }
+.toast[data-state="error"] { background: var(--risk); }
+
+@media (prefers-reduced-motion: reduce) {
+  .toast, .toast.is-open { transition: none; }
 }
 
 @media (max-width: 900px) {
@@ -531,6 +558,53 @@ body[data-page="hub"] .apps-pager:not([hidden]) {
   border-color: var(--action-text);
 }
 
+/* Markdown view as a small code editor: line numbers, mono, no wrapping. */
+.code-edit {
+  display: flex;
+  height: 64vh;
+  min-height: 480px;
+  background: var(--ground);
+  border: 1px solid var(--hairline);
+  border-radius: 0 0 var(--radius-control) var(--radius-control);
+  overflow: hidden;
+}
+
+.code-edit[hidden] { display: none; }
+.code-edit:focus-within { border-color: var(--action-text); }
+
+.code-gutter {
+  flex: none;
+  min-width: 48px;
+  margin: 0;
+  padding: var(--space-md) var(--space-sm) calc(var(--space-md) + 16px);
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 22px;
+  text-align: right;
+  color: var(--text-muted);
+  border-right: 1px solid var(--hairline);
+  user-select: none;
+}
+
+.code-edit .doc-source {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  padding: var(--space-md);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 22px;
+  white-space: pre;
+  tab-size: 2;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  resize: none;
+}
+
 .segment {
   display: inline-flex;
   gap: 2px;
@@ -592,6 +666,12 @@ body[data-page="hub"] .apps-pager:not([hidden]) {
 
 .md .md-heading + .md-heading { margin-top: var(--space-sm); }
 
+/* Notes and Voice files: section titles (## in the file) in capitals, and
+   room above every title that follows text. */
+.doc-body.md h3.md-heading { text-transform: uppercase; letter-spacing: 0.04em; }
+.doc-body.md :is(.md-p, .md-list) + .md-heading { margin-top: var(--space-xl); }
+.doc-body.md :is(.md-p, .md-list) + h4.md-heading { margin-top: var(--space-lg); }
+
 .md .md-p,
 .md .md-list {
   margin: 0;
@@ -620,18 +700,97 @@ body[data-page="hub"] .apps-pager:not([hidden]) {
 .chat-log { display: flex; flex-direction: column; gap: var(--space-sm); }
 .chat-log:not(:empty) { margin-bottom: var(--space-md); }
 
+/* Chat bubbles, rounder than controls: his on the right in mid gray, the
+   model's words on the left in a darker gray. Every bubble and keep card
+   stops at the same width. */
 .chat-mine {
   align-self: flex-end;
-  max-width: 80%;
+  max-width: min(560px, 85%);
   padding: var(--space-xs) var(--space-sm);
-  background: var(--raised);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-control);
+  color: var(--bubble-mine-text);
+  background: var(--bubble-mine);
+  border-radius: 10px;
 }
 
 .chat-live { white-space: pre-wrap; }
 
 .chat-reply { display: flex; flex-direction: column; gap: var(--space-sm); }
+
+.chat-live,
+.chat-reply > .md {
+  align-self: flex-start;
+  max-width: min(560px, 85%);
+  padding: var(--space-xs) var(--space-sm);
+  color: var(--bubble-model-text);
+  background: var(--bubble-model);
+  border-radius: 10px;
+}
+
+.chat-reply > .md * { color: inherit; }
+
+/* What the model offers to keep: blue, white text, white buttons with blue text. */
+.chat-card {
+  align-self: flex-start;
+  width: min(560px, 85%);
+  color: #FFFFFF;
+  background: var(--action-fill);
+  border-color: var(--action-fill);
+  border-radius: 10px;
+}
+
+.chat-card .eyebrow,
+.chat-card .meta { color: rgba(255, 255, 255, 0.8); }
+
+.chat-card .ask-q-btn,
+.chat-card .icon-btn { color: #FFFFFF; }
+
+/* Its choices read as text, not buttons: white words, underlined on hover. */
+.chat-card .btn,
+.chat-card .btn-primary {
+  height: auto;
+  padding: 0;
+  font-weight: 500;
+  color: #FFFFFF;
+  background: none;
+  border: 0;
+}
+
+.chat-card .btn:hover,
+.chat-card .btn-primary:hover,
+.chat-card .btn:focus-visible {
+  color: #FFFFFF;
+  text-decoration: underline;
+  background: none;
+}
+
+.chat-card .btn:disabled { opacity: 0.6; }
+/* Keep and Skip sit on the card's title line, at the right. */
+.chat-card { position: relative; }
+/* The title line, then a rule, then the text. */
+.chat-card > .eyebrow {
+  padding: 0 128px var(--space-sm) 0;
+  margin-bottom: var(--space-sm);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.chat-card > .eyebrow + .chat-card-text,
+.chat-card > .eyebrow + .meta + .chat-card-text { margin-top: 0; }
+
+.chat-card .chat-card-actions {
+  position: absolute;
+  top: var(--space-md);
+  right: var(--space-md);
+  gap: var(--space-md);
+}
+
+/* Keep, Skip and what became of the card, in caps like the title. */
+.chat-card .chat-card-actions .btn,
+.chat-card .chat-card-actions .meta {
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
 
 .chat-card-text { margin: var(--space-xs) 0 var(--space-sm); white-space: pre-wrap; }
 .chat-card-actions { display: flex; gap: var(--space-xs); align-items: center; }
@@ -1270,74 +1429,121 @@ textarea.input.bullet-own {
   color: var(--text-secondary);
 }
 
-/* Review: one viewport — paper left, rail right, rule from steps to page end. */
+/* Review: one centred column. Cards, then the chat; the page opens in a
+   modal over it. */
 
-.shell:has(.review) {
-  height: 100vh;
-  overflow: hidden;
-}
+/* Under the lead: the page sentence, a dot, then View CV as a link. */
+.review-fit { margin-top: var(--space-xs); color: var(--text-secondary); }
+.review-dot { margin: 0 var(--space-xs); color: var(--text-muted); }
 
-.page:has(.review) {
-  flex: 1 1 auto;
-  flex-wrap: nowrap; /* a wrapping line grows with its content, past the viewport */
-  min-height: 0;
-}
-
-.main:has(.review) {
-  display: flex;
-  flex: 1 1 auto;
-  min-height: 0;
+.link-btn {
   padding: 0;
-  overflow: hidden;
+  font: inherit;
+  color: var(--action-text);
+  text-decoration: underline;
+  background: none;
+  border: 0;
+  cursor: pointer;
 }
 
-.review {
+.link-btn:hover { color: var(--text); }
+
+.review-cards {
   display: flex;
-  flex: 1 1 auto;
-  align-items: stretch;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+}
+
+/* Accordion cards: title left, chevron right, a rule under the title when open. */
+.review-card[hidden] { display: none; }
+
+.review-card-head {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
-  width: 100%;
-  min-height: 0;
-  gap: 0;
+  gap: var(--space-sm);
+  list-style: none;
+  cursor: pointer;
 }
 
-.review-main {
-  flex: 1 1 auto;
-  min-width: 0;
-  max-width: none;
+.review-card-head::-webkit-details-marker { display: none; }
+.review-card-head svg { color: var(--text-secondary); transition: transform 160ms ease; }
+.review-card-status { margin-left: auto; font-size: 12px; }
+.review-card[open] .review-card-head svg { transform: rotate(180deg); }
+
+.review-card[open] .review-card-head {
+  padding-bottom: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* Gaps: numbered, roomier rows, the two answers further apart. */
+.review-gaps,
+.review-gaps .ask-list {
   display: flex;
   flex-direction: column;
-  padding: var(--space-md) var(--gutter);
-  min-height: 0;
+  gap: var(--space-xs);
 }
 
-.review-main .page-head { flex: 0 0 auto; }
-.review-main .page-head .lead { margin-bottom: var(--space-sm); }
+.review-gaps { counter-reset: gap; }
+.review-gaps .ask-head::before {
+  counter-increment: gap;
+  content: counter(gap) ".";
+  flex: 0 0 auto;
+  min-width: 20px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
 
-.review-side {
-  flex: 0 0 var(--rail-width);
-  width: var(--rail-width);
-  max-width: none;
-  min-width: var(--rail-width);
-  padding: var(--space-md) var(--gutter);
-  border-left: 1px solid var(--hairline);
-  overflow: auto;
+.review-gaps .ask-q { flex: 1 1 auto; }
+.review-gaps .ask-actions { gap: var(--space-sm); }
+
+.cv-modal {
+  position: fixed;
+  inset: 0;
+  z-index: var(--layer-dialog);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-lg);
+  background: color-mix(in srgb, var(--ground) 55%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 160ms ease, visibility 0s 160ms;
+}
+
+.cv-modal.is-shown {
+  visibility: visible;
+  opacity: 1;
+  transition: opacity 160ms ease;
+}
+
+.cv-modal-card {
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  transition: flex-basis 160ms ease, width 160ms ease, min-width 160ms ease;
+  gap: var(--space-sm);
+  width: min(960px, 100%);
+  height: 100%;
+  padding: var(--space-md);
+  background: var(--raised);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-control);
 }
 
-.review-side .rail-block + .rail-block { margin-top: var(--space-md); }
-.review-side .rail-block .eyebrow { margin-bottom: var(--space-xs); }
-
-.review-side.is-chat {
-  flex-basis: var(--rail-chat);
-  width: var(--rail-chat);
-  min-width: var(--rail-chat);
-  /* Left half for a longer box; right matches nav/steps so × · Save · theme line up. */
-  padding-left: calc(var(--gutter) / 2);
-  padding-right: var(--gutter);
+/* The close sits inside the canvas: top right, level with the top of the
+   sheet (the preview's 24px pad), as far in as the zoom buttons. */
+.modal-close.cv-modal-close {
+  position: absolute;
+  top: 24px;
+  right: calc(var(--space-sm) + 16px);
+  z-index: 2;
+  margin: 0;
+  color: var(--text);
+  background: var(--raised);
+  border: 1px solid var(--hairline-strong);
 }
 
 .paper-wrap {
@@ -1383,59 +1589,6 @@ textarea.input.bullet-own {
   background: var(--hover-overlay);
   border-radius: var(--radius-full);
 }
-
-.review-chat {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-height: 0;
-  gap: var(--space-sm);
-}
-
-.review-chat-close {
-  position: absolute;
-  top: 0;
-  right: 0;
-  z-index: 1;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-full);
-}
-
-.review-chat-close:hover {
-  color: var(--on-action);
-  background: var(--action-fill);
-  border-radius: var(--radius-full);
-}
-
-.review-chat .chat-log {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-}
-
-/* Long threads scroll; messages keep their height and clear the close button. */
-.review-chat .chat-log { padding-top: var(--space-lg); }
-.review-chat .chat-log > * { flex-shrink: 0; }
-
-.review-chat .chat-log:has(> .chat-empty:only-child) {
-  justify-content: center;
-  align-items: center;
-}
-
-.review-chat .chat-empty {
-  margin: 0;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 14px;
-  line-height: 22px;
-}
-
-.review-chat .chat-box { margin-top: auto; }
 
 .review-chat .chat-row {
   display: flex;
@@ -1497,8 +1650,6 @@ textarea.input.bullet-own {
 .ask-actions { display: flex; flex: 0 0 auto; gap: var(--space-xxs); }
 .ask-row .input { margin-top: var(--space-xs); }
 
-.review-check { margin: 0; }
-.review-check:empty { display: none; }
 .fit-over { color: var(--risk); font-weight: 500; }
 .fit-spare { color: var(--backed-text); font-weight: 500; }
 .rail-block[hidden] { display: none; }
@@ -1927,3 +2078,116 @@ textarea.input.bullet-own {
   font-size: 13px;
   letter-spacing: 0.02em;
 }
+
+/* The paste step: two tiles side by side, the same size. Empty, each is a
+   box to paste into; filled, it folds into a card with the start of the text. */
+.tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+}
+
+.tile {
+  position: relative;
+  height: 240px;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--radius-control);
+}
+
+.tile:hover,
+.tile:focus-within { border-color: var(--text-muted); }
+
+.tile-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: var(--space-sm);
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--text);
+  resize: none;
+  background: transparent;
+  border: 0;
+  outline: none;
+}
+
+/* Empty: the placeholder sits in the middle, like the old tiles. */
+.tile-input:placeholder-shown { padding-top: calc(120px - 11px); text-align: center; }
+.tile-input::placeholder { color: var(--text-secondary); }
+
+.tile-card {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.tile-tag {
+  align-self: flex-start;
+  padding: 2px 6px;
+  font-size: 11px;
+  line-height: 16px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text);
+  background: var(--action-tint);
+  border-radius: var(--radius-control);
+}
+
+.tile-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: 7;
+  -webkit-box-orient: vertical;
+}
+
+.tile-meta { margin-top: auto; font-size: 12px; color: var(--text-muted); }
+
+.tile-x {
+  position: absolute;
+  top: var(--space-xs);
+  right: var(--space-xs);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--text-secondary);
+  background: var(--raised);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-full);
+}
+
+.tile-x:hover { color: #fff; background: var(--risk); border-color: var(--risk); }
+
+@media (max-width: 640px) {
+  .tiles { grid-template-columns: 1fr; }
+}
+
+/* A gap's question is the way to answer it: it reads as text and acts as a link. */
+.ask-q-btn {
+  padding: 0;
+  color: var(--text);
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.ask-q-btn:hover,
+.ask-q-btn:focus-visible { color: var(--action-text); }

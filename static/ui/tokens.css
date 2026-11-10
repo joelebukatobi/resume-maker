@@ -30,6 +30,11 @@
   --risk-text: #F97066;
   --hover-overlay: rgba(214, 214, 221, 0.06);
   --pressed-overlay: rgba(214, 214, 221, 0.10);
+  /* Chat bubbles: two distinct grays, his a step stronger than the model's. */
+  --bubble-mine: #4B4B53;
+  --bubble-mine-text: #FFFFFF;
+  --bubble-model: #313136;
+  --bubble-model-text: #D6D6DD;
 
   /* The page being written is not themed by the app. */
   --ink: #111111;
@@ -98,6 +103,10 @@
   --risk-text: #D92D20;
   --hover-overlay: rgba(24, 24, 27, 0.04);
   --pressed-overlay: rgba(24, 24, 27, 0.08);
+  --bubble-mine: #D4D4D8;
+  --bubble-mine-text: #18181B;
+  --bubble-model: #E4E4E7;
+  --bubble-model-text: #18181B;
 }
 
 @media (prefers-color-scheme: light) {
@@ -128,5 +137,9 @@
     --risk-text: #D92D20;
     --hover-overlay: rgba(24, 24, 27, 0.04);
     --pressed-overlay: rgba(24, 24, 27, 0.08);
+    --bubble-mine: #D4D4D8;
+    --bubble-mine-text: #18181B;
+    --bubble-model: #E4E4E7;
+    --bubble-model-text: #18181B;
   }
 }
