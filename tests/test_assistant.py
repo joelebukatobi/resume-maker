@@ -695,7 +695,7 @@ class StyleAndNotesPromptTests(unittest.TestCase):
     def test_style_and_notes_are_appended_under_their_own_headings(self):
         prompt = self.prompt(voice_md="Ban the word 'spearheaded'.",
                              notes_md="Ran weekly triage for the Amazon CXI dataset.")
-        self.assertIn("## The user's voice", prompt)
+        self.assertIn("## The user's playbook", prompt)
         self.assertIn("Ban the word 'spearheaded'.", prompt)
         self.assertIn("## Experience notes", prompt)
         self.assertIn("Ran weekly triage for the Amazon CXI dataset.", prompt)
@@ -703,12 +703,12 @@ class StyleAndNotesPromptTests(unittest.TestCase):
     def test_protocol_rules_stay_first(self):
         prompt = self.prompt(voice_md="Style rules here.", notes_md="Notes here.")
         self.assertTrue(prompt.startswith("You are a careful resume"))
-        self.assertLess(prompt.index("proposal"), prompt.index("## The user's voice"))
+        self.assertLess(prompt.index("proposal"), prompt.index("## The user's playbook"))
 
     def test_missing_style_and_notes_add_no_headings(self):
         plain = assistant.system_prompt("cv", self.cv)
         self.assertEqual(plain, self.prompt(voice_md="", notes_md="   "))
-        self.assertNotIn("## The user's voice", plain)
+        self.assertNotIn("## The user's playbook", plain)
         self.assertNotIn("## Experience notes", plain)
 
     def test_job_description_still_works_alongside_them(self):

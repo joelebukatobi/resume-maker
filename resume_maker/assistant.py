@@ -56,6 +56,15 @@ class ImportFailed(ValueError):
 # --------------------------------------------------------------- field paths
 
 
+# The CV's structure: the name, contacts, section headings, and each entry's
+# organisation (team included), location, role and dates. These are facts the
+# user sets in Settings; the notes are evidence for what the lines say, never
+# for these. The chat marks them fixed and Review refuses a change to one.
+FIXED_CV_FIELD = re.compile(
+    r"^(?:name|contact\.\d+\.text|sections\.\d+\.heading"
+    r"|sections\.\d+\.entries\.\d+\.(?:left|right|sub_left|sub_right))$")
+
+
 def field_paths(document: str, data: Mapping[str, Any], printed_only: bool = False) -> Iterator[tuple[str, str, str]]:
     """Every editable text field as ``(path, label, current text)``.
 
@@ -115,7 +124,8 @@ Non-negotiable, whatever else the style file says:
   A dates field is the exception. The dash between two dates is a setting, not
   punctuation, and the tool rewrites it on export. Never propose changing it,
   and never replace it with the word "to".
-- Never name an internal team, org or project. Describe it by what it did.
+- Never name an internal team, org or project in a bullet or the summary.
+  Describe it by what it did.
 {letter_rules}
 
 How to answer:
@@ -203,7 +213,7 @@ How to answer:
 ```voice
 <the rule, one or two plain sentences>
 ```
-  The editor shows it with an "Add to Voice" button; it is only written when
+  The editor shows it with a button that adds it to the Playbook; it is only written when
   the user accepts, and the same goes here: never say you have saved it.
   Use notes for what they have done, voice for how they want to sound.
 - Only use paths from the list. Never invent a path.
@@ -612,6 +622,20 @@ it has room for, starting at bullets.0, and none for any other job.
 {lines}
 """
 
+_SECTION_BULLETS_ALL = """\
+## This turn
+
+The CV is being written section by section. This section is the bullets of
+every job on the CV, each one named under its own "His lines for this
+section" with its room. For each job, write every bullet it has room for,
+starting at bullets.0 under that job's own path. A line about one job never
+goes under another, and no job gets more bullets than its room.
+
+{whole}
+
+{lines}
+"""
+
 _SECTION_ADDITIONAL = """\
 ## This turn
 
@@ -629,6 +653,7 @@ SECTIONS = {
     "summary": _SECTION_SUMMARY,
     "skills": _SECTION_SKILLS,
     "bullets": _SECTION_BULLETS,
+    "bullets_all": _SECTION_BULLETS_ALL,
     "additional": _SECTION_ADDITIONAL,
 }
 
@@ -931,7 +956,7 @@ def prompt_parts(
         kind=kind, letter_rules=_LETTER_RULES if kind == "cover letter" else _CV_ONLY_RULES)]
     voice = scope_voice(voice_md, kind)
     if voice:
-        stable += ["## The user's voice", voice, ""]
+        stable += ["## The user's playbook", voice, ""]
     notes = clip_notes(order_notes(notes_md, job_description))
     if notes:
         stable += ["## Experience notes",
@@ -952,7 +977,8 @@ def prompt_parts(
     if fit.strip():
         volatile += [fit.strip(), ""]
     for path, label, text in field_paths(document, data):
-        volatile.append(f"- `{path}` ({label}): {text}")
+        fixed = ", fixed" if document == "cv" and FIXED_CV_FIELD.match(path) else ""
+        volatile.append(f"- `{path}` ({label}{fixed}): {text}")
     if task.strip():
         volatile += ["", task.strip()]
     volatile += ["", _tail(kind)]
@@ -965,7 +991,8 @@ user has had to repeat, and whatever sits nearest here has the most pull.
 - No dashes as punctuation, no colons, no semicolons. The dash between two
   dates is not punctuation and is not yours to change.
 - Nothing invented. Every fact comes from the notes or from the user.
-- No internal team, org or project names. Countries and regions stay.
+- No internal team, org or project names in a bullet or the summary. Countries
+  and regions stay.
 - Nothing is saved until the user presses the button on the card. Never say you
   have saved, recorded or remembered something.
 """
@@ -1088,7 +1115,7 @@ _JOB_RULES = """\
 Read the job posting below and name it.
 Reply with JSON only, nothing else:
 {{"company": "<the hiring company>", "role": "<the job title>", "track": "<one of: {tracks}>"}}
-Copy the company and role exactly as the posting writes them — no additions.
+Copy the company and role exactly as the posting writes them, with no additions.
 If the posting does not state one, use an empty string for it.
 "track" is the kind of role it is, chosen from the list above. Use "Other" only
 when none of the named tracks fits.
@@ -1171,6 +1198,20 @@ GENERIC_TERMS = frozenset({
 
 def keywords_prompt() -> str:
     return _KEYWORD_RULES
+
+
+_NAMING = """This posting is also being named. Put three more fields in the same JSON
+object: "company" (the hiring company), "role" (the job title) and "track"
+(the kind of role, one of: {tracks}). Copy the company and role exactly as the
+posting writes them, with no additions, and use an empty string for one the
+posting does not state. Use "Other" as the track only when none fits.
+"""
+
+
+def named_keywords_prompt() -> str:
+    """The keyword reading and the naming in one call: both read the same
+    posting, so a new application pays for it once."""
+    return f"{_KEYWORD_RULES}\n{_NAMING.format(tracks=', '.join(TRACKS))}"
 
 
 def keywords_request(job_description: str) -> str:
