@@ -33,7 +33,7 @@ python3 -m resume_maker.audit     # notes.md against the user's own words
   what ranks first, how to choose from the notes, the CV's shape, and how the
   writing sounds. It goes into every chat turn. Do not copy those rules into
   prompts in code; code holds the protocol and two locks only:
-  `library.bullet_room` (Amazon 3 bullets, every other role 2) and
+  `library.bullet_room` (the first experience entry 3 bullets, every other role 2) and
   `assistant.FIXED_CV_FIELD` (the CV's structure, refused on Review). Do not
   change either without the user saying so.
 - DOCX and PDF must agree: both renderers read the same `Theme`.

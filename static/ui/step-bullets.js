@@ -309,7 +309,7 @@ async function drawEdit(ctx, at, entries) {
       if (Number.isInteger(index) && index >= 0) byIndex[index] = text;
       else extras.push(text);
     }
-    // The room is fixed (Amazon 3, every other role 2); a line past it is dropped.
+    // The room is fixed (first role 3, every other role 2); a line past it is dropped.
     const room = role.room || byIndex.length;
     while (role.lines.length < room) role.lines.push("");
     for (let i = 0; i < room; i += 1) {

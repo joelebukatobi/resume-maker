@@ -121,10 +121,10 @@ def _sections(cv: Mapping[str, Any], word: str, kind: str) -> Iterable[tuple[int
             yield i, section
 
 
-def _role_hits(page: _Page, entry: dict) -> int:
+def _role_hits(page: _Page, entry: dict, index: int) -> int:
     """How many frozen terms this role's best past lines can answer."""
     slot = ("bullets", company(entry.get("left")))
-    room = bullet_room(entry)
+    room = bullet_room(index)
     best = [line.text for line, score in page.index.rank(slot, page.terms)
             if page.verdict(line) == "pass"][:room]
     return len(set().union(*(_answers(t, page.terms) for t in best))) if best else 0
@@ -135,7 +135,7 @@ def _cast(page: _Page, entries: list[dict], at: int) -> None:
     of the posting, up to ROLES_ON_PAGE. A tie keeps a role that was already
     showing, then the CV's own order."""
     ranked = sorted(range(len(entries)), key=lambda i: (
-        not is_amazon(entries[i]), -_role_hits(page, entries[i]),
+        not is_amazon(entries[i]), -_role_hits(page, entries[i], i),
         bool(entries[i].get("off")), i))
     shown = set(ranked[:ROLES_ON_PAGE])
     for i, entry in enumerate(entries):
@@ -146,7 +146,7 @@ def _cast(page: _Page, entries: list[dict], at: int) -> None:
         page.cards.append(Card("cast", ("bullets", company(entry.get("left"))),
                                f"sections.{at}.entries.{i}.off",
                                f"{entry.get('left', '')} turned {'off' if off else 'on'}: "
-                               f"answers {_role_hits(page, entry)} of {len(page.terms)}"))
+                               f"answers {_role_hits(page, entry, i)} of {len(page.terms)}"))
 
 
 def suggest_cast(entries: list[dict], index: Index, terms: list[str],
@@ -161,7 +161,7 @@ def suggest_cast(entries: list[dict], index: Index, terms: list[str],
     page = _Page(index, list(terms), verdicts, {}, {})
     trial = [{**entry, "off": bool(entry.get("off")),
               "bullets": list(entry.get("bullets") or [])} for entry in entries]
-    hits = [_role_hits(page, entry) for entry in trial]
+    hits = [_role_hits(page, entry, i) for i, entry in enumerate(trial)]
     _cast(page, trial, at=0)
     total = len(page.terms)
     return [
@@ -202,7 +202,7 @@ def fill(base_cv: dict, index: Index, terms: list[str], verdicts: Mapping[str, s
             if entry.get("off"):
                 continue
             slot = ("bullets", company(entry.get("left")))
-            room = bullet_room(entry)
+            room = bullet_room(j)
             old = list(entry.get("bullets") or [])
             # A position nothing can fill is left out: a struck line does not
             # come back, and no line prints twice.

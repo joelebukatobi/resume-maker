@@ -51,10 +51,10 @@ def company(left: str) -> str:
         name = trimmed
 
 
-# Bullets per role on the CV, fixed: Amazon 3, every other role 2. Not read
+# Bullets per role on the CV, fixed: the first experience entry 3, every other role 2. Not read
 # from the base CV, not raised for a longer CV (a second page adds a role,
 # never bullets), and not changed by a budget. See AGENTS.md.
-AMAZON_BULLETS = 3
+FIRST_ROLE_BULLETS = 3
 ROLE_BULLETS = 2
 # Roles on a one-page CV. Amazon is always one of them; the rest are the
 # roles that answer the posting best. A second page is the user's call.
@@ -65,9 +65,10 @@ def is_amazon(entry: Mapping[str, Any]) -> bool:
     return company(entry.get("left")).startswith("amazon")
 
 
-def bullet_room(entry: Mapping[str, Any]) -> int:
-    """How many bullets a role gets on the CV."""
-    return AMAZON_BULLETS if is_amazon(entry) else ROLE_BULLETS
+def bullet_room(index: int) -> int:
+    """How many bullets a role gets on the CV: the first experience entry 3,
+    every other role 2."""
+    return FIRST_ROLE_BULLETS if index == 0 else ROLE_BULLETS
 
 
 def _clean(text: Any) -> str:
