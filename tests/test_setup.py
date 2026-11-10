@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import server  # noqa: E402
-from resume_maker import assistant, fill, jev, keywords, llm, setup
+from resume_maker import assistant, fill, jev, keywords, library, llm, setup
 from resume_maker.applications import Workspace  # noqa: E402
 
 CV = json.loads((ROOT / "cv.json").read_text())
@@ -1462,7 +1462,8 @@ class LibraryApiTests(unittest.TestCase):
 
     def test_a_job_turn_says_how_many_bullets_it_has_room_for(self):
         system = self.section_prompt("bullets", entry="sections.3.entries.0")
-        self.assertIn("room for 3 bullets", system)
+        room = library.bullet_room(CV["sections"][3]["entries"][0])
+        self.assertIn(f"room for {room} bullets", system)
         self.assertIn(CV["sections"][3]["entries"][0]["bullets"][0], system)
 
     def test_the_skills_turn_carries_his_skills_list_posting_first(self):
@@ -1491,7 +1492,7 @@ class LibraryApiTests(unittest.TestCase):
     def test_a_job_slot_says_its_room_and_lists_that_job_only(self):
         slug = self.new()
         got = self.slot("bullets", slug, entry="sections.3.entries.0")
-        self.assertEqual(got["room"], 3)
+        self.assertEqual(got["room"], library.bullet_room(CV["sections"][3]["entries"][0]))
         self.assertEqual(got["where"], "sections.3.entries.0")
         self.assertIn(CV["sections"][3]["entries"][0]["bullets"][0], got["lines"])
         other = CV["sections"][3]["entries"][1]["bullets"][0]
