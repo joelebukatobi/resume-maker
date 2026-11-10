@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable, Mapping
 
-from .library import Index, Line, Slot, company
+from .library import ROLES_ON_PAGE, Index, Line, Slot, bullet_room, company, is_amazon
 from .match import score_against
 
 
@@ -124,33 +124,29 @@ def _sections(cv: Mapping[str, Any], word: str, kind: str) -> Iterable[tuple[int
 def _role_hits(page: _Page, entry: dict) -> int:
     """How many frozen terms this role's best past lines can answer."""
     slot = ("bullets", company(entry.get("left")))
-    room = len(entry.get("bullets") or []) or 1
+    room = bullet_room(entry)
     best = [line.text for line, score in page.index.rank(slot, page.terms)
             if page.verdict(line) == "pass"][:room]
     return len(set().union(*(_answers(t, page.terms) for t in best))) if best else 0
 
 
 def _cast(page: _Page, entries: list[dict], at: int) -> None:
-    """Which roles print. An off role comes on when it answers more of the
-    posting than the weakest role showing, and that role goes off."""
-    if not page.terms:
-        return
-    scored = [(_role_hits(page, e), i) for i, e in enumerate(entries)]
-    while True:
-        shown = [(h, i) for h, i in scored if not entries[i].get("off")]
-        hidden = [(h, i) for h, i in scored if entries[i].get("off")]
-        if not shown or not hidden:
-            return
-        weakest, best = min(shown), max(hidden)
-        if best[0] <= weakest[0]:
-            return
-        entries[best[1]]["off"] = False
-        entries[weakest[1]]["off"] = True
-        for h, i, verb in ((best[0], best[1], "on"), (weakest[0], weakest[1], "off")):
-            page.cards.append(Card("cast", ("bullets", company(entries[i].get("left"))),
-                                   f"sections.{at}.entries.{i}.off",
-                                   f"{entries[i].get('left', '')} turned {verb}: "
-                                   f"answers {h} of {len(page.terms)}"))
+    """Which roles print: Amazon always, then the roles that answer the most
+    of the posting, up to ROLES_ON_PAGE. A tie keeps a role that was already
+    showing, then the CV's own order."""
+    ranked = sorted(range(len(entries)), key=lambda i: (
+        not is_amazon(entries[i]), -_role_hits(page, entries[i]),
+        bool(entries[i].get("off")), i))
+    shown = set(ranked[:ROLES_ON_PAGE])
+    for i, entry in enumerate(entries):
+        off = i not in shown
+        if bool(entry.get("off")) == off:
+            continue
+        entry["off"] = off
+        page.cards.append(Card("cast", ("bullets", company(entry.get("left"))),
+                               f"sections.{at}.entries.{i}.off",
+                               f"{entry.get('left', '')} turned {'off' if off else 'on'}: "
+                               f"answers {_role_hits(page, entry)} of {len(page.terms)}"))
 
 
 def suggest_cast(entries: list[dict], index: Index, terms: list[str],
@@ -166,8 +162,7 @@ def suggest_cast(entries: list[dict], index: Index, terms: list[str],
     trial = [{**entry, "off": bool(entry.get("off")),
               "bullets": list(entry.get("bullets") or [])} for entry in entries]
     hits = [_role_hits(page, entry) for entry in trial]
-    if page.terms:
-        _cast(page, trial, at=0)
+    _cast(page, trial, at=0)
     total = len(page.terms)
     return [
         {
@@ -207,10 +202,7 @@ def fill(base_cv: dict, index: Index, terms: list[str], verdicts: Mapping[str, s
             if entry.get("off"):
                 continue
             slot = ("bullets", company(entry.get("left")))
-            room = len(entry.get("bullets") or [])
-            cap = (entry.get("budget") or {}).get("bullets")
-            if isinstance(cap, int):
-                room = min(room, cap)
+            room = bullet_room(entry)
             old = list(entry.get("bullets") or [])
             # A position nothing can fill is left out: a struck line does not
             # come back, and no line prints twice.

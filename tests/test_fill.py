@@ -156,20 +156,23 @@ class FillTests(unittest.TestCase):
                 self.assertEqual(got.get(key), want.get(key))
         self.assertEqual(section(cv, "EDUCATION"), section(BASE, "EDUCATION"))
 
-    def test_an_entry_that_answers_more_is_turned_on(self):
-        base = make_cv(entries=[job("AMAZON", [ROADMAP_A]),
+    def _five(self):
+        return make_cv(entries=[job("AMAZON", [ROADMAP_A]), job("NUMINIX", ["Fixed carts."]),
+                                job("MKEL", ["Racked servers."]), job("xPathEdge LLC", [USUAL]),
                                 job("FORDHAM", ["Advised students."], off=True)])
+
+    def test_the_role_that_answers_more_comes_on_and_amazon_stays(self):
         cvs = {"a": make_cv(entries=[job("FORDHAM", ["Ran go-to-market workshops for "
                                                      "agentic workflows."])])}
-        cv, cards = built(cvs, ["go-to-market", "agentic workflows"], base=base)
-        entries = section(cv, "EXPERIENCE")["entries"]
-        self.assertFalse(entries[1].get("off"))
-        self.assertTrue(entries[0].get("off"))
+        cv, cards = built(cvs, ["go-to-market", "agentic workflows"], base=self._five())
+        off = [bool(e.get("off")) for e in section(cv, "EXPERIENCE")["entries"]]
+        self.assertFalse(off[4])                 # Fordham answers the posting
+        self.assertFalse(off[0])                 # Amazon is always on
+        self.assertEqual(off.count(False), 4)    # four roles on one page
         self.assertIn("cast", {c.kind for c in cards})
 
     def test_suggest_cast_recommends_without_mutating(self):
-        base = make_cv(entries=[job("AMAZON", [ROADMAP_A]),
-                                job("FORDHAM", ["Advised students."], off=True)])
+        base = self._five()
         cvs = {"a": make_cv(entries=[job("FORDHAM", ["Ran go-to-market workshops for "
                                                      "agentic workflows."])])}
         lines = library.collect(base, cvs, {})
@@ -180,9 +183,9 @@ class FillTests(unittest.TestCase):
         scored = fill.suggest_cast(
             entries, index, ["go-to-market", "agentic workflows"], verdicts)
         self.assertEqual([bool(e.get("off")) for e in entries], before)
-        self.assertFalse(scored[1]["recommend_off"])
-        self.assertTrue(scored[0]["recommend_off"])
-        self.assertGreater(scored[1]["hits"], scored[0]["hits"])
+        self.assertFalse(scored[4]["recommend_off"])
+        self.assertFalse(scored[0]["recommend_off"])
+        self.assertEqual(sum(not r["recommend_off"] for r in scored), 4)
 
 
     def test_an_over_long_bullet_is_swapped_for_a_shorter_one(self):
