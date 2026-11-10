@@ -309,7 +309,8 @@ async function drawEdit(ctx, at, entries) {
       if (Number.isInteger(index) && index >= 0) byIndex[index] = text;
       else extras.push(text);
     }
-    const room = Math.max(role.room, byIndex.length, role.lines.length);
+    // The room is fixed (Amazon 3, every other role 2); a line past it is dropped.
+    const room = role.room || byIndex.length;
     while (role.lines.length < room) role.lines.push("");
     for (let i = 0; i < room; i += 1) {
       const next = byIndex[i];
@@ -429,10 +430,11 @@ async function drawEdit(ctx, at, entries) {
       role.others = [];
     }
     paint();
-    if (ctx.setStepProgress) ctx.setStepProgress(0, roles.length);
-    let done = 0;
+    if (ctx.setStepProgress) ctx.setStepProgress(0, 1);
     let placedTotal = 0;
-    for (const role of roles) {
+    // Past lines for every role at once (no model), then one turn for all of
+    // them: the notes, Playbook and CV are sent once, not once per role.
+    await Promise.all(roles.map(async (role) => {
       try {
         const slot = await api("/api/library", {
           action: "slot", phase: "bullets", entry: role.path, app: ctx.app,
@@ -448,21 +450,20 @@ async function drawEdit(ctx, at, entries) {
       } catch (error) {
         toast(`Could not load past lines for ${title(role.entry)}: ${error.message}`, "error");
       }
-      try {
-        // Same Pico bullets turn: JD + notes + voice + library lines for this job.
-        const found = await ctx.askSection("bullets", { entry: role.path });
-        placedTotal += acceptProposals(role, found);
-        if (!found.length) {
-          toast(`No new lines came back for ${title(role.entry)}.`, "error");
-        }
-      } catch (error) {
-        toast(`${title(role.entry)}: ${error.message}`, "error");
+    }));
+    try {
+      const found = await ctx.askSection("bullets_all", { entries: roles.map((role) => role.path) });
+      for (const role of roles) {
+        const placed = acceptProposals(role, found);
+        placedTotal += placed;
+        if (!placed) toast(`No new lines came back for ${title(role.entry)}.`, "error");
       }
-      role.pending = false;
-      done += 1;
-      if (ctx.setStepProgress) ctx.setStepProgress(done, roles.length);
-      paint();
+    } catch (error) {
+      toast(error.message, "error");
     }
+    for (const role of roles) role.pending = false;
+    if (ctx.setStepProgress) ctx.setStepProgress(1, 1);
+    paint();
     if (placedTotal) {
       toast(`${placedTotal} ${placedTotal === 1 ? "line" : "lines"} placed across ${roles.length} ${roles.length === 1 ? "role" : "roles"}.`);
     }

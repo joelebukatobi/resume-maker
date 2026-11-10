@@ -1,10 +1,10 @@
-// Step 6, Review: the page as it will be sent, what to check, and a change
-// chat. The page is /api/preview; language is /api/match; Save on the strip
-// rebuilds out/. The right rail shows the terms in green or amber, a question
-// for each unanswered term, the gaps in the finished CV, and the page in words
-// when it runs long or has lines to spare. Make a Change opens
-// chat, saved per application; the model's cards only suggest, and nothing is
-// written until he presses the card's button.
+// Step 6, Review: what to check, and a change chat. The page is /api/preview,
+// opened in a modal from View Resume; language is /api/match; Save on the strip
+// rebuilds out/. Under the lead, the page in words when it runs long or has
+// lines to spare. Two accordion cards: Language (the terms in green or amber)
+// and Gaps (a question for each unanswered term, then the gaps in the finished
+// CV). The chat sits underneath, saved per application; the model's cards only
+// suggest, and nothing is written until he presses the card's button.
 
 import { agent } from "./agent.js";
 import { attachDictate } from "./dictate.js";
@@ -12,46 +12,52 @@ import { api, el, icon, toast } from "./dom.js";
 import { renderMarkdown } from "./markdown.js";
 
 const STREAM_ERROR = String.fromCharCode(0);
+const FIXED = /^(?:name|contact\.\d+\.text|sections\.\d+\.heading|sections\.\d+\.entries\.\d+\.(?:left|right|sub_left|sub_right))$/;
 const MAX_TURNS = 200; // the server refuses a longer history
 const BLOCK = /```(proposal|answer|notes|voice|gaps|ask|skill)\s*([\s\S]*?)```/g;
 
 // Scrollbar + wheel zoom inside the preview (wheel events hit the iframe, not the parent).
-// Track transparent, no arrow buttons — only a 6px thumb.
+// Same look as the app: always-shown 6px thumb, an arrow at each end, no track.
 const PREVIEW_CHROME = `<style>
 /* No scrollbar-width here — on Chromium/Linux it forces GTK arrows. */
 html::-webkit-scrollbar,body::-webkit-scrollbar,
 *::-webkit-scrollbar{
   width:16px;height:16px;background:transparent;
 }
-html::-webkit-scrollbar-button,body::-webkit-scrollbar-button,
-*::-webkit-scrollbar-button{
-  display:none!important;width:0!important;height:0!important;
-  background:transparent!important;border:0!important;
+*::-webkit-scrollbar-button{display:none}
+*::-webkit-scrollbar-button:single-button{
+  display:block;width:16px;height:16px;border:0;
+  background:transparent no-repeat center/8px 8px;
+}
+*::-webkit-scrollbar-button:single-button:vertical:decrement{
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Cpath d='M4 2 7 6H1z' fill='%239B9BA4'/%3E%3C/svg%3E");
+}
+*::-webkit-scrollbar-button:single-button:vertical:increment{
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Cpath d='M4 6 7 2H1z' fill='%239B9BA4'/%3E%3C/svg%3E");
 }
 html::-webkit-scrollbar-track,body::-webkit-scrollbar-track,
 *::-webkit-scrollbar-track,*::-webkit-scrollbar-track-piece{
   background:transparent!important;border:none!important;box-shadow:none!important;
-  margin-block:8px;
 }
 html::-webkit-scrollbar-corner,body::-webkit-scrollbar-corner,
 *::-webkit-scrollbar-corner{
   background:transparent!important;border:none!important;box-shadow:none!important;
 }
-html::-webkit-scrollbar-thumb,body::-webkit-scrollbar-thumb,
+/* Always shown here: hover inside a frame is unreliable, and a zoomed page
+   needs its scrollbar in sight. */
 *::-webkit-scrollbar-thumb{
-  background:transparent!important;background-clip:padding-box!important;
+  background:#9B9BA4!important;background-clip:padding-box!important;
   border:5px solid transparent!important;border-radius:8px;
 }
-html:is(:hover,:focus,:focus-within)::-webkit-scrollbar-thumb,
-body:is(:hover,:focus,:focus-within)::-webkit-scrollbar-thumb,
-*:is(:hover,:focus,:focus-within)::-webkit-scrollbar-thumb{
-  background:#9B9BA4!important;background-clip:padding-box!important;
-}
+/* The layout script makes body a scroll box too; only the page should scroll. */
+body{overflow:visible!important}
 @supports not selector(::-webkit-scrollbar){
   html,body,*{scrollbar-width:thin;scrollbar-color:#9B9BA4 transparent}
 }
 </style><script>
 window.addEventListener('wheel', function (event) {
+  // A plain wheel scrolls; Ctrl + wheel (and a trackpad pinch) zooms.
+  if (!event.ctrlKey) return;
   event.preventDefault();
   if (window.parent === window) return;
   window.parent.postMessage({
@@ -151,14 +157,24 @@ export async function drawReview(ctx) {
     title: kind === "cover" ? "Your cover letter" : "Your CV",
     sandbox: "allow-scripts",
   });
-  const checks = el("p", { class: "rail-block meta review-check" });
+  let pageNotes = ""; // the preview's own warnings, said beside the page sentence
   const coverage = el("div", { class: "coverage" }, [el("p", { class: "meta", text: "Counting…" })]);
   const termsList = el("div", { class: "term-list" });
   const askBlock = el("div", { class: "ask-list" });
-  const side = el("div", { class: "review-side" });
-  const gapsBlock = el("section", { class: "rail-block" });
-  const changeRows = el("div", { class: "rows" });
+  const gapsBody = el("div", { class: "review-card-body review-gaps" });
+  // Said in the Gaps header while the finished CV is being checked.
+  const gapsStatus = el("span", { class: "meta review-card-status", "aria-live": "polite" });
+  const fitLine = el("p", { class: "review-fit" });
+  const viewLink = el("button", {
+    class: "link-btn", type: "button", text: kind === "cover" ? "View Letter" : "View Resume",
+  });
   const gapStore = `resume-maker.gaps.${ctx.appId ? ctx.appId() : ctx.app}`;
+  // The letter's own read: opening, claims, tone, length. Kept apart from the CV's gaps.
+  const checkStore = `resume-maker.letter-checks.${ctx.appId ? ctx.appId() : ctx.app}`;
+  const checksBody = el("div", { class: "review-card-body review-gaps" });
+  const checksStatus = el("span", { class: "meta review-card-status", "aria-live": "polite" });
+  let checks = null; // what the last read of this letter found; null before one
+  let checkingLetter = false;
   let pages = null;
   let room = 0;
   let gaps = null; // what the last check of the finished CV found; null before one
@@ -168,29 +184,21 @@ export async function drawReview(ctx) {
   let matched = [];
   let keywordMap = (ctx.terms && ctx.terms.map) || {};
   let previewZoom = 1;
-  let chatting = false;
 
   // Silent unless something needs fixing: too long, or a warning from the page.
   function paintChecks() {
     const notes = issues.map((issue) => String(issue.message || "").trim().replace(/\.?$/, "."));
-    checks.textContent = notes.join(" ");
+    pageNotes = notes.join(" ");
+    paintChanges();
   }
 
+  // The chat sits under the cards; a Change link or a gap brings it into view.
   function openChat(text = "") {
-    if (!chatting) { chatting = true; paintSide(); }
     const input = document.getElementById("review-chat-input");
+    if (!input) return;
     if (text) input.value = [input.value.trim(), text].filter(Boolean).join("\n");
-    input.focus();
-  }
-
-  function changeRow(content, label, onclick) {
-    return el("div", {}, [
-      el("span", {}, content),
-      el("a", {
-        href: "#change", text: label,
-        onclick: (event) => { event.preventDefault(); onclick(); },
-      }),
-    ]);
+    input.scrollIntoView({ block: "center", behavior: "smooth" });
+    input.focus({ preventScroll: true });
   }
 
   // The page in words: too long is red, lines to spare are green, full says nothing.
@@ -205,14 +213,14 @@ export async function drawReview(ctx) {
     return null;
   }
 
+  // Under the lead: how the page sits, any warning, then View Resume.
   function paintChanges() {
-    const fit = fitSentence();
-    changeRows.replaceChildren(...[
-      fit ? changeRow(fit, "Change", () => openChat()) : null,
-      changeRow([kind === "cover"
-        ? "Ask the model to adjust a paragraph"
-        : "Ask the model to adjust a line"], "Change", () => openChat())
-    ].filter(Boolean));
+    const said = [...(fitSentence() || []), ...(pageNotes ? [" ", pageNotes] : [])];
+    fitLine.replaceChildren(
+      ...said,
+      ...(said.length ? [el("span", { class: "review-dot", "aria-hidden": "true", text: "\u00B7" })] : []),
+      viewLink,
+    );
   }
 
   function loadGaps() {
@@ -228,19 +236,19 @@ export async function drawReview(ctx) {
   // Everything to answer in one section: the posting's terms that are not on
   // the page, then what the last read of the finished CV found.
   function paintGaps() {
+    if (kind === "cover") return; // the letter has Checks instead
     const found = (gaps || []).map((gap) => gapRow(gap, (settled) => {
       if (settled) gaps = gaps.filter((other) => other !== gap);
       saveGaps();
     }));
     const quiet = gaps && !gaps.length && !askBlock.childElementCount;
-    gapsBlock.replaceChildren(
-      el("p", { class: "eyebrow", text: "Gaps" }),
+    gapsBody.replaceChildren(
       askBlock,
       ...found,
-      ...(checkingGaps ? [el("p", { class: "meta", text: "Checking the CV against the posting…" })] : []),
       ...(quiet && !checkingGaps ? [el("p", { class: "meta", text: "Nothing missing." })] : []),
     );
-    gapsBlock.hidden = !checkingGaps && !gaps && !askBlock.childElementCount;
+    gapsStatus.textContent = checkingGaps ? "Checking the CV against the posting…" : "";
+    gapsFold.hidden = !checkingGaps && !gaps && !askBlock.childElementCount;
   }
 
   // One paid model turn, then the notes check. Run on arriving by Next or from
@@ -250,14 +258,16 @@ export async function drawReview(ctx) {
     checkingGaps = true;
     paintGaps();
     try {
-      const said = await ctx.askTurn("gaps");
-      const block = /```gaps\s*([\s\S]*?)```/.exec(said);
-      const questions = block ? gapQuestions(block[1]) : [];
-      // If the notes check cannot run, every question is still asked.
-      const found = questions.length
-        ? await api("/api/gaps", { action: "check", questions })
-          .catch(() => questions.map((question) => ({ question, status: "open" })))
-        : [];
+      const found = await ctx.working(async () => {
+        const said = await ctx.askTurn("gaps");
+        const block = /```gaps\s*([\s\S]*?)```/.exec(said);
+        const questions = block ? gapQuestions(block[1]) : [];
+        // If the notes check cannot run, every question is still asked.
+        return questions.length
+          ? api("/api/gaps", { action: "check", questions })
+            .catch(() => questions.map((question) => ({ question, status: "open" })))
+          : [];
+      });
       gaps = found.filter((gap) => gap.status !== "covered");
       saveGaps();
     } catch (error) {
@@ -265,6 +275,75 @@ export async function drawReview(ctx) {
     } finally {
       checkingGaps = false;
       paintGaps();
+    }
+  }
+
+  function loadChecks() {
+    try { return JSON.parse(localStorage.getItem(checkStore) || "null"); }
+    catch (e) { return null; }
+  }
+
+  function saveChecks() {
+    try { localStorage.setItem(checkStore, JSON.stringify({ key: ctx.fitKey(), checks })); }
+    catch (e) { /* the list just won't survive a reload */ }
+  }
+
+  // Click a finding to fix it in the chat; X dismisses it.
+  function paintLetterChecks() {
+    const rows = (checks || []).map((finding) => {
+      const drop = el("button", {
+        class: "icon-btn icon-btn-round", type: "button", "aria-label": `Dismiss: ${finding}`,
+      }, [icon("xmark", 16)]);
+      const row = el("div", { class: "ask-head" }, [
+        el("button", {
+          class: "ask-q ask-q-btn", type: "button", text: finding,
+          "aria-label": `Fix in the chat: ${finding}`,
+          onclick: () => openChat(`Fix this: ${finding}`),
+        }),
+        el("div", { class: "ask-actions" }, [drop]),
+      ]);
+      drop.addEventListener("click", () => {
+        checks = checks.filter((other) => other !== finding);
+        saveChecks();
+        paintLetterChecks();
+      });
+      return row;
+    });
+    checksBody.replaceChildren(
+      ...rows,
+      ...(checks && !checks.length && !checkingLetter
+        ? [el("p", { class: "meta", text: "Nothing to fix." })] : []),
+      ...(!checks && !checkingLetter
+        ? [el("p", { class: "meta", text: "Not checked yet. Refresh Overall Fit to check it." })] : []),
+    );
+    checksStatus.textContent = checkingLetter ? "Reading the letter…" : "";
+  }
+
+  // One paid model turn, on arriving by Next or from Overall Fit; a reload costs nothing.
+  async function runLetterCheck() {
+    if (checkingLetter) return;
+    checkingLetter = true;
+    paintLetterChecks();
+    try {
+      const said = await ctx.working(() => ctx.askCover(
+        "Check this cover letter before it is sent. Do not rewrite it and do "
+        + "not propose edits. Look at four things: the opening (does the first "
+        + "paragraph say why this role at this company, not a stock line); "
+        + "every claim (name any the notes and the CV do not support); tone "
+        + "(does it sound like my voice, any stock phrases); length (one "
+        + "printed page, under about 400 words). [Company] and [Role] are "
+        + "placeholders filled at build, never a problem. Reply with one "
+        + "```checks block: one problem per line, a short sentence that names "
+        + "the paragraph. An empty block if nothing is wrong.",
+      ));
+      const block = /```checks\s*([\s\S]*?)```/.exec(said);
+      checks = block ? gapQuestions(block[1]) : [];
+      saveChecks();
+    } catch (error) {
+      toast(error.message, "error");
+    } finally {
+      checkingLetter = false;
+      paintLetterChecks();
     }
   }
 
@@ -287,14 +366,12 @@ export async function drawReview(ctx) {
   // One keyword question: X records a no; the first check opens a box and the
   // second keeps what is in it.
   function askRow(term, question, onDone) {
-    const box = el("textarea", {
-      class: "input input-sm", rows: "2", hidden: true,
-      placeholder: "What you did, in a sentence",
-      "aria-label": `Answer for ${term}`,
+    // Clicking the question takes it to the chat, like every other gap.
+    const ask = el("button", {
+      class: "ask-q ask-q-btn", type: "button", text: question,
+      "aria-label": `Answer in the chat: ${question}`,
+      onclick: () => openChat(question),
     });
-    const yes = el("button", {
-      class: "icon-btn icon-btn-round", type: "button", "aria-label": `I have done ${term}`,
-    }, [icon("check", 16)]);
     const no = el("button", {
       class: "icon-btn icon-btn-round", type: "button", "aria-label": `I have not done ${term}`,
     }, [icon("xmark", 16)]);
@@ -318,24 +395,12 @@ export async function drawReview(ctx) {
         toast(error.message, "error");
       }
     }
-    yes.addEventListener("click", () => {
-      if (box.hidden) {
-        box.hidden = false;
-        yes.setAttribute("aria-label", `Keep this answer for ${term}`);
-        box.focus();
-        return;
-      }
-      const sentence = box.value.trim();
-      if (!sentence) { toast("Say what you did, in a sentence.", "error"); return; }
-      send("answer", { sentence }, yes);
-    });
     no.addEventListener("click", () => send("decline", { line: `I have not done ${term}.` }, no));
     return el("div", { class: "ask-row" }, [
       el("div", { class: "ask-head" }, [
-        el("p", { class: "ask-q", text: question }),
-        el("div", { class: "ask-actions" }, [no, yes]),
+        ask,
+        el("div", { class: "ask-actions" }, [no]),
       ]),
-      box,
     ]);
   }
 
@@ -395,12 +460,15 @@ export async function drawReview(ctx) {
     el("div", { class: "zoom-controls" }, [zoomIn, zoomOut]),
   ]);
   paperWrap.addEventListener("wheel", (event) => {
+    if (!event.ctrlKey) return;
     event.preventDefault();
     bumpZoom(event.deltaY > 0 ? -0.1 : 0.1);
   }, { passive: false });
 
   async function applyProposal(path, text) {
     if (!path || typeof text !== "string") throw new Error("That proposal has no field to change.");
+    // Same fields as FIXED_CV_FIELD in assistant.py: change them in Settings.
+    if (kind === "cv" && FIXED.test(path)) throw new Error("That's part of the CV's structure. Change it in Settings.");
     // Appending a new letter paragraph when the path is past the end.
     if (kind === "cover" && /^paragraphs\.\d+$/.test(path)) {
       const index = Number(path.slice("paragraphs.".length));
@@ -512,22 +580,24 @@ export async function drawReview(ctx) {
       }
     };
     if (gap.status === "past") {
-      const right = el("button", { class: "btn btn-sm", type: "button", text: "That's Right" });
-      const wrong = el("button", { class: "btn btn-sm", type: "button", text: "Not True" });
-      right.addEventListener("click", act(right, async () => {
-        await api("/api/gaps", { action: "confirm", line: gap.line });
-        settled(gap.line);
-      }));
+      // A past CV claims it. Click to talk it through in the chat; X says it
+      // isn't true, so the line leaves the library and the row closes.
+      const asked = `Your past CVs say: "${gap.line}" Is that right?`;
+      const wrong = el("button", {
+        class: "icon-btn icon-btn-round", type: "button", "aria-label": `Not true: ${gap.line}`,
+      }, [icon("xmark", 16)]);
       wrong.addEventListener("click", act(wrong, async () => {
         await api("/api/library", { action: "strike", text: gap.line });
-        gap.status = "open";
-        delete gap.line;
-        row.replaceWith(gapRow(gap, onChange));
-        onChange(false);
+        row.remove();
+        onChange(true);
       }));
       row.append(
-        el("p", { class: "ask-q", text: `Your past CVs say: "${gap.line}" Is that right?` }),
-        el("div", { class: "ask-actions" }, [right, wrong]),
+        el("button", {
+          class: "ask-q ask-q-btn", type: "button", text: asked,
+          "aria-label": `Answer in the chat: ${asked}`,
+          onclick: () => openChat(asked),
+        }),
+        el("div", { class: "ask-actions" }, [wrong]),
       );
       return row;
     }
@@ -539,14 +609,14 @@ export async function drawReview(ctx) {
       await api("/api/setup/notes", { append: line });
       settled(line);
     }));
-    // Yes needs his own words, so the question moves to the chat box.
-    const yes = el("button", {
-      class: "icon-btn icon-btn-round", type: "button", "aria-label": `Yes: ${gap.question}`,
-      onclick: () => openChat(gap.question),
-    }, [icon("check", 16)]);
+    // Yes needs his own words, so clicking the question moves it to the chat box.
     row.append(
-      el("p", { class: "ask-q", text: gap.question }),
-      el("div", { class: "ask-actions" }, [no, yes]),
+      el("button", {
+        class: "ask-q ask-q-btn", type: "button", text: gap.question,
+        "aria-label": `Answer in the chat: ${gap.question}`,
+        onclick: () => openChat(gap.question),
+      }),
+      el("div", { class: "ask-actions" }, [no]),
     );
     return row;
   }
@@ -716,10 +786,6 @@ export async function drawReview(ctx) {
       class: "icon-btn chat-send", type: "button", "aria-label": "Send",
     }, [icon("send")]);
     const status = el("p", { class: "meta chat-status" });
-    const close = el("button", {
-      class: "icon-btn review-chat-close", type: "button", "aria-label": "Close chat",
-      onclick: () => { dictate.cancel(); chatting = false; paintSide(); },
-    }, [icon("xmark", 16)]);
     if (!Array.isArray(ctx.history.messages)) ctx.history.messages = [];
     // One file holds both documents and the old drafting rounds nobody typed.
     const thread = () => ctx.history.messages.filter(
@@ -749,6 +815,9 @@ export async function drawReview(ctx) {
       log.append(live);
       log.scrollTop = log.scrollHeight;
       let content = "";
+      let finish = () => {};
+      // The reply shows itself in the chat; no "done" message for it.
+      ctx.working(() => new Promise((resolve) => { finish = resolve; }), { quiet: true });
       try {
         const response = await fetch("/api/chat", {
           method: "POST",
@@ -786,6 +855,7 @@ export async function drawReview(ctx) {
         ctx.history.messages.splice(ctx.history.messages.indexOf(asked), 1);
         toast(error.message, "error");
       } finally {
+        finish();
         busy = false;
         send.disabled = false;
         mic.disabled = false;
@@ -813,8 +883,7 @@ export async function drawReview(ctx) {
       box.disabled = !found;
     }).catch(() => { status.textContent = "No model connected"; box.disabled = true; });
 
-    return el("div", { class: "review-chat" }, [
-      close,
+    return el("section", { class: "chat review-chat", "aria-label": "Ask for a change" }, [
       log,
       el("div", { class: "chat-box" }, [
         el("label", { class: "visually-hidden", for: "review-chat-input", text: "Ask for a change" }),
@@ -827,54 +896,84 @@ export async function drawReview(ctx) {
     ]);
   }
 
-  function paintSide() {
-    side.classList.toggle("is-chat", chatting);
-    if (chatting) {
-      side.replaceChildren(mountChat());
-      const log = side.querySelector(".chat-log");
-      log.scrollTop = log.scrollHeight;
-      return;
-    }
-    const blocks = [
-      el("section", { class: "rail-block" }, [
-        el("p", { class: "eyebrow", text: "Language" }),
-        coverage,
-        termsList,
-      ]),
-      gapsBlock,
-      checks,
-      el("section", { class: "rail-block" }, [
-        el("p", { class: "eyebrow", text: "Changes" }),
-        changeRows,
-      ]),
-    ];
-    side.replaceChildren(...blocks);
-    paintChecks();
-    paintTerms();
-    paintAsk();
-    paintGaps();
-    paintChanges();
+  // The page opens over the review, the rest blurred behind it. It stays in
+  // the page while closed (only hidden) so the preview can still measure
+  // its pages for the Changes card.
+  const viewClose = el("button", {
+    class: "modal-close cv-modal-close", type: "button", "aria-label": `Close the ${label}`,
+  }, [icon("xmark", 16)]);
+  const viewer = el("div", {
+    class: "cv-modal", role: "dialog", "aria-modal": "true",
+    "aria-label": kind === "cover" ? "Your cover letter" : "Your CV", "aria-hidden": "true",
+  }, [
+    el("div", { class: "cv-modal-card" }, [paperWrap]),
+  ]);
+  // Inside the canvas, top right, level with the top of the sheet.
+  paperWrap.append(viewClose);
+  function onViewerKey(event) { if (event.key === "Escape") closeViewer(); }
+  function openViewer() {
+    viewer.classList.add("is-shown");
+    viewer.setAttribute("aria-hidden", "false");
+    document.addEventListener("keydown", onViewerKey);
+    viewClose.focus();
   }
+  function closeViewer() {
+    viewer.classList.remove("is-shown");
+    viewer.setAttribute("aria-hidden", "true");
+    document.removeEventListener("keydown", onViewerKey);
+    if (viewLink.isConnected) viewLink.focus();
+  }
+  viewLink.addEventListener("click", openViewer);
+  viewClose.addEventListener("click", closeViewer);
+  viewer.addEventListener("click", (event) => { if (event.target === viewer) closeViewer(); });
 
-  host.replaceChildren(el("div", { class: "review" }, [
-    el("div", { class: "review-main" }, [
-      el("header", { class: "page-head" }, [
-        el("h1", { class: "title", text: "Review" }),
-        el("p", {
-          class: "lead",
-          text: kind === "cover" ? "Check the letter, then save." : "Check it, then save.",
-        }),
+  // An accordion: opening one card closes the other (same details name).
+  function fold(title, body, open = false, status = null) {
+    return el("details", { class: "card review-card", name: "review-cards", open }, [
+      el("summary", { class: "review-card-head" }, [
+        el("span", { class: "eyebrow", text: title }),
+        status,
+        icon("down", 16),
       ]),
-      paperWrap,
+      body,
+    ]);
+  }
+  const languageCard = fold("Language",
+    el("div", { class: "review-card-body" }, [coverage, termsList]), true);
+  const gapsFold = kind === "cover"
+    ? fold("Checks", checksBody, false, checksStatus)
+    : fold("Gaps", gapsBody, false, gapsStatus);
+
+  host.replaceChildren(el("div", { class: "measure-list review-page" }, [
+    el("header", { class: "page-head" }, [
+      el("h1", { class: "title", text: "Review" }),
+      el("p", {
+        class: "lead",
+        text: kind === "cover" ? "Check the letter, then save." : "Check it, then save.",
+      }),
+      fitLine,
     ]),
-    side,
+    el("div", { class: "review-cards" }, [languageCard, gapsFold]),
+    mountChat(),
+    viewer,
   ]));
-  if (kind === "cv") ctx.setFitRefresh(runGapCheck);
+  ctx.setFitRefresh(kind === "cover" ? runLetterCheck : runGapCheck);
   // A saved list stays while the posting is the same; a new posting drops it.
   const postingKey = (key) => String(key).split("\n").slice(0, 3).join("\n");
   const savedGaps = kind === "cv" ? loadGaps() : null;
   if (savedGaps && postingKey(savedGaps.key) === postingKey(ctx.fitKey())) gaps = savedGaps.gaps;
-  paintSide();
+  paintChecks();
+  paintTerms();
+  paintAsk();
+  paintGaps();
+  paintChanges();
+  const savedChecks = kind === "cover" ? loadChecks() : null;
+  if (savedChecks && savedChecks.key === ctx.fitKey()) checks = savedChecks.checks;
+  if (kind === "cover") {
+    gapsFold.hidden = false;
+    paintLetterChecks();
+    if (ctx.consumeAutoFill("review") && !checks) runLetterCheck();
+  }
   // Reaching Review by Next means the CV is finished: check it, unless this
   // exact CV has been checked already.
   if (kind === "cv" && ctx.consumeAutoFill("review")

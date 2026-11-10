@@ -141,17 +141,23 @@ export async function api(path, body) {
 
 let toastTimer;
 
+// Slides down from under the tab strip (or the nav, on pages without one).
+// done is green, warn amber, error red; busy stays until replaced.
 export function toast(text, state = "done") {
   let node = document.querySelector(".toast");
   if (!node) {
     node = el("div", { class: "toast", role: "status", "aria-live": "polite" });
+    node.addEventListener("click", () => node.classList.remove("is-open"));
     document.body.append(node);
   }
+  const strip = document.querySelector(".steps") || document.querySelector("app-nav");
+  node.style.setProperty("--toast-top", `${strip ? strip.getBoundingClientRect().bottom : 64}px`);
   clearTimeout(toastTimer);
   node.dataset.state = state;
   node.textContent = text;
-  node.hidden = false;
-  if (state === "done") toastTimer = setTimeout(() => { node.hidden = true; }, 1800);
+  node.classList.add("is-open");
+  const stay = { done: 2400, warn: 5000, error: 6000 }[state];
+  if (stay) toastTimer = setTimeout(() => node.classList.remove("is-open"), stay);
 }
 
 export function download(filename, text) {

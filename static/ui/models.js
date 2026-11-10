@@ -287,8 +287,11 @@ function build() {
     class: "select-trigger input-sm", type: "button", id: "models-provider",
     "data-provider-trigger": "", "aria-haspopup": "listbox", "aria-expanded": "false",
   });
+  // stopPropagation: the repaint detaches the clicked label, and the
+  // click-outside listener below would read that as outside and close it.
   providerTrigger.addEventListener("click", (event) => {
     event.preventDefault();
+    event.stopPropagation();
     toggleMenu("provider");
   });
 
@@ -298,6 +301,7 @@ function build() {
   });
   modelTrigger.addEventListener("click", (event) => {
     event.preventDefault();
+    event.stopPropagation();
     if (!models.length) return;
     toggleMenu("model");
   });

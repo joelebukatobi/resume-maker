@@ -138,6 +138,11 @@ export async function drawLetter(ctx) {
   }
 
   ctx.setRefresh(fill);
-  if (ctx.consumeAutoFill && ctx.consumeAutoFill("letter")) await fill();
+  // The tab is a plain link with no Next before it, so a letter still empty or
+  // still the base's one-line opener is written on open. [Role] and [Company]
+  // are kept on purpose (filled at build), so they say nothing here.
+  const unwritten = cover.paragraphs.filter((p) => String(p || "").trim()).length < 2;
+  const marked = ctx.consumeAutoFill && ctx.consumeAutoFill("letter");
+  if (marked || unwritten) await fill();
   else nextButton.disabled = false;
 }

@@ -46,7 +46,7 @@ function parts(name) {
 }
 
 function joinName(company, role) {
-  return [company, role].map((s) => String(s || "").trim()).filter(Boolean).join(" — ");
+  return [company, role].map((s) => String(s || "").trim()).filter(Boolean).join(" | ");
 }
 
 function act(fn) {
@@ -491,7 +491,7 @@ async function load() {
 async function nudge() {
   try {
     const { status } = await api("/api/setup");
-    const empty = [["voice", "Tone", "/voice"], ["notes", "My Experience", "/notes"]].find(([k]) => status[k] === "empty");
+    const empty = [["voice", "Playbook", "/playbook"], ["notes", "My Experience", "/notes"]].find(([k]) => status[k] === "empty");
     if (!empty) return;
     const [, name, href] = empty;
     $("nudge").replaceChildren(

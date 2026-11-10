@@ -22,16 +22,41 @@ export function splitTools(text) {
   return out.map((t) => t.trim()).filter(Boolean);
 }
 
+// One tool per entry, the same way setup.atomic splits them on the server:
+// "SQL & Python" is two tools, "PHP (Laravel)" is two, "Model Context
+// Protocol (MCPs)" is just MCP.
+export function atomic(token) {
+  const text = String(token || "").trim().replace(/\.$/, "");
+  const found = text.match(/^(.+?)\s*\(([^()]*)\)$/);
+  if (found) {
+    const head = found[1].trim();
+    const inner = found[2].trim();
+    const short = /^[A-Z0-9]+s$/.test(inner) ? inner.slice(0, -1) : inner;
+    const words = head.match(/[A-Za-z0-9][\w'.+#-]*/g) || [];
+    if (words.length > 1 && /^[A-Z0-9]+$/.test(short)
+        && short === words.map((w) => w[0]).join("").toUpperCase()) return [short];
+    return [...atomic(head), ...inner.split(",").flatMap(atomic)];
+  }
+  return text.split(/\s+&\s+/).map((t) => t.trim()).filter(Boolean);
+}
+
+// Node and Node.js are one tool.
+const toolName = (t) => norm(t).replace(/\.js$/, "").replace(/\s+/g, "");
+
 export function readLine(text, listed) {
   const named = [];
   const extra = [];
   for (const token of splitTools(text)) {
-    const whole = listed.find((t) => same(t, token));
-    if (whole) { named.push(whole); continue; }
-    const pieces = token.split(/\s+(?:and|&)\s+/i);
-    const each = pieces.map((p) => listed.find((t) => same(t, p)));
-    if (pieces.length > 1 && each.every(Boolean)) { named.push(...each); continue; }
-    extra.push(token);
+    for (const piece of atomic(token)) {
+      const find = (p) => listed.find((t) => toolName(t) === toolName(p));
+      // "Jira and Confluence" on a line is two listed tools; "Testing and
+      // Evaluation" is one, so "and" splits only when every part is listed.
+      const parts = find(piece) ? [piece] : piece.split(/\s+and\s+/i);
+      const found = parts.map(find);
+      if (found.every(Boolean)) {
+        for (const tool of found) if (!named.includes(tool)) named.push(tool);
+      } else extra.push(piece);
+    }
   }
   return { named, extra };
 }
