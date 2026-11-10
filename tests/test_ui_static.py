@@ -158,8 +158,8 @@ class SkillsLineTests(unittest.TestCase):
     def test_an_and_pair_of_listed_tools_is_both_of_them(self):
         got = self.run_node('console.log(JSON.stringify(readLine('
                             '"Scrum, Jira and Confluence, CI/CD and Linux, Figma",'
-                            ' ["Scrum", "Jira", "Confluence", "CI/CD & Linux"])))')
-        self.assertEqual(got["named"], ["Scrum", "Jira", "Confluence", "CI/CD & Linux"])
+                            ' ["Scrum", "Jira", "Confluence", "CI/CD", "Linux"])))')
+        self.assertEqual(got["named"], ["Scrum", "Jira", "Confluence", "CI/CD", "Linux"])
         self.assertEqual(got["extra"], ["Figma"])
 
     def test_his_real_lines_read_without_broken_brackets(self):

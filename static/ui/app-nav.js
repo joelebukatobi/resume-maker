@@ -3,7 +3,7 @@
 // Light DOM, so the shared atoms style it. Children marked data-slot="middle"
 // sit centred (a page's search); every other child is an action on the right.
 // Left: Applications, and Resume / Cover Letter when an app is open. Right:
-// Application Tone · My Experience · Models, then the theme toggle and JO.
+// Playbook · My Experience · Models, then the theme toggle and JO.
 // The theme button sits last among chrome and remembers the choice in this browser.
 
 import { el, icon } from "./dom.js";
@@ -14,7 +14,7 @@ const LEFT = [
 ];
 
 const RIGHT = [
-  ["voice", "/voice", "Application Tone"],
+  ["voice", "/playbook", "Playbook"],
   ["notes", "/notes", "My Experience"],
 ];
 

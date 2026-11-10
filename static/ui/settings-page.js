@@ -26,9 +26,9 @@ const BASE_FILES = {
     warning: "This replaces your base letter and can't be undone. Applications you've already made keep their copies.",
   },
   voice: {
-    label: "Voice",
-    backup: "voice-backup.md",
-    warning: "This replaces your current voice and can't be undone.",
+    label: "Playbook",
+    backup: "playbook-backup.md",
+    warning: "This replaces your current Playbook and can't be undone.",
   },
   notes: {
     label: "Notes",

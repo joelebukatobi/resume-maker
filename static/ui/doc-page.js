@@ -1,4 +1,4 @@
-// A page that edits one markdown file: Tone or My Experience.
+// A page that edits one markdown file: Playbook or My Experience.
 //
 // The file is one document, read as a preview or edited as markdown, with a
 // small chat underneath whose cards append to it. Endpoints are the ones the
@@ -20,6 +20,49 @@ export function mountDocPage({ kind, filename, placeholder, cards, starters = fa
   let roles = [];
 
   const dirty = () => text.trim() !== saved.trim();
+
+  // Markdown view: a plain code editor, unwrapped lines beside line numbers.
+  const source = $("source");
+  const gutter = el("pre", { class: "code-gutter", "aria-hidden": "true" });
+  const editor = el("div", { class: "code-edit", hidden: true });
+  source.replaceWith(editor);
+  editor.append(gutter, source);
+  source.hidden = false;
+  source.setAttribute("wrap", "off");
+  function paintGutter() {
+    const count = source.value.split("\n").length;
+    gutter.textContent = Array.from({ length: count }, (_, i) => i + 1).join("\n");
+    gutter.scrollTop = source.scrollTop;
+  }
+  source.addEventListener("scroll", () => { gutter.scrollTop = source.scrollTop; });
+
+  // The section being read in the preview: the last title in its top third.
+  function sectionInView() {
+    const preview = $("preview");
+    const line = preview.getBoundingClientRect().top + preview.clientHeight / 3;
+    let found = null;
+    for (const heading of preview.querySelectorAll(".md-heading")) {
+      if (heading.getBoundingClientRect().top > line) break;
+      found = heading.textContent.trim().toLowerCase();
+    }
+    return found;
+  }
+
+  // Put that section's title at the top of the editor, caret on it.
+  function openAt(title) {
+    if (!title) return;
+    const lines = text.split("\n");
+    const at = lines.findIndex((row) => {
+      const match = row.match(/^\s*#{1,6}\s+(.*)$/);
+      return match && match[1].replace(/[*_`]/g, "").trim().toLowerCase() === title;
+    });
+    if (at < 0) return;
+    const offset = lines.slice(0, at).reduce((sum, row) => sum + row.length + 1, 0);
+    source.scrollTop = at * parseFloat(getComputedStyle(source).lineHeight);
+    gutter.scrollTop = source.scrollTop;
+    source.setSelectionRange(offset, offset);
+    source.focus({ preventScroll: true });
+  }
 
   // Search shows only the paragraphs that mention the query, in the preview.
   function shown() {
@@ -45,14 +88,19 @@ export function mountDocPage({ kind, filename, placeholder, cards, starters = fa
   }
 
   function setMode(next) {
+    const title = mode === "preview" && next === "markdown" ? sectionInView() : null;
     mode = next;
     for (const button of document.querySelectorAll("[data-mode]")) {
       button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
     }
     $("preview").hidden = mode !== "preview";
-    $("source").hidden = mode !== "markdown";
+    editor.hidden = mode !== "markdown";
     if (mode === "preview") renderMarkdown(shown(), $("preview"));
-    else $("source").value = text;
+    else {
+      source.value = text;
+      paintGutter();
+      openAt(title);
+    }
     paintSearch();
   }
 
@@ -177,8 +225,9 @@ export function mountDocPage({ kind, filename, placeholder, cards, starters = fa
     });
   }
 
-  $("source").addEventListener("input", (event) => {
+  source.addEventListener("input", (event) => {
     text = event.target.value;
+    paintGutter();
   });
   for (const button of document.querySelectorAll("[data-mode]")) {
     button.addEventListener("click", () => setMode(button.dataset.mode));

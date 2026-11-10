@@ -39,18 +39,14 @@ function block(text) {
   }
   for (const [pattern, tag] of [[BULLET, "ul"], [NUMBER, "ol"]]) {
     if (lines.every((l) => pattern.test(l) || /^\s+\S/.test(l) || !l.trim())) {
-      const list = el(tag, { class: "md-list" });
-      let item = null;
+      // Each item's lines are joined before styling, so **bold** may wrap.
+      const items = [];
       for (const line of lines) {
         if (!line.trim()) continue;
-        if (pattern.test(line)) {
-          item = el("li", {}, inline(line.replace(pattern, "")));
-          list.append(item);
-        } else if (item) {
-          item.append(document.createTextNode(" "), ...inline(line.trim()));
-        }
+        if (pattern.test(line)) items.push(line.replace(pattern, ""));
+        else if (items.length) items[items.length - 1] += ` ${line.trim()}`;
       }
-      return [list];
+      return [el(tag, { class: "md-list" }, items.map((text) => el("li", {}, inline(text))))];
     }
   }
   return [el("p", { class: "md-p" }, inline(lines.map((l) => l.trim()).join(" ")))];

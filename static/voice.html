@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tone · Resume Maker</title>
+<title>Playbook · Resume Maker</title>
 <script src="/static/ui/theme.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,8 +19,8 @@
 <div class="shell">
   <app-nav current="voice">
     <div data-slot="middle" class="apps-search">
-      <label class="visually-hidden" for="search">Search Tone</label>
-      <input class="input input-sm" id="search" type="search" placeholder="Search Tone">
+      <label class="visually-hidden" for="search">Search Playbook</label>
+      <input class="input input-sm" id="search" type="search" placeholder="Search Playbook">
       <button class="apps-search-go" type="button" id="search-go" aria-label="Search"></button>
     </div>
   </app-nav>
@@ -29,13 +29,13 @@
     <main class="main">
       <div class="measure">
         <header class="page-head">
-          <h1 class="title">Tone</h1>
-          <p class="lead">How every application should sound, taste, rules, and what to avoid.</p>
+          <h1 class="title">Playbook</h1>
+          <p class="lead">How the model chooses from your notes and writes every application: the rules, the CV's shape, and your voice.</p>
         </header>
 
         <p class="meta search-note" id="search-note" hidden></p>
 
-        <section class="doc" aria-label="Tone">
+        <section class="doc" aria-label="Playbook">
           <div class="doc-bar">
             <div class="doc-view" role="group" aria-label="View">
               <button type="button" class="doc-view-btn" data-mode="preview" aria-pressed="true">Preview</button>
@@ -49,11 +49,11 @@
             </div>
           </div>
           <div class="doc-body md thin-scroll" id="preview"></div>
-          <label class="visually-hidden" for="source">Tone as markdown</label>
+          <label class="visually-hidden" for="source">Playbook as markdown</label>
           <textarea class="doc-body doc-source thin-scroll" id="source" spellcheck="false" hidden></textarea>
         </section>
 
-        <section class="chat" id="chat" aria-label="Ask about your tone"></section>
+        <section class="chat" id="chat" aria-label="Ask about your Playbook"></section>
       </div>
     </main>
   </div>
