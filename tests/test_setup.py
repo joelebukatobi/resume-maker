@@ -6,6 +6,7 @@ import json
 import sys
 import threading
 import unittest
+import time
 from unittest import mock
 import urllib.error
 import urllib.request
@@ -186,9 +187,18 @@ class SetupApiTests(unittest.TestCase):
         self.assertEqual(setup.skills(notes), {"Product": ["Jira", "Confluence"],
                                                "AI": ["Claude", "RAG"]})
         self.assertEqual(setup.skills("# Me\n\nNo list."), {})
+        technical = ("## Skills\n\n- Product: Jira\n- AI: Claude\n\n## Technical skills\n\n"
+                     "- Back end: Node.js, Laravel\n- Databases: MySQL\n"
+                     "- Linux and Servers: Red Hat\n- Business tools: Jira, Odoo\n")
+        self.assertEqual(setup.skills(technical), {
+            "Product": ["Jira", "Odoo"], "AI": ["Claude"],
+            "Programming": ["Node.js", "Laravel", "MySQL"], "Cloud Infrastructure": ["Red Hat"]})
+        added = setup.add_skill(technical, "AI", "RAG")
+        self.assertIn("- Back end: Node.js, Laravel", added)   # groups stay where they are
+        self.assertNotIn("- Programming:", added)              # and are not copied into Skills
         bracketed = "## Skills\n\n- Programming: JavaScript (React, Next.js), Python\n"
         self.assertEqual(setup.skills(bracketed),
-                         {"Programming": ["JavaScript (React, Next.js)", "Python"]})
+                         {"Programming": ["JavaScript", "React", "Next.js", "Python"]})
 
     def test_a_skill_goes_under_its_label_once(self):
         notes = setup.add_skill(self.NOTES_WITH_LOG, "Product", "Odoo")
@@ -208,7 +218,7 @@ class SetupApiTests(unittest.TestCase):
         notes = setup.add_skill(notes, "Programming", "iOS")      # his capitals stay
         notes = setup.add_skill(notes, "AI", "LLMs")
         self.assertEqual(setup.skills(notes), {
-            "AI": ["Large Language Models", "Testing and Evaluation", "LLMs"],
+            "AI": ["Large Language Models", "Testing and Evaluation"],  # LLMs is the same tool
             "Programming": ["Next.js", "iOS"]})
 
     def test_the_chat_can_add_a_skill_he_confirmed(self):
@@ -349,6 +359,33 @@ class SetupApiTests(unittest.TestCase):
         self.assertEqual(json.loads((root / "cv.json").read_text())["name"], "New Base")
         self.assertEqual(copy.read_text(), copied)              # applications keep their copies
 
+    def test_reading_the_same_page_again_changes_nothing(self):
+        page = {"text": "Engineer " * 80, "title": "", "company": "", "source": "page"}
+        with mock.patch.object(server.jobpost, "read", side_effect=lambda url: dict(page)), \
+                mock.patch.object(server.llm, "complete") as model:
+            first = self.post("/api/jd", {"url": "https://x.example/1"})
+            again = self.post("/api/jd", {"url": "https://x.example/1", "page": first["page"],
+                                          "provider": "p", "model": "m"})
+        self.assertEqual(again, {"unchanged": True, "page": first["page"]})
+        model.assert_not_called()                               # no second trim to drift
+        slug = self.get("/api/apps")["current"]
+        linked = self.post("/api/apps", {"action": "link", "slug": slug,
+                                         "url": "https://x.example/1", "page": first["page"]})
+        self.assertEqual(linked["application"]["job_url"], "https://x.example/1")
+        self.assertEqual(linked["application"]["job_page"], first["page"])
+
+    def test_a_slow_trim_hands_back_the_whole_page(self):
+        page = {"text": "Engineer " * 80, "title": "", "company": "", "source": "page"}
+        slow = lambda *args, **kwargs: time.sleep(3) or ""
+        with mock.patch.object(server.jobpost, "read", return_value=dict(page)), \
+                mock.patch.object(server.llm, "complete", side_effect=slow), \
+                mock.patch.object(server, "TRIM_SECONDS", 0.2):
+            started = time.monotonic()
+            post = self.post("/api/jd", {"url": "https://x.example/1", "provider": "p", "model": "m"})
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertEqual(post["text"], page["text"])
+        self.assertIn("took too long", post["trim_error"])
+
     def test_settings_page_is_built_on_the_redesign(self):
         """JO opens Settings: Bio (with Paper), Education, Work History."""
         page = self.assert_redesigned("/settings", "settings", "settings-page.js")
@@ -482,7 +519,7 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn('action: "cast"', bullets)               # roles on/off before lines
         self.assertIn("recommend_off", bullets)
         self.assertIn('phase: "bullets", entry: role.path', bullets)   # one read per job
-        self.assertIn('ctx.askSection("bullets", { entry: role.path })', bullets)
+        self.assertIn('ctx.askSection("bullets_all", { entries: roles.map((role) => role.path) })', bullets)  # one turn for every role
         self.assertIn("acceptProposals(role, found)", bullets) # auto-accept like old chat yes
         self.assertIn("await fillAll()", bullets)              # every on role, lazy
         self.assertIn("role.pending", bullets)                 # skeleton until that role lands
@@ -516,7 +553,7 @@ class SetupApiTests(unittest.TestCase):
         nav = self.fetch("/static/ui/app-nav.js")
         self.assertIn('text: "Resume"', nav)                   # Resume | Cover letter in the left nav
         self.assertIn('text: "Cover Letter"', nav)
-        self.assertIn('["voice", "/voice", "Application Tone"]', nav)
+        self.assertIn('["voice", "/playbook", "Playbook"]', nav)
         self.assertIn('MODE === "cover"', page)
         self.assertIn("/letter", page)
         self.assertIn("function askLetter", page)
@@ -566,14 +603,14 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn('"This runs to "', review)               # the page in words, red or green
         self.assertIn('" lines spare."', review)
         self.assertIn('ctx.askTurn("gaps")', review)           # finished CV checked on arrival
-        self.assertIn("ctx.setFitRefresh(runGapCheck)", review)  # and again from Overall Fit
+        self.assertIn('ctx.setFitRefresh(kind === "cover" ? runLetterCheck : runGapCheck)', review)  # and again from Overall Fit
         self.assertNotIn("Check the CV against the posting\"]", review)
         self.assertIn("applyRemoval", review)                  # remove and show cards apply
         self.assertIn("applyShown", review)
         self.assertNotIn("cannot be applied from here", review)
-        self.assertIn("`I have done ${term}`", review)         # check and X, no worded buttons
+        self.assertIn("ask-q-btn", review)                     # the question opens the answer; X says no
         self.assertIn("`I have not done ${term}`", review)
-        self.assertIn('send("answer"', review)
+        self.assertIn('onclick: () => openChat(question)', review)  # a gap's question goes to the chat
         self.assertIn('send("decline"', review)
         self.assertIn("line: `I have not done ${term}.`", review)  # a clean line in notes.md
         for card in ("answerCard", "gapsCard", "offerCard"):    # the chat's cards
@@ -584,11 +621,11 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn('"/api/chat/history"', review)           # the chat survives a reload
         self.assertIn("!m.pipeline", review)                   # drafting rounds stay out of it
         self.assertIn('"/api/setup/notes"', review)
-        self.assertIn('"Change", () => openChat()', review)
+        self.assertIn('name: "review-cards"', review)              # one card open at a time
         self.assertIn("applyProposal", review)
         self.assertIn('"/api/chat"', review)
         self.assertIn("attachDictate", review)
-        self.assertIn("Close chat", review)
+        self.assertIn("View Resume", review)                       # the page opens in a modal
         self.assertNotIn("What you chose", review)
         self.assertIn("\\u2010-\\u2015\\u2212", page)  # posting display shortens long dashes
         for endpoint in ('"/api/preview"', '"/api/match"'):
@@ -1080,6 +1117,11 @@ def fake_complete(system, prompt, *, fail_on=()):
     """Answers each kind of call the way a model would, by its rules."""
     if system == assistant.job_prompt():
         return '{"company": "Flexport", "role": "Rotational Development Program", "track": "Other"}'
+    if system == assistant.named_keywords_prompt():   # naming and the list, one call
+        if "keywords" in fail_on:
+            raise llm.LLMError("Claude: HTTP 529 - overloaded")
+        return ('{"company": "Flexport", "role": "Rotational Development Program",'
+                ' "track": "Other", "keywords": ["account management", "sql", "workflow automation"]}')
     if system == assistant.keywords_prompt():
         if "keywords" in fail_on:
             raise llm.LLMError("Claude: HTTP 529 - overloaded")
@@ -1147,6 +1189,7 @@ class KeywordApiTests(unittest.TestCase):
                                             "job_description": POSTING,
                                             "provider": "anthropic", "model": "m"})
         self.assertEqual(named["application"]["slug"], "flexport-rotational-development-program")
+        self.assertTrue(named["keywords_error"])                # said, not only printed
 
     def test_the_count_uses_the_stored_list_only(self):
         self.keep_posting()

@@ -136,18 +136,110 @@ def _capitalised(tool: str) -> str:
         for i, w in enumerate(words))
 
 
-def skills(notes: str) -> dict[str, list[str]]:
-    """His skills list: the ``## Skills`` section, one ``- Label: a, b`` line
-    per label. The only place the CV's skill lines are written from."""
+TECHNICAL_HEADING = "## Technical skills"
+# Which CV label a Technical skills group lands on, by a word in its name;
+# anything else is Programming.
+# ponytail: keyword match on group names; name the label per group in the
+# notes if a group ever needs to land somewhere these words don't reach.
+_FOLD = (("cloud", "Cloud Infrastructure"), ("infrastructure", "Cloud Infrastructure"),
+         ("linux", "Cloud Infrastructure"), ("server", "Cloud Infrastructure"),
+         ("ai", "AI"), ("business", "Product"), ("design", "Product"))
+
+
+_JOINED = re.compile(r"\s+&\s+")  # "Testing and Evaluation" is one skill
+_WORD = re.compile(r"[A-Za-z0-9][\w'.+#-]*")
+
+
+def atomic(tool: str) -> list[str]:
+    """One tool per entry. "SQL & Python" is SQL and Python; "PHP (Laravel)"
+    is PHP and Laravel; "Model Context Protocol (MCPs)" is just MCP, because a
+    bracket that only spells the name's initials is the same tool twice."""
+    tool = " ".join(str(tool or "").split()).strip().rstrip(".")
+    found = re.fullmatch(r"(.+?)\s*\(([^()]*)\)", tool)
+    if found:
+        head, inner = found[1].strip(), found[2].strip()
+        short = inner[:-1] if inner.endswith("s") and inner[:-1].isupper() else inner
+        if short.isupper() and short == _initials(head):
+            return [short]
+        return [*atomic(head), *(t for part in inner.split(",") for t in atomic(part))]
+    return [t.strip() for t in _JOINED.split(tool) if t.strip()]
+
+
+def _initials(name: str) -> str:
+    words = _WORD.findall(name)
+    return "".join(w[0] for w in words).upper() if len(words) > 1 else ""
+
+
+def _name(tool: str) -> str:
+    """Node and Node.js are one name."""
+    return tool.casefold().removesuffix(".js").replace(" ", "")
+
+
+def _acronym(tool: str) -> str:
+    """LLMs is LLM; a tool not written in capitals has none."""
+    word = tool[:-1] if tool.endswith("s") and tool[:-1].isupper() else tool
+    return word if word.isupper() and " " not in word else ""
+
+
+def _merge(have: list[str], tools: Sequence[str]) -> None:
+    """Add each tool to ``have`` unless the same tool is already there, by
+    name or as an acronym and the name it stands for (LLMs, Large Language
+    Models). Two spelled-out names never match on their initials alone."""
+    names = {_name(t) for t in have}
+    acronyms = {_acronym(t) for t in have} - {""}
+    spelled = {_initials(t) for t in have} - {""}
+    for tool in tools:
+        for one in atomic(tool):
+            short, initials = _acronym(one), _initials(one)
+            if _name(one) in names or short in spelled or initials in acronyms:
+                continue
+            # "Jira and Confluence" is two tools already listed; "Testing and
+            # Evaluation" stays one skill.
+            parts = re.split(r"\s+and\s+", one)
+            if len(parts) > 1 and all(_name(p) in names for p in parts):
+                continue
+            have.append(one)
+            names.add(_name(one))
+            if short:
+                acronyms.add(short)
+            if initials:
+                spelled.add(initials)
+
+
+def _listed(notes: str, heading: str) -> dict[str, list[str]]:
+    """One section's ``- Label: a, b`` lines, label to tools, one tool each."""
     out: dict[str, list[str]] = {}
     inside = False
     for raw in notes.splitlines():
         line = raw.strip()
         if line.startswith("#"):
-            inside = line == SKILLS_HEADING
+            inside = line == heading
         elif inside and line.startswith("- ") and ":" in line:
             label, _, tools = line[2:].partition(":")
-            out[label.strip()] = [t.strip() for t in _TOOL_SPLIT.split(tools) if t.strip()]
+            have: list[str] = []
+            _merge(have, [t for t in _TOOL_SPLIT.split(tools) if t.strip()])
+            out[label.strip()] = have
+    return out
+
+
+def _fold_label(group: str) -> str:
+    words = re.findall(r"[a-z]+", group.casefold())
+    for word, label in _FOLD:
+        if any(w == word or (len(word) > 2 and w.startswith(word)) for w in words):
+            return label
+    return "Programming"
+
+
+def skills(notes: str) -> dict[str, list[str]]:
+    """His skills list: the ``## Skills`` section, one ``- Label: a, b`` line
+    per label, with the ``## Technical skills`` groups folded onto the CV's
+    labels (Programming, Cloud Infrastructure, AI, Product). The only place
+    the CV's skill lines are written from."""
+    out = _listed(notes, SKILLS_HEADING)
+    for group, tools in _listed(notes, TECHNICAL_HEADING).items():
+        label = _fold_label(group)
+        name = next((k for k in out if k.casefold() == label.casefold()), label)
+        _merge(out.setdefault(name, []), tools)
     return out
 
 
@@ -157,7 +249,7 @@ def tools_from_line(text: str) -> list[str]:
     for part in _TOOL_SPLIT.split(str(text or "")):
         tool = re.sub(r"^(?:and|&)\s+", "", part.strip().rstrip("."), flags=re.I).strip()
         if tool:
-            out.append(tool)
+            out.extend(atomic(tool))
     return out
 
 
@@ -172,18 +264,13 @@ def enrich_skills(
     the labels on this CV. New tools keep the spelling they had on a CV.
     """
     out = {label: list(tools) for label, tools in listed.items()}
-    known = {label: {t.casefold() for t in tools} for label, tools in out.items()}
     canon = {label.casefold(): label for label in out}
     for key, lines in past_lines.items():
         label = canon.get(str(key).casefold())
         if label is None:
             continue
         for line in lines:
-            for tool in tools_from_line(line):
-                if tool.casefold() in known[label]:
-                    continue
-                out[label].append(tool)
-                known[label].add(tool.casefold())
+            _merge(out[label], tools_from_line(line))
     return out
 
 
@@ -196,7 +283,7 @@ def add_skill(notes: str, label: str, tool: str) -> str:
     label, tool = " ".join(str(label).split()), _capitalised(" ".join(str(tool).split()))
     if not label or not tool or ":" in label or len(_TOOL_SPLIT.split(tool)) > 1:
         raise ValueError("a skill needs a label and one tool")
-    listed = skills(notes)
+    listed = _listed(notes, SKILLS_HEADING)  # his own lines, not the folded groups
     name = next((k for k in listed if k.casefold() == label.casefold()), label)
     tools = listed.get(name, [])
     if any(t.casefold() == tool.casefold() for t in tools):
