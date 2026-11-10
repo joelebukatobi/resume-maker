@@ -8,7 +8,7 @@ Canonical instructions for any coding agent working in this repo. Read
 Local, loopback-only resume and cover letter editor: form → JSON → DOCX / PDF,
 ATS-friendly. A hub at `/` walks the spine **Voice → Notes → Documents → Model →
 Chat**. The chat talks to Claude, OpenAI, DeepSeek or Kimi through stdlib
-`urllib`; Voice (`voice.md`) and Notes (`notes.md`) go into every chat turn.
+`urllib`; Playbook (`playbook.md`) and Notes (`notes.md`) go into every chat turn.
 
 ## Run and test
 
@@ -27,8 +27,15 @@ python3 -m resume_maker.audit     # notes.md against the user's own words
   `static/` and goes with them.
 - **Loopback only.** API keys stay on the server and are never sent to the browser.
 - **Protocol lives in code**: proposal JSON, field paths and the no-invent rule
-  are in `resume_maker/assistant.py`. `voice.md` is taste and method only;
+  are in `resume_maker/assistant.py`. `playbook.md` is rules, taste and method;
   `notes.md` is experience only.
+- **The user's rules live in `playbook.md`** (the Playbook page, `/playbook`):
+  what ranks first, how to choose from the notes, the CV's shape, and how the
+  writing sounds. It goes into every chat turn. Do not copy those rules into
+  prompts in code; code holds the protocol and two locks only:
+  `library.bullet_room` (Amazon 3 bullets, every other role 2) and
+  `assistant.FIXED_CV_FIELD` (the CV's structure, refused on Review). Do not
+  change either without the user saying so.
 - DOCX and PDF must agree: both renderers read the same `Theme`.
 - Follow `DESIGN.md` for all new UI: palette, type, spacing, components and
   states. The pages in `static/` are the previous language, kept until they are

@@ -18,6 +18,15 @@ from defaults:
   (serif vs sans, header placement, etc.). Style choice drives how documents
   render.
 
+**Fill everything from the uploaded CV (agreed 2026-11-04).** One upload fills
+Settings (name, contacts, every job's employer, title, dates and location, every
+school and degree) and the notes (a section per job with what the CV says, plus
+Skills and Technical skills), so the only work left is tuning the notes. The
+profile then lives apart from the base CV, which becomes an input only. CV text
+copied into the notes is marked "from your CV, not yet confirmed" and is a
+starting point, not proof, until the person confirms or rewrites it; otherwise a
+stretched CV line would back itself.
+
 Starters for taste and presentation; no starters for who they are or what they
 have done. Settings > Base Files already uploads the CV, letter, notes and voice;
 onboarding can reuse it. Local workbench keeps draft autosave, Review coaching
