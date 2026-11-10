@@ -240,6 +240,14 @@ class WorkspaceTests(unittest.TestCase):
         with self.assertRaises(ApplicationError):
             self.space.find("untitled-application")
 
+    def test_naming_never_moves_one_application_inside_a_folder_already_there(self):
+        app = self.space.create("Untitled application")
+        (self.space.folder("osmo-software-tpm")).mkdir(parents=True)  # a stray folder, no app.json
+        named = self.space.rename(app.slug, "Osmo — Software TPM", reslug=True)
+        self.assertEqual(named.slug, "osmo-software-tpm-2")
+        self.assertTrue(self.space.paths(named.slug)["cv"].is_file())
+        self.assertEqual(list(self.space.folder("osmo-software-tpm").iterdir()), [])
+
     def test_rename_keeps_the_folder(self):
         app = self.space.create("Meta")
         renamed = self.space.rename(app.slug, "Meta — Rotational PM")
@@ -261,7 +269,7 @@ class WorkspaceTests(unittest.TestCase):
             {"messages": [{"role": "user", "content": "draft the opening"}],
              "job_description": ""}))
         app = self.space.ensure(chat_dir=chat)
-        self.assertEqual(app.name, "Meta — Rotational Product Manager")
+        self.assertEqual(app.name, "Meta | Rotational Product Manager")
         history = json.loads(self.space.paths(app.slug)["chat"].read_text())
         self.assertEqual([m["document"] for m in history["messages"]], ["cv", "cover"])
         self.assertEqual(history["job_description"], "RPM at Meta")

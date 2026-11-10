@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import time
@@ -79,6 +80,9 @@ class Application:
     name: str
     created: str
     job_url: str = ""
+    # A fingerprint of the page last read from ``job_url``, so a refresh can
+    # tell a changed posting from the same one read again.
+    job_page: str = ""
     archived: bool = False
     track: str = ""
     # Stable across renames, and never reused. The slug is neither: naming an
@@ -152,6 +156,7 @@ class Workspace:
             name=str(data.get("name") or folder.name),
             created=str(data.get("created") or ""),
             job_url=str(data.get("job_url") or ""),
+            job_page=str(data.get("job_page") or ""),
             archived=archived,
             track=str(data.get("track") or ""),
             id=str(data.get("id") or ""),
@@ -270,13 +275,14 @@ class Workspace:
         return self.set_current(slug)
 
     def _free_slug(self, slug: str) -> str:
+        """A slug no folder uses, live or archived. Any folder counts, even one
+        without its app.json: moving into it would nest one application inside
+        another (it happened to Shopify when two namings ran at once)."""
         candidate, n = slug, 2
-        while True:
-            try:
-                self.find(candidate)
-            except ApplicationError:
-                return candidate
+        while (self.folder(candidate).exists()
+               or self.folder(candidate, archived=True).exists()):
             candidate, n = f"{slug}-{n}", n + 1
+        return candidate
 
     def rename(self, slug: str, name: str, *, reslug: bool = False) -> Application:
         """A new label.
@@ -298,7 +304,11 @@ class Workspace:
             wanted = self._free_slug(slugify(name))
             if wanted != slug:
                 target = self.folder(wanted, archived=archived)
-                shutil.move(str(folder), str(target))
+                # os.rename, not shutil.move: shutil.move puts the folder
+                # inside an existing one instead of failing.
+                if target.exists():
+                    raise ApplicationError(f"{wanted!r} already exists")
+                os.rename(folder, target)
                 folder, slug = target, wanted
                 if not archived:
                     self.set_current(slug)
@@ -349,6 +359,20 @@ class Workspace:
         folder, archived = self.find(slug)
         meta = json.loads((folder / META).read_text(encoding="utf-8"))
         meta["track"] = track
+        (folder / META).write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+        app = self._read(folder, archived)
+        assert app is not None
+        return app
+
+    def set_link(self, slug: str, url: str, page: str = "") -> Application:
+        """Keep the posting's link, and the fingerprint of the page read from it."""
+        url = str(url).strip()[:2000]
+        if url and not url.startswith(("http://", "https://")):
+            raise ApplicationError("that isn't a web link")
+        folder, archived = self.find(slug)
+        meta = json.loads((folder / META).read_text(encoding="utf-8"))
+        meta["job_url"] = url
+        meta["job_page"] = str(page)[:64]
         (folder / META).write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
         app = self._read(folder, archived)
         assert app is not None
@@ -484,7 +508,7 @@ class Workspace:
         data = _load(self.base.get("cover"))
         company = str(data.get("company") or "").strip()
         role = str(data.get("role") or "").strip()
-        return " — ".join(p for p in (company, role) if p) or "First application"
+        return " | ".join(p for p in (company, role) if p) or "First application"
 
     def _adopt_chats(self, slug: str, chat_dir: Path) -> None:
         """Fold the old per-document chat files into one conversation.
