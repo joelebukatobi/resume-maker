@@ -16,6 +16,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import re
 import tempfile
 import threading
@@ -1259,7 +1260,7 @@ class EditorHandler(BaseHTTPRequestHandler):
             if not isinstance(entry, dict):
                 raise ValueError("which job?")
             where = found[0]
-            room = library.bullet_room(entry)  # fixed: Amazon 3, every other role 2
+            room = library.bullet_room(int(found[2]))  # fixed: first role 3, every other 2
             slots = [(("bullets", library.company(entry.get("left"))), "")]
         else:
             slots = [((phase, ""), "")]
@@ -1536,6 +1537,13 @@ def main(argv: list[str] | None = None) -> int:
                         help="one folder per job application")
     parser.add_argument("--no-open", action="store_true", help="do not open a browser")
     args = parser.parse_args(argv)
+
+    # A fresh clone has no base CV or letter; start them from the examples.
+    for path in (args.cv, args.cover):
+        example = Path(__file__).resolve().parent / f"{path.stem}.example.json"
+        if not path.exists() and example.exists():
+            shutil.copyfile(example, path)
+            print(f"created {path} from {example.name}")
 
     root = args.cv.resolve().parent
     # The root documents are the base every application is copied from; the

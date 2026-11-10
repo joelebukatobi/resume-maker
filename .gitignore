@@ -6,6 +6,9 @@ __pycache__/
 # Personal: your Voice and experience notes. Role starters in templates/ stay tracked.
 voice.md
 playbook.md
+# Your base CV and letter. New copies start from the .example.json files.
+cv.json
+cover.json
 notes.md
 # What you decided about lines in your history: struck, kept, confirmed, checked.
 library.json

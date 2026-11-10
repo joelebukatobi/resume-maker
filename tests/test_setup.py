@@ -22,8 +22,8 @@ import server  # noqa: E402
 from resume_maker import assistant, fill, jev, keywords, library, llm, setup
 from resume_maker.applications import Workspace  # noqa: E402
 
-CV = json.loads((ROOT / "cv.json").read_text())
-COVER = json.loads((ROOT / "cover.json").read_text())
+CV = json.loads((ROOT / "cv.example.json").read_text())
+COVER = json.loads((ROOT / "cover.example.json").read_text())
 
 
 class ReadinessTests(unittest.TestCase):
@@ -925,7 +925,7 @@ class ApplicationApiTests(unittest.TestCase):
         """A plain New starts the letter from the base file, so the base must
         not be somebody's letter. It was Meta's, which meant every new
         application opened addressed to Meta."""
-        base = json.loads((ROOT / "cover.json").read_text())
+        base = json.loads((ROOT / "cover.example.json").read_text())
         self.assertEqual(base["company"], "")
         self.assertEqual(base["role"], "")
         self.assertIn("[Company]", base["greeting"])
@@ -1462,7 +1462,7 @@ class LibraryApiTests(unittest.TestCase):
 
     def test_a_job_turn_says_how_many_bullets_it_has_room_for(self):
         system = self.section_prompt("bullets", entry="sections.3.entries.0")
-        room = library.bullet_room(CV["sections"][3]["entries"][0])
+        room = library.bullet_room(0)
         self.assertIn(f"room for {room} bullets", system)
         self.assertIn(CV["sections"][3]["entries"][0]["bullets"][0], system)
 
@@ -1492,7 +1492,7 @@ class LibraryApiTests(unittest.TestCase):
     def test_a_job_slot_says_its_room_and_lists_that_job_only(self):
         slug = self.new()
         got = self.slot("bullets", slug, entry="sections.3.entries.0")
-        self.assertEqual(got["room"], library.bullet_room(CV["sections"][3]["entries"][0]))
+        self.assertEqual(got["room"], library.bullet_room(0))
         self.assertEqual(got["where"], "sections.3.entries.0")
         self.assertIn(CV["sections"][3]["entries"][0]["bullets"][0], got["lines"])
         other = CV["sections"][3]["entries"][1]["bullets"][0]

@@ -196,7 +196,7 @@ class ProviderTests(unittest.TestCase):
 
 class AssistantTests(unittest.TestCase):
     def setUp(self):
-        self.cv = json.loads((ROOT / "cv.json").read_text())
+        self.cv = json.loads((ROOT / "cv.example.json").read_text())
 
     def test_every_field_path_resolves_in_the_document(self):
         for path, _, text in assistant.field_paths("cv", self.cv):
@@ -687,7 +687,7 @@ class StyleAndNotesPromptTests(unittest.TestCase):
     """Voice (voice.md) and the shared experience bank (notes.md)."""
 
     def setUp(self):
-        self.cv = json.loads((ROOT / "cv.json").read_text())
+        self.cv = json.loads((ROOT / "cv.example.json").read_text())
 
     def prompt(self, **kwargs):
         return assistant.system_prompt("cv", self.cv, **kwargs)
@@ -747,7 +747,7 @@ class PromptCacheTests(unittest.TestCase):
     """The prompt is split so providers can bill the repeated part cheaply."""
 
     def setUp(self):
-        self.cv = json.loads((ROOT / "cv.json").read_text())
+        self.cv = json.loads((ROOT / "cv.example.json").read_text())
 
     def test_volatile_fields_come_after_the_stable_prefix(self):
         stable, volatile = assistant.prompt_parts(

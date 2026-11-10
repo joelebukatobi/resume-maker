@@ -28,7 +28,7 @@ def load(font: str | None = None) -> tuple[CV, Theme]:
     if font:
         theme = Theme.from_mapping({**{k: getattr(theme, k) for k in
                                        Theme.__dataclass_fields__}, "font": font})
-    cv = CV.load(ROOT / "cv.json", date_separator=theme.date_separator)
+    cv = CV.load(ROOT / "cv.example.json", date_separator=theme.date_separator)
     return cv, theme
 
 
@@ -457,7 +457,7 @@ class HeaderRuleTests(unittest.TestCase):
     def test_letter_has_no_rule(self):
         from resume_maker.model import CoverLetter
         cv, theme = load()
-        letter = CoverLetter.load(ROOT / "cover.json")
+        letter = CoverLetter.load(ROOT / "cover.example.json")
         xml = docx_part(DocxRenderer(theme).render(cv, letter), "word/document.xml")
         self.assertNotIn("<w:pBdr>", xml)
         self.assertNotIn("contact rule", HtmlRenderer(theme).render(cv, letter=letter))

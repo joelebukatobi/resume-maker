@@ -164,7 +164,7 @@ class SkillsLineTests(unittest.TestCase):
 
     def test_his_real_lines_read_without_broken_brackets(self):
         from resume_maker import setup
-        cv = json.loads((ROOT / "cv.json").read_text(encoding="utf-8"))
+        cv = json.loads((ROOT / "cv.example.json").read_text(encoding="utf-8"))
         notes = (ROOT / "notes.md").read_text(encoding="utf-8") if (ROOT / "notes.md").is_file() else ""
         listed = setup.skills(notes)
         items = next(s for s in cv["sections"] if "SKILL" in s["heading"].upper())["items"]

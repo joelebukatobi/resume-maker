@@ -1,0 +1,31 @@
+{
+  "name": "YOUR NAME",
+  "contact": [
+    {
+      "text": "you@example.com",
+      "href": "mailto:you@example.com",
+      "footer": true,
+      "header": false
+    },
+    {
+      "text": "linkedin.com/in/your-name",
+      "href": "https://linkedin.com/in/your-name"
+    },
+    {
+      "text": "City, State"
+    },
+    {
+      "text": "+1 555 000 0000",
+      "footer": true,
+      "header": false
+    }
+  ],
+  "role": "",
+  "company": "",
+  "greeting": "Dear [Company] Hiring Team,",
+  "paragraphs": [
+    "I am applying for the [Role] at [Company]."
+  ],
+  "closing": "Thank you for your consideration. I look forward to hearing from you.",
+  "signoff": "Sincerely,"
+}
