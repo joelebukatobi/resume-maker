@@ -24,6 +24,7 @@ import json
 import os
 import re
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -350,6 +351,7 @@ def stream_chat(
                 "messages": [{"role": "system", "content": system}, *turns]}
         if temperature is not None:
             body["temperature"] = temperature
+    started = time.monotonic()
     try:
         response = _open(p, path, body)
     except LLMError as exc:
@@ -361,10 +363,21 @@ def stream_chat(
             raise
         body = {k: v for k, v in body.items() if k != "temperature"}
         response = _open(p, path, body)
+    # One line per call, so a slow step shows which call it waited on.
+    first = None
+    size = 0
     try:
-        yield from text_deltas(p.kind, sse_data(response))
+        for text in text_deltas(p.kind, sse_data(response)):
+            if first is None:
+                first = time.monotonic() - started
+            size += len(text)
+            yield text
     finally:
         response.close()
+        wait = "no text" if first is None else f"first text {first:.1f}s"
+        print(f"[llm] {p.id} {model}: {wait}, done {time.monotonic() - started:.1f}s, "
+              f"{len(system) + sum(len(t['content']) for t in turns)} chars in, {size} out",
+              flush=True)
 
 
 def complete(provider_id: str, model: str, system: str, prompt: str,
