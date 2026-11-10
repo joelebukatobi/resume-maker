@@ -13,12 +13,14 @@ with.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
 import tempfile
 import threading
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dataclasses import asdict
 from datetime import date
 from functools import partial
@@ -32,7 +34,7 @@ from urllib.parse import parse_qs, quote
 from resume_maker.applications import UNNAMED, ApplicationError, Workspace, as_json
 from resume_maker.build import FORMAT_ALIASES, Builder, export_name, safe_stem
 from resume_maker.export_pdf import BrowserNotFound, ExportError
-from resume_maker import assistant, fill, jev, keywords, library, llm, match, setup, transcribe
+from resume_maker import assistant, fill, jev, jobpost, keywords, library, llm, match, setup, transcribe
 from resume_maker.fonts import catalogue, preview_face
 from resume_maker.model import CV, ContentError, CoverLetter
 from resume_maker.theme import Theme, ThemeError
@@ -45,7 +47,7 @@ _LIBRARY_LOCK = threading.Lock()
 
 PAGES = {
     "/": ("home.html", "hub"),
-    "/voice": ("voice.html", "voice"),
+    "/playbook": ("voice.html", "voice"),
     "/notes": ("notes.html", "notes"),
     "/settings": ("settings.html", "settings"),
     "/review": ("review.html", "review"),
@@ -63,6 +65,7 @@ DOCUMENT_PAGES = {
 DOCUMENT_FILES = {"write": "write.html", "letter": "write.html"}
 
 MAX_BODY = 1 << 20  # 1 MiB is far more than any CV needs.
+TRIM_SECONDS = 45  # past this, a link hands back the whole page untrimmed.
 MAX_IMPORT_BODY = 8 << 20  # a 5 MB file, base64 encoded
 MAX_HISTORY = 2 << 20
 MAX_TURNS = 200
@@ -254,9 +257,9 @@ class EditorHandler(BaseHTTPRequestHandler):
             return self._page(*PAGES[route])
         # /resume and /cover-letter from before applications existed, and any
         # bookmark of them, land in whichever application is open.
-        # The Voice page was called Style until the file was renamed.
-        if route == "/style":
-            return self._redirect("/voice")
+        # The Playbook was the Voice page, and before that Style.
+        if route in ("/style", "/voice"):
+            return self._redirect("/playbook")
         if route in ("/resume", "/index.html"):
             try:
                 return self._redirect(f"/{self._workspace.current}/write")
@@ -353,6 +356,7 @@ class EditorHandler(BaseHTTPRequestHandler):
             "/api/setup/notes": self._setup_notes,
             "/api/setup/extract": self._setup_extract,
             "/api/setup/base": self._setup_base,
+            "/api/jd": self._job_post,
             "/api/llm/key": self._key,
             "/api/match": self._match,
             "/api/keywords": self._keywords,
@@ -662,6 +666,40 @@ class EditorHandler(BaseHTTPRequestHandler):
         _atomic_write(Path(base[kind]), json.dumps(doc, indent=2, ensure_ascii=False))
         self._json(HTTPStatus.OK, {"saved": True})
 
+    def _job_post(self, payload: dict[str, Any]) -> None:
+        """The description at a posting's link, returned for review and saved
+        nowhere: a fetch can quietly bring back a cookie wall. With a model
+        chosen, it also drops the page's extras and keeps the job itself."""
+        url = payload.get("url")
+        if not isinstance(url, str) or not url.strip():
+            raise ValueError("no link sent")
+        post = jobpost.read(url)
+        post["full"] = post["text"]
+        # The page's fingerprint. A refresh sends the one it kept; the same page
+        # comes back unchanged and untrimmed, so a model's second trim can't
+        # move a posting that did not move.
+        post["page"] = hashlib.sha256(post["full"].encode("utf-8")).hexdigest()[:32]
+        if payload.get("page") and payload.get("page") == post["page"]:
+            return self._json(HTTPStatus.OK, {"unchanged": True, "page": post["page"]})
+        if payload.get("model"):
+            try:
+                model = llm.check_model(payload.get("model", ""))
+                # ponytail: a trim past the limit is abandoned, not cancelled;
+                # its thread finishes the stream in the background.
+                pool = ThreadPoolExecutor(max_workers=1)
+                trim = pool.submit(llm.complete, str(payload.get("provider", "")), model,
+                                   jobpost.TRIM_PROMPT, post["text"][:40_000], temperature=0)
+                pool.shutdown(wait=False)
+                try:
+                    reply = trim.result(timeout=TRIM_SECONDS)
+                except FutureTimeout:
+                    raise llm.LLMError("the model took too long") from None
+                post["text"] = jobpost.keep_lines(post["text"], reply)
+            except (llm.LLMError, ValueError) as error:
+                # The page itself was read; hand it over whole rather than lose it.
+                post["trim_error"] = str(error)
+        self._json(HTTPStatus.OK, post)
+
     def _transcribe(self, payload: dict[str, Any]) -> None:
         """A 16 kHz WAV recorded in the browser, transcribed on this machine.
 
@@ -829,17 +867,20 @@ class EditorHandler(BaseHTTPRequestHandler):
         return {"keywords": stored["keywords"], "map": stored["map"],
                  "skipped": stored["skipped"], "current": keywords.is_current(stored, jd)}
 
-    def _read_keywords(self, path: Path, jd: str, payload: dict[str, Any]) -> None:
-        """Read a list and its map for ``jd`` and keep them, replacing any earlier."""
+    def _read_keywords(self, path: Path, jd: str, payload: dict[str, Any],
+                       terms: list[str] | None = None) -> None:
+        """Read a list and its map for ``jd`` and keep them, replacing any earlier.
+        ``terms`` already read (naming reads them in the same call) skips that call."""
         provider = str(payload.get("provider", ""))
         model = llm.check_model(payload.get("model", ""))
-        # The application being read, which during naming is not yet the one
-        # the request was addressed to.
-        company = str(_read_json(path.with_name("cover.json")).get("company") or "")
-        terms = assistant.parse_keywords(
-            llm.complete(provider, model, assistant.keywords_prompt(),
-                         assistant.keywords_request(jd), temperature=0),
-            company=company)
+        if terms is None:
+            # The application being read, which during naming is not yet the
+            # one the request was addressed to.
+            company = str(_read_json(path.with_name("cover.json")).get("company") or "")
+            terms = assistant.parse_keywords(
+                llm.complete(provider, model, assistant.keywords_prompt(),
+                             assistant.keywords_request(jd), temperature=0),
+                company=company)
         _, notes = self._voice_and_notes()
         entries = assistant.parse_map(
             llm.complete(provider, model, assistant.map_prompt(),
@@ -1062,6 +1103,9 @@ class EditorHandler(BaseHTTPRequestHandler):
             app = self._workspace.archive(slug, archived=action == "archive")
         elif action == "track":
             app = self._workspace.set_track(slug, str(payload.get("track") or ""))
+        elif action == "link":
+            app = self._workspace.set_link(slug, str(payload.get("url") or ""),
+                                           str(payload.get("page") or ""))
         elif action == "delete":
             self._workspace.delete(slug)
             self._json(HTTPStatus.OK, {"deleted": slug, "current": self._last_opened()})
@@ -1083,12 +1127,17 @@ class EditorHandler(BaseHTTPRequestHandler):
         text = str(payload.get("job_description") or "").strip()[: assistant.MAX_IMPORT_TEXT]
         if not text:
             raise ValueError("paste a job description first")
-        reply = llm.complete(
-            str(payload.get("provider", "")), llm.check_model(payload.get("model", "")),
-            assistant.job_prompt(), text,
-        )
+        # One call names the posting and reads its terms. If it fails, the
+        # naming is asked for alone, so a failed list never costs the name.
+        provider, model = str(payload.get("provider", "")), llm.check_model(payload.get("model", ""))
+        try:
+            reply = llm.complete(provider, model, assistant.named_keywords_prompt(),
+                                 assistant.keywords_request(text), temperature=0)
+            both = True
+        except llm.LLMError:
+            reply, both = llm.complete(provider, model, assistant.job_prompt(), text), False
         found = assistant.parse_job(reply)
-        name = " — ".join(p for p in (found["company"], found["role"]) if p)
+        name = " | ".join(p for p in (found["company"], found["role"]) if p)
         if not name:
             raise ValueError("that posting does not name a company or a role")
         app = self._workspace.rename(slug, name, reslug=True)
@@ -1106,12 +1155,16 @@ class EditorHandler(BaseHTTPRequestHandler):
         # The posting has just been read once; this is when its keyword list
         # is read and frozen. A failure here costs the list, never the name:
         # the editor reads it again when the application next opens.
+        keywords_error = ""
         try:
-            self._read_keywords(self._paths(app.slug)["keywords"], text, payload)
+            terms = assistant.parse_keywords(reply, company=found["company"]) if both else None
+            self._read_keywords(self._paths(app.slug)["keywords"], text, payload, terms=terms)
         except (llm.LLMError, assistant.ImportFailed, ValueError) as exc:
             print(f"[keywords] not read for {app.slug}: {exc}")
+            keywords_error = str(exc)
         self._json(HTTPStatus.OK, {"application": as_json(app), **found,
-                                   "current": self._workspace.current})
+                                   "current": self._workspace.current,
+                                   "keywords_error": keywords_error})
 
     # -- the line library -------------------------------------------------
 
@@ -1157,6 +1210,13 @@ class EditorHandler(BaseHTTPRequestHandler):
         back, ranked against the posting's frozen keyword list."""
         if phase == "skills":
             return assistant.skills_note(self._skills_listed(payload))
+        if phase == "bullets_all":
+            raw = payload.get("entries")
+            paths = [str(p) for p in raw][:8] if isinstance(raw, list) else []
+            if not paths:
+                raise ValueError("which jobs?")
+            return "\n\n".join(self._section_note("bullets", {**payload, "entry": path})
+                                for path in paths)
         shown, room, where = self._section_lines(phase, payload)
         return assistant.section_note(shown, room=room, where=where)
 
@@ -1199,11 +1259,7 @@ class EditorHandler(BaseHTTPRequestHandler):
             if not isinstance(entry, dict):
                 raise ValueError("which job?")
             where = found[0]
-            # The frame has no bullets left to count; the base is the record
-            # of the room each role gets.
-            room = len(entry.get("bullets") or []) or 3
-            cap = (entry.get("budget") or {}).get("bullets")
-            room = min(room, cap) if isinstance(cap, int) else room
+            room = library.bullet_room(entry)  # fixed: Amazon 3, every other role 2
             slots = [(("bullets", library.company(entry.get("left"))), "")]
         else:
             slots = [((phase, ""), "")]
@@ -1469,8 +1525,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--theme", type=Path, default=Path("theme.json"))
     parser.add_argument("--cover", type=Path, default=Path("cover.json"))
     parser.add_argument("--cover-theme", type=Path, default=Path("cover-theme.json"))
-    parser.add_argument("--voice", type=Path, default=Path("voice.md"),
-                        help="Voice file fed into every chat turn")
+    parser.add_argument("--playbook", "--voice", dest="voice", type=Path,
+                        default=Path("playbook.md"),
+                        help="Playbook (rules and voice) fed into every chat turn")
     parser.add_argument("--notes", type=Path, default=Path("notes.md"),
                         help="shared experience bank fed into every chat turn")
     parser.add_argument("--out", type=Path, default=Path("out"),
