@@ -7,6 +7,7 @@
 // corrects by hand here, or later in Review chat. Refresh re-runs the fill.
 
 import { api, el, icon, stepAction, stepSkeleton, toast } from "./dom.js";
+import { addInferred } from "./inferred.js";
 
 // Settled per application for this Write visit; Back from edit reopens cast.
 let castSettledFor = "";
@@ -302,12 +303,14 @@ async function drawEdit(ctx, at, entries) {
   function acceptProposals(role, found) {
     const byIndex = [];
     const extras = [];
+    const inferred = [];
     for (const p of found) {
       const text = String(p.text || "").trim();
       if (!text || !p.path.startsWith(`${role.path}.bullets.`)) continue;
       const index = Number(p.path.slice(`${role.path}.bullets.`.length));
       if (Number.isInteger(index) && index >= 0) byIndex[index] = text;
       else extras.push(text);
+      if (p.inferred) inferred.push({ text, from: String(p.inferred).trim().slice(0, 200) });
     }
     // The room is fixed (first role 3, every other role 2); a line past it is dropped.
     const room = role.room || byIndex.length;
@@ -329,6 +332,9 @@ async function drawEdit(ctx, at, entries) {
         role.others.unshift({ text, origin: "Recommended" });
       }
     }
+    // Only what landed on the page is asked about on Review.
+    addInferred(ctx.appId ? ctx.appId() : ctx.app,
+      inferred.filter((item) => role.lines.includes(item.text)));
     return byIndex.filter(Boolean).length;
   }
 

@@ -9,6 +9,7 @@
 import { agent } from "./agent.js";
 import { attachDictate } from "./dictate.js";
 import { api, el, icon, toast } from "./dom.js";
+import { readInferred, writeInferred } from "./inferred.js";
 import { renderMarkdown } from "./markdown.js";
 
 const STREAM_ERROR = String.fromCharCode(0);
@@ -178,6 +179,7 @@ export async function drawReview(ctx) {
     class: "link-btn", type: "button", text: kind === "cover" ? "View Letter" : "View Resume",
   });
   const gapStore = `resume-maker.gaps.${ctx.appId ? ctx.appId() : ctx.app}`;
+  const inferredKey = ctx.appId ? ctx.appId() : ctx.app;
   // The letter's own read: opening, claims, tone, length. Kept apart from the CV's gaps.
   const checkStore = `resume-maker.letter-checks.${ctx.appId ? ctx.appId() : ctx.app}`;
   const checksBody = el("div", { class: "review-card-body review-gaps" });
@@ -244,20 +246,71 @@ export async function drawReview(ctx) {
 
   // Everything to answer in one section: the posting's terms that are not on
   // the page, then what the last read of the finished CV found.
+  // Where a bullet sits now, by its text: it may have moved since Bullets placed it.
+  function bulletPath(text) {
+    const sections = (doc && doc.sections) || [];
+    for (let s = 0; s < sections.length; s += 1) {
+      const entries = sections[s].entries || [];
+      for (let e = 0; e < entries.length; e += 1) {
+        const b = (entries[e].bullets || []).indexOf(text);
+        if (b >= 0) return `sections.${s}.entries.${e}.bullets.${b}`;
+      }
+    }
+    return null;
+  }
+
+  // An inferred bullet, asked like a past CV line: the question opens the
+  // chat to rework it, the check keeps it, X takes it off the CV.
+  function inferredRow(item) {
+    const forget = () => {
+      writeInferred(inferredKey, readInferred(inferredKey).filter((o) => o.text !== item.text));
+      paintGaps();
+    };
+    const asked = `I inferred this${item.from ? ` from ${item.from}` : ""}: "${item.text}" Is that right?`;
+    const keep = el("button", {
+      class: "icon-btn", type: "button", "aria-label": `Right, keep it: ${item.text}`, onclick: forget,
+    }, [icon("check", 16)]);
+    const wrong = el("button", {
+      class: "icon-btn", type: "button", "aria-label": `Not true, take it off: ${item.text}`,
+    }, [icon("xmark", 16)]);
+    wrong.addEventListener("click", async () => {
+      wrong.disabled = true;
+      try {
+        const path = bulletPath(item.text);
+        if (path) await applyRemoval(path);
+        forget();
+      } catch (error) {
+        wrong.disabled = false;
+        toast(error.message, "error");
+      }
+    });
+    return el("div", { class: "ask-head" }, [
+      el("button", {
+        class: "ask-q ask-q-btn", type: "button", text: asked,
+        "aria-label": `Answer in the chat: ${asked}`,
+        onclick: () => openChat(asked),
+      }),
+      el("div", { class: "ask-actions" }, [keep, wrong]),
+    ]);
+  }
+
   function paintGaps() {
     if (kind === "cover") return; // the letter has Checks instead
+    // Rewritten or removed since: no longer on the CV, so nothing to ask.
+    const inferred = readInferred(inferredKey).filter((item) => bulletPath(item.text));
     const found = (gaps || []).map((gap) => gapRow(gap, (settled) => {
       if (settled) gaps = gaps.filter((other) => other !== gap);
       saveGaps();
     }));
-    const quiet = gaps && !gaps.length && !askBlock.childElementCount;
+    const quiet = gaps && !gaps.length && !askBlock.childElementCount && !inferred.length;
     gapsBody.replaceChildren(
       askBlock,
+      ...inferred.map(inferredRow),
       ...found,
       ...(quiet && !checkingGaps ? [el("p", { class: "meta", text: "Nothing missing." })] : []),
     );
     gapsStatus.textContent = checkingGaps ? "Checking the CV against the posting…" : "";
-    gapsFold.hidden = !checkingGaps && !gaps && !askBlock.childElementCount;
+    gapsFold.hidden = !checkingGaps && !gaps && !askBlock.childElementCount && !inferred.length;
   }
 
   // One paid model turn, then the notes check. Run on arriving by Next or from

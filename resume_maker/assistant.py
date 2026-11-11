@@ -137,6 +137,11 @@ How to answer:
 ```
 - One block per field. "text" is the complete replacement, plain text only:
   no markdown, no bullet characters, no surrounding quotes.
+- A bullet that goes beyond what his notes state, where a turn below allows
+  one, carries "inferred": one short line naming what it was inferred from,
+  e.g. {{"path": "...", "text": "...", "inferred": "SQL in his skills list, the Numinix stores"}}.
+  The user is shown every inferred bullet to confirm. Never leave the tag off
+  one, and never put it on a line his notes state.
 - To add a bullet to an experience entry, or a paragraph to a letter, use the
   next unused index, e.g. if bullets 0 and 1 exist, propose "...bullets.2", and
   if the letter has one paragraph, propose "paragraphs.1" for the next.
@@ -222,7 +227,8 @@ How to answer:
   is never out of date. Never say you cannot see the document and never ask the
   user to paste it back to you.
 - Never invent facts, employers, dates, numbers or credentials. Rephrase and
-  prioritise what is there; if something is missing, ask the user.
+  prioritise what is there; if something is missing, ask the user. The one
+  exception is an inferred Work History bullet, only in a turn that allows it.
 - Keep it ATS friendly: plain wording, standard terms, keywords from the job
   description where they are true of the candidate.
 - Every claim has to answer something this posting asks for. The notes hold
@@ -581,6 +587,22 @@ the notes section it came from. Never invent a tool, number, title or result
 that is not in his notes or those lines.
 """
 
+# Bullets only. The user's boundary, 2026-11-10: the activity behind what the
+# notes or skills list name may be inferred and placed at the likeliest
+# employer; numbers, employers, titles, dates, team sizes and unnamed tools
+# never. Every inferred bullet is tagged and shown to him on Review.
+_MAY_INFER = """\
+When none of his lines or notes answers something the posting asks for, you
+may infer a bullet. Take a tool, skill or kind of work his notes or skills
+list name, and write the plausible activity behind it at the employer where
+he most likely did it: SQL in his skills list and e-commerce stores at
+Numinix may become writing joins and reporting queries for those stores.
+Never infer a number, percentage, metric, employer, title, date, team size or
+scope word like "led", and never a tool that appears nowhere in his notes or
+skills list. An inferred bullet carries "inferred" in its proposal. At most
+one inferred bullet per job.
+"""
+
 _SECTION_SUMMARY = """\
 ## This turn
 
@@ -620,6 +642,8 @@ it has room for, starting at bullets.0, and none for any other job.
 {whole}
 
 {lines}
+
+{infer}
 """
 
 _SECTION_BULLETS_ALL = """\
@@ -634,6 +658,8 @@ goes under another, and no job gets more bullets than its room.
 {whole}
 
 {lines}
+
+{infer}
 """
 
 _SECTION_ADDITIONAL = """\
@@ -715,7 +741,8 @@ def tailor_rules(phase: str = "wording", settled=(), declined=()) -> str:
     """
     if phase in SECTIONS:
         rules = SECTIONS[phase].format(whole=_SECTION_WHOLE.strip(),
-                                       lines=_FROM_HIS_LINES.strip()).strip()
+                                       lines=_FROM_HIS_LINES.strip(),
+                                       infer=_MAY_INFER.strip()).strip()
     else:
         rules = _PHASE_RULES.get(phase, _TAILOR_WORDING).format(
             one=_ONE_AT_A_TIME.strip()).strip()
@@ -990,7 +1017,8 @@ Before you answer, check your own text against these. They are the rules the
 user has had to repeat, and whatever sits nearest here has the most pull.
 - No dashes as punctuation, no colons, no semicolons. The dash between two
   dates is not punctuation and is not yours to change.
-- Nothing invented. Every fact comes from the notes or from the user.
+- Nothing invented. Every fact comes from the notes or from the user. A Work
+  History turn may infer a bullet within its limits, and tags it "inferred".
 - No internal team, org or project names in a bullet or the summary. Countries
   and regions stay.
 - Nothing is saved until the user presses the button on the card. Never say you

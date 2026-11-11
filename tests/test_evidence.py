@@ -70,3 +70,23 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class InferredBulletTests(unittest.TestCase):
+    """Work History may infer a bullet within the user's boundary; nothing else may."""
+
+    def test_only_the_bullet_turns_allow_inference(self):
+        from resume_maker import assistant
+        for phase in ("bullets", "bullets_all"):
+            rules = assistant.tailor_rules(phase)
+            self.assertIn('"inferred"', rules)
+            self.assertIn("Never infer a number", rules)
+        for phase in ("summary", "skills", "additional"):
+            self.assertNotIn("you\nmay infer a bullet", assistant.tailor_rules(phase))
+            self.assertNotIn("may infer a bullet", assistant.tailor_rules(phase))
+
+    def test_review_asks_about_each_inferred_bullet(self):
+        from pathlib import Path
+        ui = Path(__file__).resolve().parent.parent / "static" / "ui"
+        self.assertIn("addInferred", (ui / "step-bullets.js").read_text())
+        review = (ui / "step-review.js").read_text()
+        self.assertIn("inferredRow", review)
+        self.assertIn("I inferred this", review)
