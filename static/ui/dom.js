@@ -104,6 +104,7 @@ export function icon(name, size = 18, stroke = 1.5) {
   svg.setAttribute("viewBox", "0 0 24 24");
   svg.setAttribute("fill", "none");
   svg.setAttribute("aria-hidden", "true");
+  svg.dataset.icon = name;
   for (const d of ICONS[name]) {
     const path = document.createElementNS(SVG, "path");
     path.setAttribute("d", d);

@@ -94,7 +94,7 @@ export async function drawAdditional(ctx) {
           })]),
       ]),
       el("button", {
-        class: "icon-btn icon-btn-round", type: "button", "aria-expanded": String(isOpen),
+        class: "icon-btn", type: "button", "aria-expanded": String(isOpen),
         "aria-label": isOpen ? "Close this line" : "Edit or swap this line",
         onclick: () => { open = isOpen ? null : index; paint(); },
       }, [icon(isOpen ? "up" : "down", 18)]),
@@ -110,7 +110,7 @@ export async function drawAdditional(ctx) {
             el("p", { class: "meta", text: other.origin }),
           ]),
           el("button", {
-            class: "icon-btn icon-btn-round", type: "button", "aria-label": "Use this line",
+            class: "icon-btn", type: "button", "aria-label": "Use this line",
             onclick: () => swap(index, other),
           }, [icon("check", 18)]),
         ]))

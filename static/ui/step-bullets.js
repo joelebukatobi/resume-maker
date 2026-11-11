@@ -228,7 +228,7 @@ async function drawEdit(ctx, at, entries) {
     const text = role.lines[bullet] || "";
     const isOpen = open === key;
     const toggle = el("button", {
-      class: "icon-btn icon-btn-round", type: "button",
+      class: "icon-btn", type: "button",
       "aria-label": isOpen ? "Close this bullet" : "Edit or swap this bullet",
       "aria-expanded": String(isOpen),
       onclick: () => { open = isOpen ? null : key; paint(); },
@@ -236,12 +236,12 @@ async function drawEdit(ctx, at, entries) {
 
     const actions = el("div", { class: "bullet-actions" }, [
       el("button", {
-        class: "icon-btn icon-btn-round", type: "button", "aria-label": "Move bullet up",
+        class: "icon-btn", type: "button", "aria-label": "Move bullet up",
         disabled: bullet === 0,
         onclick: () => moveBullet(role, r, bullet, -1),
       }, [icon("arrow-up", 13, 2)]),
       el("button", {
-        class: "icon-btn icon-btn-round", type: "button", "aria-label": "Move bullet down",
+        class: "icon-btn", type: "button", "aria-label": "Move bullet down",
         disabled: bullet >= role.lines.length - 1,
         onclick: () => moveBullet(role, r, bullet, 1),
       }, [icon("arrow-down", 13, 2)]),
@@ -286,7 +286,7 @@ async function drawEdit(ctx, at, entries) {
             ]),
             el("div", { class: "alt-actions" }, [
               el("button", {
-                class: "icon-btn icon-btn-round", type: "button",
+                class: "icon-btn", type: "button",
                 "aria-label": "Use this line",
                 onclick: () => swap(role, bullet, other),
               }, [icon("check", 18)]),
@@ -339,7 +339,7 @@ async function drawEdit(ctx, at, entries) {
         el("div", { class: "role-title-row" }, [
           el("p", { class: "role-name", text: title(role.entry) }),
           role.pending ? null : el("button", {
-            class: "icon-btn icon-btn-round", type: "button", "aria-label": "Add a bullet",
+            class: "icon-btn", type: "button", "aria-label": "Add a bullet",
             onclick: () => addBullet(role, r),
           }, [icon("plus", 18)]),
         ]),

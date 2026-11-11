@@ -292,7 +292,7 @@ export async function drawReview(ctx) {
   function paintLetterChecks() {
     const rows = (checks || []).map((finding) => {
       const drop = el("button", {
-        class: "icon-btn icon-btn-round", type: "button", "aria-label": `Dismiss: ${finding}`,
+        class: "icon-btn", type: "button", "aria-label": `Dismiss: ${finding}`,
       }, [icon("xmark", 16)]);
       const row = el("div", { class: "ask-head" }, [
         el("button", {
@@ -373,7 +373,7 @@ export async function drawReview(ctx) {
       onclick: () => openChat(question),
     });
     const no = el("button", {
-      class: "icon-btn icon-btn-round", type: "button", "aria-label": `I have not done ${term}`,
+      class: "icon-btn", type: "button", "aria-label": `I have not done ${term}`,
     }, [icon("xmark", 16)]);
     async function send(action, extra, button) {
       button.disabled = true;
@@ -584,7 +584,7 @@ export async function drawReview(ctx) {
       // isn't true, so the line leaves the library and the row closes.
       const asked = `Your past CVs say: "${gap.line}" Is that right?`;
       const wrong = el("button", {
-        class: "icon-btn icon-btn-round", type: "button", "aria-label": `Not true: ${gap.line}`,
+        class: "icon-btn", type: "button", "aria-label": `Not true: ${gap.line}`,
       }, [icon("xmark", 16)]);
       wrong.addEventListener("click", act(wrong, async () => {
         await api("/api/library", { action: "strike", text: gap.line });
@@ -602,7 +602,7 @@ export async function drawReview(ctx) {
       return row;
     }
     const no = el("button", {
-      class: "icon-btn icon-btn-round", type: "button", "aria-label": `No: ${gap.question}`,
+      class: "icon-btn", type: "button", "aria-label": `No: ${gap.question}`,
     }, [icon("xmark", 16)]);
     no.addEventListener("click", act(no, async () => {
       const line = negative(gap.question);

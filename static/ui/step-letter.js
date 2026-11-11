@@ -73,7 +73,7 @@ export async function drawLetter(ctx) {
             })]),
         ]),
         el("button", {
-          class: "icon-btn icon-btn-round", type: "button",
+          class: "icon-btn", type: "button",
           "aria-expanded": String(isOpen),
           "aria-label": isOpen ? "Close this paragraph" : "Edit this paragraph",
           onclick: () => { open = isOpen ? null : index; paint(); },

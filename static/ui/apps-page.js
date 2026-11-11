@@ -35,12 +35,14 @@ let deleteConfirm = null;
 const open = (slug) => `/${encodeURIComponent(slug)}/write`;
 const go = (slug) => { window.location.href = open(slug); };
 const call = (payload) => api("/api/apps", payload);
+// /archived is the same table, holding only the archived applications.
+const ARCHIVED = document.body.dataset.page === "archived";
 
-// Identify joins company and role with an em dash; roles themselves often
-// carry a hyphen, so only that join is the split.
+// Names join company and role with " | "; roles themselves often carry a
+// hyphen, so only that join is the split.
 function parts(name) {
   const text = String(name || "").trim();
-  const at = text.indexOf(" — ");
+  const at = text.indexOf(" | ");
   if (at < 0) return { company: text, role: "" };
   return { company: text.slice(0, at).trim(), role: text.slice(at + 3).trim() };
 }
@@ -362,13 +364,11 @@ function row(app, number) {
 function filtered() {
   const needle = query.toLowerCase();
   const match = (a) => !needle || `${a.name} ${a.track}`.toLowerCase().includes(needle);
-  const live = all.filter((a) => !a.archived && match(a));
-  const archived = all.filter((a) => a.archived && match(a));
-  return [...live, ...archived];
+  return all.filter((a) => Boolean(a.archived) === ARCHIVED && match(a));
 }
 
 function rowHeight() {
-  const sample = $("app-rows").querySelector("tr:not(.group-row)");
+  const sample = $("app-rows").querySelector("tr");
   if (sample) {
     const h = sample.getBoundingClientRect().height;
     if (h > 0) return h;
@@ -408,8 +408,18 @@ function paintPager(pages) {
     return;
   }
   pager.hidden = false;
-  label.textContent = String(page);
-  label.setAttribute("aria-label", `Page ${page} of ${pages}`);
+  // Every page is listed; the current one is bold and blue.
+  label.replaceChildren(...Array.from({ length: pages }, (_, index) => {
+    const number = index + 1;
+    return el("button", {
+      class: number === page ? "apps-pager-num is-current" : "apps-pager-num",
+      type: "button",
+      text: String(number),
+      "aria-label": `Page ${number} of ${pages}`,
+      "aria-current": number === page ? "page" : null,
+      onclick: () => { page = number; paint(); },
+    });
+  }));
   prev.disabled = page <= 1;
   next.disabled = page >= pages;
 }
@@ -425,22 +435,11 @@ function paint() {
   const rows = [];
   if (!items.length) {
     rows.push(el("tr", {}, [el("td", { colspan: "8", class: "meta empty-row",
-      text: all.length ? `Nothing matches “${query}”.` : "No applications yet. Use Start Application." })]));
+      text: query ? `Nothing matches “${query}”.`
+        : ARCHIVED ? "No archived applications."
+        : "No applications yet. Use Start Application." })]));
   } else {
-    let sawArchivedHeader = false;
-    slice.forEach((app, index) => {
-      if (app.archived && !sawArchivedHeader) {
-        // Only when this page starts the archived block (or is all archived).
-        const prev = items[start - 1];
-        if (!prev || !prev.archived) {
-          rows.push(el("tr", { class: "group-row" }, [
-            el("td", { colspan: "8" }, [el("span", { class: "eyebrow", text: "Archived" })]),
-          ]));
-        }
-        sawArchivedHeader = true;
-      }
-      rows.push(row(app, start + index + 1));
-    });
+    slice.forEach((app, index) => rows.push(row(app, start + index + 1)));
   }
   body.replaceChildren(...rows);
   paintPager(plan.paged ? plan.pages : 1);
@@ -452,21 +451,7 @@ function paint() {
       page = Math.min(page, again.pages);
       const nextStart = (page - 1) * again.size;
       const nextSlice = items.slice(nextStart, nextStart + again.size);
-      const redraw = [];
-      let sawArchivedHeader = false;
-      nextSlice.forEach((app, index) => {
-        if (app.archived && !sawArchivedHeader) {
-          const prev = items[nextStart - 1];
-          if (!prev || !prev.archived) {
-            redraw.push(el("tr", { class: "group-row" }, [
-              el("td", { colspan: "8" }, [el("span", { class: "eyebrow", text: "Archived" })]),
-            ]));
-          }
-          sawArchivedHeader = true;
-        }
-        redraw.push(row(app, nextStart + index + 1));
-      });
-      body.replaceChildren(...redraw);
+      body.replaceChildren(...nextSlice.map((app, index) => row(app, nextStart + index + 1)));
       paintPager(again.pages);
     }
   }

@@ -175,7 +175,7 @@ select:focus-visible,
   color: var(--text-secondary);
   background: transparent;
   border: 0;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-full);
 }
 
 .icon-btn:hover {
@@ -183,9 +183,23 @@ select:focus-visible,
   background: var(--hover-overlay);
 }
 
-.icon-btn-round,
-.icon-btn-round:hover {
-  border-radius: var(--radius-full);
+/* Hover colour by icon: close and remove red, confirm green. */
+.icon-btn:hover:not(:disabled):has(> [data-icon="xmark"]) {
+  color: var(--on-action);
+  background: var(--risk);
+}
+
+.icon-btn:hover:not(:disabled):has(> [data-icon="check"]) {
+  color: var(--on-action);
+  background: var(--backed);
+}
+
+/* Add, move and open go amber. */
+.icon-btn:hover:not(:disabled):is(:has(> [data-icon="plus"]), :has(> [data-icon="minus"]),
+  :has(> [data-icon="down"]), :has(> [data-icon="left"]), :has(> [data-icon="right"]),
+  :has(> [data-icon="arrow-up"]), :has(> [data-icon="arrow-down"])) {
+  color: var(--ground);
+  background: var(--open);
 }
 
 .icon-btn:disabled {

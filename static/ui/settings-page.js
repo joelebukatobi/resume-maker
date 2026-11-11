@@ -142,7 +142,7 @@ function baseFileRow(key) {
     "aria-label": `Upload ${label}`,
   });
   const button = el("button", {
-    class: "btn btn-sm", type: "button", text: "Upload", onclick: () => input.click(),
+    class: "link-btn", type: "button", text: "Upload", onclick: () => input.click(),
   });
   input.addEventListener("change", async () => {
     const file = input.files[0];

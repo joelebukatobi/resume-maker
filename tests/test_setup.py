@@ -477,7 +477,7 @@ class SetupApiTests(unittest.TestCase):
         # The name is the open path; no second Open/View control on the row.
         self.assertNotIn('text: live ? "Open" : "View"', apps)
         # Identify's "Company — Role" is two columns; a hyphen inside the role stays.
-        self.assertIn('text.indexOf(" — ")', apps)
+        self.assertIn('text.indexOf(" | ")', apps)
         self.assertIn("parts(app.name)", apps)
 
     def test_write_page_has_no_side_rail(self):

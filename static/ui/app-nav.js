@@ -2,7 +2,7 @@
 //
 // Light DOM, so the shared atoms style it. Children marked data-slot="middle"
 // sit centred (a page's search); every other child is an action on the right.
-// Left: Applications, and Resume / Cover Letter when an app is open. Right:
+// Left: Applications, Resume / Cover Letter when an app is open, Archived. Right:
 // Playbook · My Experience · Models, then the theme toggle and JO.
 // The theme button sits last among chrome and remembers the choice in this browser.
 
@@ -27,6 +27,7 @@ function hereOf(nav) {
   if (page === "write") return "resume";
   if (page === "letter") return "cover";
   if (page === "hub") return "applications";
+  if (page === "archived") return "archived";
   return nav.getAttribute("current") || page;
 }
 
@@ -47,7 +48,8 @@ class AppNav extends HTMLElement {
         class: "nav-link", href, text: label, "aria-current": id === here ? "page" : null,
       })),
     ];
-    if (app) {
+    // The applications tables are where one is opened, so no app links there.
+    if (app && here !== "applications" && here !== "archived") {
       left.push(
         el("a", {
           class: "nav-link",
@@ -63,6 +65,10 @@ class AppNav extends HTMLElement {
         }),
       );
     }
+    left.push(el("a", {
+      class: "nav-link", href: "/archived", text: "Archived",
+      "aria-current": here === "archived" ? "page" : null,
+    }));
 
     const links = el("div", { class: "nav-links" }, left);
 

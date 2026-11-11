@@ -142,12 +142,14 @@ app-nav {
 
 /* Applications: main fills the viewport under the nav so the pager can
    sit in the middle of the leftover space below the table. */
-body[data-page="hub"] .shell {
+body[data-page="hub"] .shell,
+body[data-page="archived"] .shell {
   height: 100vh;
   overflow: hidden;
 }
 
-body[data-page="hub"] .main {
+body[data-page="hub"] .main,
+body[data-page="archived"] .main {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -155,11 +157,13 @@ body[data-page="hub"] .main {
   padding-bottom: 0;
 }
 
-body[data-page="hub"] .main > .table {
+body[data-page="hub"] .main > .table,
+body[data-page="archived"] .main > .table {
   flex: 0 0 auto;
 }
 
-body[data-page="hub"] .apps-pager:not([hidden]) {
+body[data-page="hub"] .apps-pager:not([hidden]),
+body[data-page="archived"] .apps-pager:not([hidden]) {
   margin-block: auto;
 }
 
@@ -319,14 +323,9 @@ body[data-page="hub"] .apps-pager:not([hidden]) {
 
 .apps-pager[hidden] { display: none; }
 
-.apps-pager .icon-btn.apps-pager-btn {
-  border-radius: var(--radius-full);
-}
-
 .apps-pager .icon-btn.apps-pager-btn:hover:not(:disabled) {
   color: var(--on-action);
   background: var(--action-fill);
-  border-radius: var(--radius-full);
 }
 
 .apps-pager-btn:disabled {
@@ -335,12 +334,29 @@ body[data-page="hub"] .apps-pager:not([hidden]) {
 }
 
 .apps-pager-page {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.apps-pager-num {
   min-width: 2ch;
-  text-align: center;
+  padding: 0;
+  font: inherit;
   font-size: 14px;
   line-height: 20px;
   font-variant-numeric: tabular-nums;
-  color: var(--text);
+  color: var(--text-secondary);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.apps-pager-num:hover { color: var(--text); }
+
+.apps-pager-num.is-current {
+  font-weight: 700;
+  color: var(--action-text);
 }
 
 /* Tabs for two views of one thing. */
@@ -861,7 +877,6 @@ body[data-page="hub"] .apps-pager:not([hidden]) {
 .table tbody tr.app-row:hover td {
   background: var(--action-tint);
 }
-.table .group-row td { padding-top: var(--space-xl); border-bottom: 0; background: none; }
 .table .is-archived td { color: var(--text-muted); }
 .table .empty-row { padding: var(--space-xl) 0; }
 
@@ -1379,12 +1394,6 @@ textarea.input.bullet-own {
   width: calc(28px * 3 + 2px * 2);
 }
 
-.role-title-row .icon-btn,
-.bullet-actions .icon-btn,
-.alt-actions .icon-btn {
-  border-radius: var(--radius-full);
-}
-
 .marker {
   flex: none;
   width: 6px;
@@ -1582,12 +1591,10 @@ textarea.input.bullet-own {
   color: var(--text);
   background: var(--raised);
   border: 1px solid var(--hairline-strong);
-  border-radius: var(--radius-full);
 }
 
 .zoom-controls .icon-btn:hover {
   background: var(--hover-overlay);
-  border-radius: var(--radius-full);
 }
 
 .review-chat .chat-row {
@@ -1603,14 +1610,9 @@ textarea.input.bullet-own {
   gap: 2px;
 }
 
-.review-chat .chat-tools .icon-btn {
-  border-radius: var(--radius-full);
-}
-
 .review-chat .chat-tools .icon-btn:hover {
   color: var(--on-action);
   background: var(--action-fill);
-  border-radius: var(--radius-full);
 }
 
 .review-chat .chat-send { color: var(--action-text); }
@@ -1618,7 +1620,6 @@ textarea.input.bullet-own {
 .review-chat .icon-btn.is-listening {
   color: var(--on-action);
   background: var(--backed);
-  border-radius: var(--radius-full);
 }
 
 .coverage .score-row .meta.is-mid { color: var(--open-text); }
@@ -1994,16 +1995,6 @@ textarea.input.bullet-own {
   flex: none;
 }
 
-.settings-entry-actions .icon-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-full);
-}
-
-.settings-entry-actions .icon-btn:hover {
-  border-radius: var(--radius-full);
-}
-
 .settings-entry {
   display: flex;
   flex-direction: column;
@@ -2047,14 +2038,7 @@ textarea.input.bullet-own {
 }
 
 .settings-contact .icon-btn {
-  width: 40px;
-  height: 40px;
   justify-self: end;
-  border-radius: var(--radius-full);
-}
-
-.settings-contact .icon-btn:hover {
-  border-radius: var(--radius-full);
 }
 
 .settings-foot .btn {

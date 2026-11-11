@@ -48,6 +48,7 @@ _LIBRARY_LOCK = threading.Lock()
 
 PAGES = {
     "/": ("home.html", "hub"),
+    "/archived": ("home.html", "archived"),
     "/playbook": ("voice.html", "voice"),
     "/notes": ("notes.html", "notes"),
     "/settings": ("settings.html", "settings"),
