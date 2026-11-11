@@ -32,19 +32,6 @@ have done. Settings > Base Files already uploads the CV, letter, notes and voice
 onboarding can reuse it. Local workbench keeps draft autosave, Review coaching
 pane, and Settings structure editors first.
 
-## Job description from a link
-
-Paste a job posting's URL and have the server fetch the description, instead of
-copying the text by hand. The paste box stays either way: plenty of boards
-(LinkedIn, Workday, Greenhouse behind a session) refuse a plain `urllib` fetch
-or render the posting with JavaScript, so a link that fails must fall back to
-paste rather than block the round.
-
-Shape: `POST /api/jd {url}` fetches with a normal user agent, strips tags to
-text, and returns it for review before it becomes the posting — never applied
-straight, since a fetch can quietly return a cookie wall. Stdlib only, per the
-no-dependency constraint.
-
 ## Pico retirement — leftover shell
 
 Native Letter and Write are live. Full Pico delete still means removing

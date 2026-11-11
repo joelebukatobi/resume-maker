@@ -5,10 +5,12 @@ Canonical instructions for any coding agent working in this repo. Read
 
 ## Product
 
-Local, loopback-only resume and cover letter editor: form → JSON → DOCX / PDF,
-ATS-friendly. A hub at `/` walks the spine **Voice → Notes → Documents → Model →
-Chat**. The chat talks to Claude, OpenAI, DeepSeek or Kimi through stdlib
-`urllib`; Playbook (`playbook.md`) and Notes (`notes.md`) go into every chat turn.
+Local, loopback-only resume and cover letter tailor: form → JSON → DOCX / PDF,
+ATS-friendly. Applications live at `/`; each one is tailored to its posting in the
+Write step strip (`/{app}/write`) and the Letter (`/{app}/letter`). The model is
+Claude, OpenAI, DeepSeek or Kimi through stdlib `urllib`; Playbook (`playbook.md`)
+and My Experience (`notes.md`) go into every model turn. Current state and rules:
+the top part of `HANDOFF.md`.
 
 ## Run and test
 
@@ -20,11 +22,12 @@ python3 -m resume_maker.audit     # notes.md against the user's own words
 
 ## Hard constraints
 
-- **No new pip or npm dependencies** for the product, and no build step. The
-  backend is the standard library. The redesigned frontend is native: CSS custom
-  properties for tokens, light-DOM custom elements for components, ES modules
-  for scripts, Geist from Google Fonts. Pico is used only by the old pages in
-  `static/` and goes with them.
+- **Lean by preference, not by rule** (2026-11-10): stdlib first; a pip or npm
+  dependency is fine when it buys something important, and anything heavy must run
+  on a 16GB laptop with no discrete GPU. No build step. The redesigned frontend is
+  native: CSS custom properties for tokens, light-DOM custom elements for
+  components, ES modules for scripts, Geist from Google Fonts. Pico is used only by
+  the old pages in `static/` and goes with them.
 - **Loopback only.** API keys stay on the server and are never sent to the browser.
 - **Protocol lives in code**: proposal JSON, field paths and the no-invent rule
   are in `resume_maker/assistant.py`. `playbook.md` is rules, taste and method;
