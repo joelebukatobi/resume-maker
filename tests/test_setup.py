@@ -305,7 +305,7 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn('kind: "voice"', voice)
         self.assertIn("starters: true", voice)                 # role starters
         self.assertIn("search: true", voice)
-        self.assertIn("{ append: rule }", voice)               # a kept rule is appended
+        self.assertIn('placeInto("voice"', voice)            # a kept rule is placed in its section
         doc = self.fetch("/static/ui/doc-page.js")
         self.assertIn('"/api/setup"', doc)
         self.assertIn("`/api/setup/${kind}`", doc)             # saves to its own file
@@ -345,7 +345,7 @@ class SetupApiTests(unittest.TestCase):
         self.assertNotIn('class="rail"', page)
         notes = self.fetch("/static/ui/notes-page.js")
         self.assertIn('kind: "notes"', notes)
-        self.assertIn("{ append: note }", notes)               # a kept note is appended
+        self.assertIn('placeInto("notes"', notes)            # a kept note is placed in its section
         self.assertIn("{ skill: { label: s.label, tool: s.tool } }", notes)
 
     def test_base_upload_replaces_only_the_root_document(self):
@@ -617,7 +617,7 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn("line: `I have not done ${term}.`", review)  # a clean line in notes.md
         for card in ("answerCard", "gapsCard", "offerCard"):    # the chat's cards
             self.assertIn(card, review)
-        self.assertIn('"/api/setup/voice"', review)
+        self.assertIn('placeInto("voice", raw, card)', review)
         self.assertIn("{ skill: { label: parsed.label", review)
         self.assertIn("navigator.clipboard.writeText", review)
         self.assertIn('"/api/chat/history"', review)           # the chat survives a reload

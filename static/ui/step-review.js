@@ -10,6 +10,7 @@ import { agent } from "./agent.js";
 import { attachDictate } from "./dictate.js";
 import { api, el, icon, toast } from "./dom.js";
 import { readInferred, writeInferred } from "./inferred.js";
+import { placeInto } from "./place.js";
 import { renderMarkdown } from "./markdown.js";
 
 const STREAM_ERROR = String.fromCharCode(0);
@@ -595,7 +596,7 @@ export async function drawReview(ctx) {
         onclick: async (event) => {
           event.target.disabled = true;
           try {
-            await keep();
+            if ((await keep(node)) === false) { event.target.disabled = false; return; }
             toast(`${saved}.`);
             onResolve("accepted");
           } catch (error) {
@@ -775,13 +776,13 @@ export async function drawReview(ctx) {
       node = offerCard({
         label: "For Your Notes", text: raw, state, onResolve,
         saved: "Added to your notes",
-        keep: () => api("/api/setup/notes", { append: raw, source: "assistant" }),
+        keep: (card) => placeInto("notes", raw, card),
       });
     } else if (kind === "voice") {
       node = offerCard({
         label: "For Your Tone", text: raw, state, onResolve,
         saved: "Added to your tone",
-        keep: () => api("/api/setup/voice", { append: raw }),
+        keep: (card) => placeInto("voice", raw, card),
       });
     } else if (kind === "skill" && parsed && parsed.label && parsed.tool) {
       node = offerCard({

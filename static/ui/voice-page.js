@@ -1,6 +1,6 @@
 // Playbook: playbook.md, its role starters, and rules the chat offers for it.
 
-import { api } from "./dom.js";
+import { placeInto } from "./place.js";
 import { mountDocPage } from "./doc-page.js";
 
 mountDocPage({
@@ -10,6 +10,6 @@ mountDocPage({
   starters: true,
   search: true,
   cards: {
-    voice: { label: "For your Playbook", save: (rule) => api("/api/setup/voice", { append: rule }) },
+    voice: { label: "For your Playbook", save: (rule, card) => placeInto("voice", rule, card) },
   },
 });

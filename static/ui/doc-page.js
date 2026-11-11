@@ -255,9 +255,9 @@ export function mountDocPage({ kind, filename, placeholder, cards, starters = fa
   for (const [name, spec] of Object.entries(cards)) {
     guarded[name] = {
       ...spec,
-      save: async (value) => {
+      save: async (value, card) => {
         if (dirty()) throw new Error("Save your edits first, then keep this.");
-        await spec.save(value);
+        return spec.save(value, card);
       },
     };
   }

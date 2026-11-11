@@ -35,7 +35,7 @@ from urllib.parse import parse_qs, quote
 from resume_maker.applications import UNNAMED, ApplicationError, Workspace, as_json
 from resume_maker.build import FORMAT_ALIASES, Builder, export_name, safe_stem
 from resume_maker.export_pdf import BrowserNotFound, ExportError
-from resume_maker import assistant, evidence, fill, jev, jobpost, keywords, library, llm, match, setup, transcribe
+from resume_maker import assistant, evidence, fill, jev, jobpost, keywords, library, llm, match, place, setup, transcribe
 from resume_maker.fonts import catalogue, preview_face
 from resume_maker.model import CV, ContentError, CoverLetter
 from resume_maker.theme import Theme, ThemeError
@@ -356,6 +356,7 @@ class EditorHandler(BaseHTTPRequestHandler):
             "/api/chat/fields": self._fields,
             "/api/setup/voice": self._setup_voice,
             "/api/setup/notes": self._setup_notes,
+            "/api/setup/place": self._setup_place,
             "/api/setup/extract": self._setup_extract,
             "/api/setup/base": self._setup_base,
             "/api/jd": self._job_post,
@@ -734,12 +735,30 @@ class EditorHandler(BaseHTTPRequestHandler):
         Like Notes, an "append" is the chat's only way into this file, and only
         because the user accepted the card, so the rule arrives reviewed.
         """
-        if "append" in payload:
+        if isinstance(payload.get("place"), dict):
+            payload = {"text": self._placed("voice", self._voice_path, payload["place"])}
+        elif "append" in payload:
             current = assistant.load_text(self._voice_path)
             text = setup.append_text(current, payload.get("append"),
                                      today=date.today().isoformat(), kind="voice")
             payload = {"text": text}
         self._save_setup_file("voice", self._voice_path, payload)
+
+    def _setup_place(self, payload: dict[str, Any]) -> None:
+        """Where a chat card's text would go in Notes or the Playbook, for him
+        to approve. Nothing is written here; the Keep that follows does it."""
+        kind = payload.get("file")
+        path = {"notes": self._notes_path, "voice": self._voice_path}.get(kind)
+        if path is None:
+            raise ValueError("file must be notes or voice")
+        self._json(HTTPStatus.OK, place.propose(
+            kind, assistant.load_text(path), str(payload.get("text") or ""),
+            str(payload.get("provider") or ""), llm.check_model(payload.get("model", ""))))
+
+    def _placed(self, kind: str, path: Path, chosen: dict[str, Any]) -> str:
+        return setup.check_text(kind, place.checked(
+            assistant.load_text(path), str(chosen.get("heading") or ""),
+            str(chosen.get("before") or ""), str(chosen.get("after") or "")))
 
     def _setup_notes(self, payload: dict[str, Any]) -> None:
         """Save the Notes page, or add what the chat offered to the end of it.
@@ -750,7 +769,9 @@ class EditorHandler(BaseHTTPRequestHandler):
         his own sentences come in through the keyword answer, never here, so
         nothing a page sends can claim them.
         """
-        if "append" in payload:
+        if isinstance(payload.get("place"), dict):
+            payload = {"text": self._placed("notes", self._notes_path, payload["place"])}
+        elif "append" in payload:
             current = assistant.load_text(self._notes_path)
             text = setup.append_text(current, payload.get("append"),
                                      today=date.today().isoformat(), source="assistant")

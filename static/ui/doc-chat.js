@@ -41,7 +41,7 @@ export function mountChat({ host, placeholder, cards, onSaved }) {
       el("button", { class: "btn btn-sm btn-primary", type: "button", text: "Keep", onclick: async (event) => {
         event.target.disabled = true;
         try {
-          await spec.save(text.trim());
+          if ((await spec.save(text.trim(), node)) === false) { event.target.disabled = false; return; }
           done("Kept");
           if (onSaved) onSaved();
         } catch (error) {

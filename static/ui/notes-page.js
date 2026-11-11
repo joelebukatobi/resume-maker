@@ -3,6 +3,7 @@
 
 import { api } from "./dom.js";
 import { mountDocPage } from "./doc-page.js";
+import { placeInto } from "./place.js";
 
 function skill(text) {
   try {
@@ -18,7 +19,7 @@ mountDocPage({
   placeholder: "Add something you've done",
   search: true,
   cards: {
-    notes: { label: "For My Experience", save: (note) => api("/api/setup/notes", { append: note }) },
+    notes: { label: "For My Experience", save: (note, card) => placeInto("notes", note, card) },
     skill: {
       label: "For your skills",
       show: (text) => { const s = skill(text); return s ? `${s.label}: ${s.tool}` : text; },
