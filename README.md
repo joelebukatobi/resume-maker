@@ -4,8 +4,10 @@ A local tool that tailors your CV and cover letter to each job posting, using a
 language model you bring your own key for. It renders to DOCX and PDF with both
 margins pinned exactly.
 
-No dependencies. Python 3.12 standard library plus a Chromium-family browser
-for PDF export. No `pip install`, no `npm install`.
+Python 3.12 standard library plus a Chromium-family browser for PDF export.
+One optional dependency, `fastembed`, runs a small local model (bge-base,
+about 200MB, CPU only) that finds your evidence by meaning on Review. Without
+it everything still works, and the gap check falls back to word search.
 
 ## Quick start
 
@@ -14,6 +16,16 @@ git clone <this repo>
 cd resume-maker
 python3 server.py
 ```
+
+To turn on the local embedding model (recommended), install it once into a
+project venv and start the server with that Python instead:
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python server.py
+```
+
+The model downloads on first start to `~/.cache/resume-maker/fastembed`.
 
 The editor opens at `http://127.0.0.1:8000`. On the first run the server
 creates `cv.json` and `cover.json` from the example files. Everything you add

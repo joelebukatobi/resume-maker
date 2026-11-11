@@ -7,7 +7,8 @@ is billed only for what is sent, so checking his whole history once costs less
 than a couple of turns with the chat model.
 
 Plain HTTP over ``urllib``; the SDK would be the product's first dependency.
-The key comes from ``TYPESAFE_API_KEY`` in the server's environment and goes
+The key is entered in the Models dialog (saved with the model keys, owner-only)
+or comes from ``TYPESAFE_API_KEY`` in the server's environment, and goes
 nowhere but the request header.
 """
 
@@ -18,6 +19,8 @@ import os
 import urllib.error
 import urllib.request
 from typing import Any, Callable
+
+from . import llm
 
 URL = "https://api.typesafe.ai/v1/systemone"
 MODEL = "jev-latest"
@@ -50,16 +53,28 @@ class JevError(Exception):
 Opener = Callable[..., Any]
 
 
+KEY_ENV = "TYPESAFE_API_KEY"
+
+
+def key() -> tuple[str, str]:
+    """The key and where it came from: "saved" in the Models dialog, else "env"."""
+    saved = llm.saved_keys().get(llm.JEV, "").strip()
+    if saved:
+        return saved, "saved"
+    env = os.environ.get(KEY_ENV, "").strip()
+    return (env, "env") if env else ("", "")
+
+
 def ask(state: Any, questions: dict[str, dict], *,
-        opener: Opener = urllib.request.urlopen) -> dict[str, dict]:
+        opener: Opener = urllib.request.urlopen, api_key: str = "") -> dict[str, dict]:
     """The ``answers`` map for ``questions`` asked over ``state``."""
-    key = os.environ.get("TYPESAFE_API_KEY", "").strip()
-    if not key:
-        raise JevError("set TYPESAFE_API_KEY in the environment the server runs in")
+    key_ = api_key or key()[0]
+    if not key_:
+        raise JevError(f"add a Jev key in the Models dialog, or set {KEY_ENV}")
     request = urllib.request.Request(
         URL, method="POST",
         data=json.dumps({"model": MODEL, "state": state, "questions": questions}).encode("utf-8"),
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+        headers={"Authorization": f"Bearer {key_}", "Content-Type": "application/json"})
     try:
         with opener(request, timeout=TIMEOUT) as response:  # noqa: S310 - fixed https host
             body = json.loads(response.read().decode("utf-8"))
@@ -118,3 +133,13 @@ def label(lines: list[str], *, opener: Opener = urllib.request.urlopen) -> list[
                      "What kind of statement is the CV Additional Information line "
                      "`checks[{i}].line`?", KINDS, "interests", opener)
     return [kind for kind, _ in found]
+
+
+def connect(api_key: str, *, opener: Opener = urllib.request.urlopen) -> None:
+    """Check a key with one tiny question, then save it beside the model keys."""
+    if not llm._KEY.match(api_key or ""):
+        raise JevError("that does not look like an API key")
+    ask({"line": "test"}, {"c0": {"type": "choice", "instructions": "Is `line` a word?",
+                                  "criteria": {"yes": "It is.", "no": "It is not."}}},
+        opener=opener, api_key=api_key)
+    llm.save_key(llm.JEV, api_key)

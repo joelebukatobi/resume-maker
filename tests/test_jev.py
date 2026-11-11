@@ -9,6 +9,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import tempfile
 import sys
 import unittest
 import urllib.error
@@ -98,17 +99,29 @@ class AskTests(unittest.TestCase):
 
 
 class NoKeyTests(unittest.TestCase):
+    def setUp(self):
+        # Never the real ~/.config: a key saved there would answer instead.
+        self.config = tempfile.TemporaryDirectory()
+        self.addCleanup(self.config.cleanup)
+
     def test_no_key_is_a_plain_error(self):
-        with mock.patch.dict(os.environ, {}, clear=True):
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": self.config.name}, clear=True):
             with self.assertRaises(jev.JevError) as caught:
                 jev.support([("l", "p")], opener=FakeOpener())
         self.assertIn("TYPESAFE_API_KEY", str(caught.exception))
 
     def test_nothing_to_ask_asks_nothing(self):
         opener = FakeOpener()
-        with mock.patch.dict(os.environ, {}, clear=True):
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": self.config.name}, clear=True):
             self.assertEqual(jev.support([], opener=opener), [])
         self.assertEqual(opener.requests, [])
+
+    def test_a_key_saved_in_the_dialog_wins_over_the_environment(self):
+        env = {"XDG_CONFIG_HOME": self.config.name, "TYPESAFE_API_KEY": "env-key-12345678"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            self.assertEqual(jev.key(), ("env-key-12345678", "env"))
+            jev.connect("saved-key-12345678", opener=FakeOpener())
+            self.assertEqual(jev.key(), ("saved-key-12345678", "saved"))
 
 
 if __name__ == "__main__":

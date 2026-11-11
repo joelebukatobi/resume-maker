@@ -189,7 +189,13 @@ function paint() {
   paintKey();
   paintConnect();
   const provider = current();
-  if (provider && provider.available) loadModels(provider.id);
+  if (provider && provider.kind === "judge") {
+    models = [];
+    modelId = "";
+    if (openMenu === "model") openMenu = null;
+    paintModelTrigger("None needed: Jev checks your evidence on Review");
+    paintModelMenu();
+  } else if (provider && provider.available) loadModels(provider.id);
   else {
     models = [];
     modelId = "";
@@ -222,7 +228,7 @@ async function connect() {
       paintModelTrigger();
       paintModelMenu();
     }
-    note("Connected. Pick a model.");
+    note(provider.kind === "judge" ? "Connected. Jev checks your evidence on Review." : "Connected. Pick a model.");
   } catch (error) {
     note(error.message);
   }

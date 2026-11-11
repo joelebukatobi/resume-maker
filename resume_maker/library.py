@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
-from . import jev
+from . import evidence, jev
 from .match import _words, stem
 from .setup import APPENDED_HEADING, LOG_SOURCES
 
@@ -418,6 +418,23 @@ def closest(found: list[Passage], line: str, limit: int = 3) -> list[Passage]:
     return [found[i] for (i,) in rows]
 
 
+def warm(notes: str) -> None:
+    """Embed his notes ahead of the first gap check."""
+    evidence.nearest([p.text for p in passages(notes)], "warm up", 1)
+
+
+def shortlist(found: list[Passage], line: str, limit: int = 3) -> list[Passage]:
+    """The closest passages by meaning, then the best two by shared words that
+    meaning missed, so nothing word search finds today is lost. Word search
+    alone when the embedding model is not there."""
+    words = closest(found, line, limit)
+    picked = evidence.nearest([p.text for p in found], line, limit)
+    if picked is None:
+        return words
+    by_meaning = [found[i] for i in picked]
+    return by_meaning + [p for p in words if p not in by_meaning][:2]
+
+
 def _check_key(line: str, passage: str) -> str:
     return passage_key(line + "\n" + passage)
 
@@ -501,16 +518,16 @@ def answer_gaps(questions: Iterable[str], notes: str, decisions: Decisions,
     pairs: list[tuple[str, str]] = []
     plan: list[tuple[str, str]] = []   # (question, "notes" or the past line)
     for q in questions:
-        mine = [p for p in closest(found, q, limit=4) if trusted(p, decisions)]
+        mine = [p for p in shortlist(found, q, limit=4) if trusted(p, decisions)]
         if mine:
             pairs.append((q, "\n\n".join(p.text for p in mine)))
             plan.append((q, "notes"))
-        for p in closest(past, q, limit=3):
+        for p in shortlist(past, q, limit=3):
             pairs.append((q, p.text))
             plan.append((q, p.text))
     try:
         verdicts = judge(pairs) if pairs else []
-    except jev.JevError as exc:
+    except (jev.JevError, evidence.JudgeError) as exc:
         print(f"[library] gap check did not run: {exc}", flush=True)
         verdicts = [("says_nothing", 0.0)] * len(pairs)
     yes = {i for i, (v, c) in enumerate(verdicts) if v == "yes" and c >= SUPPORT_THRESHOLD}

@@ -16,3 +16,4 @@ library.json
 # Your applications: tailored documents and the chat about each job.
 applications/
 .superpowers/
+.venv/

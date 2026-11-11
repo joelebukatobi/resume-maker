@@ -996,7 +996,8 @@ function updateAgentLink() {
 }
 
 async function loadProviders() {
-  providers = await api("/api/llm/providers").then((r) => r.json());
+  providers = (await api("/api/llm/providers").then((r) => r.json()))
+    .filter((p) => p.kind !== "judge");
   updateAgentLink();
 }
 

@@ -332,6 +332,8 @@ class SetupApiTests(unittest.TestCase):
         self.assertNotIn("provider-mark", models)
         providers = self.fetch("/api/llm/providers")
         self.assertIn('"hint"', providers)
+        self.assertIn('"kind": "judge"', providers)            # Jev has a row for its key
+        self.assertIn('p.kind !== "judge"', self.fetch("/static/ui/agent.js"))  # never the chat's
 
     def test_notes_page_is_built_on_the_redesign(self):
         page = self.assert_redesigned("/notes", "notes", "notes-page.js")
@@ -1566,6 +1568,25 @@ class LibraryApiTests(unittest.TestCase):
                 "Have you used React Native?"]})
         self.assertEqual([g["status"] for g in out], ["covered", "past", "open"])
         self.assertEqual(out[1]["line"], line)
+
+    def test_jev_judges_when_it_has_a_key_and_his_model_when_not(self):
+        (self.root / "notes.md").write_text("## MKEL\n\nWe added Redis caching after launch.\n")
+        used = []
+        def model_judge(provider, model):
+            used.append(("model", provider, model))
+            return lambda pairs: [("says_nothing", 1.0)] * len(pairs)
+        def jev_judge(pairs):
+            used.append(("jev",))
+            return [("says_nothing", 1.0)] * len(pairs)
+        ask = {"action": "check", "questions": ["Have you used Redis?"],
+               "provider": "deepseek", "model": "deepseek-flash"}
+        with mock.patch.object(jev, "answers", jev_judge), \
+             mock.patch.object(server.evidence, "judge", model_judge):
+            with mock.patch.object(jev, "key", return_value=("k" * 12, "saved")):
+                self.post("/api/gaps", ask)
+            with mock.patch.object(jev, "key", return_value=("", "")):
+                self.post("/api/gaps", ask)
+        self.assertEqual(used, [("jev",), ("model", "deepseek", "deepseek-flash")])
 
     def test_a_past_line_he_confirms_goes_into_his_notes_as_his(self):
         self.post("/api/gaps", {"action": "confirm", "line": "Mentored 3 interns at MKEL."})

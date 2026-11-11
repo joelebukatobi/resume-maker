@@ -102,6 +102,10 @@ PROVIDERS: Mapping[str, Provider] = {
 
 # ------------------------------------------------------------- saved keys
 
+# Not a chat provider: TypeSafe's Jev checks evidence (jev.py). Its key is
+# entered in the same dialog and kept in the same file.
+JEV = "jev"
+
 
 def keys_path() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
@@ -126,7 +130,7 @@ def mask_key(key: str) -> str:
 
 def save_key(provider_id: str, key: str) -> None:
     """Store (or, with an empty key, forget) a provider's key, owner-only."""
-    if provider_id not in PROVIDERS:
+    if provider_id not in PROVIDERS and provider_id != JEV:
         raise LLMError(f"unknown provider: {provider_id!r}")
     keys = saved_keys()
     if key:

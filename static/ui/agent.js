@@ -51,7 +51,7 @@ export function clearHint(providerId) {
 
 export async function agent() {
   const prefs = readPrefs();
-  const providers = await api("/api/llm/providers");
+  const providers = (await api("/api/llm/providers")).filter((p) => p.kind !== "judge");
   let provider = providers.find((p) => p.id === prefs.provider && p.available);
   let model = provider && (prefs.models || {})[provider.id];
 

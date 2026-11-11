@@ -35,7 +35,7 @@ from urllib.parse import parse_qs, quote
 from resume_maker.applications import UNNAMED, ApplicationError, Workspace, as_json
 from resume_maker.build import FORMAT_ALIASES, Builder, export_name, safe_stem
 from resume_maker.export_pdf import BrowserNotFound, ExportError
-from resume_maker import assistant, fill, jev, jobpost, keywords, library, llm, match, setup, transcribe
+from resume_maker import assistant, evidence, fill, jev, jobpost, keywords, library, llm, match, setup, transcribe
 from resume_maker.fonts import catalogue, preview_face
 from resume_maker.model import CV, ContentError, CoverLetter
 from resume_maker.theme import Theme, ThemeError
@@ -309,7 +309,7 @@ class EditorHandler(BaseHTTPRequestHandler):
                  "key_env": p.key_env, "source": p.key_source,
                  "hint": llm.mask_key(p.key) if p.key else None}
                 for p in llm.PROVIDERS.values()
-            ])
+            ] + [self._jev_entry()])
         if route == "/api/llm/models":
             return self._models()
         if route == "/api/chat/history":
@@ -610,12 +610,27 @@ class EditorHandler(BaseHTTPRequestHandler):
             raise ValueError("the last message must be from the user")
         return turns
 
+    @staticmethod
+    def _jev_entry() -> dict[str, Any]:
+        """Jev in the Models dialog: a key, no models. ``kind`` keeps it out of
+        the chat's provider choice."""
+        key, source = jev.key()
+        return {"id": llm.JEV, "label": "Jev (evidence check)", "available": bool(key),
+                "key_env": jev.KEY_ENV, "source": source or None, "kind": "judge",
+                "hint": llm.mask_key(key) if key else None}
+
     def _key(self, payload: dict[str, Any]) -> None:
         """Connect (test + save) or disconnect a provider. The key is never echoed."""
         provider_id = str(payload.get("provider", ""))
         key = payload.get("key") or ""
         if not isinstance(key, str):
             raise ValueError("key must be text")
+        if provider_id == llm.JEV and key.strip():
+            try:
+                jev.connect(key.strip())
+            except jev.JevError as exc:
+                return self._error(HTTPStatus.BAD_GATEWAY, str(exc))
+            return self._json(HTTPStatus.OK, {"connected": True, "models": []})
         if key.strip():
             models = llm.connect(provider_id, key.strip())
             return self._json(HTTPStatus.OK, {"connected": True, "models": models})
@@ -1308,8 +1323,12 @@ class EditorHandler(BaseHTTPRequestHandler):
             raise ValueError("questions must be a short list")
         _, lines, decisions = self._history()
         _, notes = self._voice_and_notes()
+        # Jev judges when it has a key; else the model the page names; with
+        # neither, Jev's missing key fails the check and every gap is asked.
+        judge = (evidence.judge(str(payload["provider"]), llm.check_model(payload.get("model", "")))
+                 if payload.get("provider") and not jev.key()[0] else jev.answers)
         self._json(HTTPStatus.OK, library.answer_gaps(
-            [str(q)[:400] for q in questions], notes, decisions, lines, judge=jev.answers))
+            [str(q)[:400] for q in questions], notes, decisions, lines, judge=judge))
 
     def _library_post(self, payload: dict[str, Any]) -> None:
         """What he decided about a line, a note, or a CV."""
@@ -1557,6 +1576,11 @@ def main(argv: list[str] | None = None) -> int:
     })
     opened = workspace.ensure(chat_dir=root / ".chat")
     print(f"application: {opened.name}")
+    # Embedding the notes takes ~30s on a laptop CPU; do it now, not on the
+    # first gap check. Without fastembed this returns at once.
+    notes_path = args.notes.resolve()
+    threading.Thread(target=lambda: library.warm(assistant.load_text(notes_path)),
+                     daemon=True).start()
 
     handler = partial(
         EditorHandler,

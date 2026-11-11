@@ -16,6 +16,15 @@ const FIXED = /^(?:name|contact\.\d+\.text|sections\.\d+\.heading|sections\.\d+\
 const MAX_TURNS = 200; // the server refuses a longer history
 const BLOCK = /```(proposal|answer|notes|voice|gaps|ask|skill)\s*([\s\S]*?)```/g;
 
+// Before a gap is asked: do his notes or past CVs already answer it? His
+// connected model judges the evidence; with none, the server falls back to Jev.
+async function checkGaps(questions) {
+  const model = await agent().catch(() => null);
+  return api("/api/gaps", {
+    action: "check", questions, ...(model && { provider: model.provider, model: model.model }),
+  });
+}
+
 // Scrollbar + wheel zoom inside the preview (wheel events hit the iframe, not the parent).
 // Same look as the app: always-shown 6px thumb, an arrow at each end, no track.
 const PREVIEW_CHROME = `<style>
@@ -264,7 +273,7 @@ export async function drawReview(ctx) {
         const questions = block ? gapQuestions(block[1]) : [];
         // If the notes check cannot run, every question is still asked.
         return questions.length
-          ? api("/api/gaps", { action: "check", questions })
+          ? checkGaps(questions)
             .catch(() => questions.map((question) => ({ question, status: "open" })))
           : [];
       });
@@ -647,7 +656,7 @@ export async function drawReview(ctx) {
       }),
     ]));
     // If the check cannot run, every question is still asked.
-    api("/api/gaps", { action: "check", questions })
+    checkGaps(questions)
       .catch(() => questions.map((question) => ({ question, status: "open" })))
       .then((found) => {
         const asked = found.filter((gap) => gap.status !== "covered");
