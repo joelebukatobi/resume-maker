@@ -17,8 +17,11 @@ export async function placeInto(file, text, card) {
   return new Promise((resolve, reject) => {
     const view = el("div", { class: "place-view" }, [
       el("p", { class: "meta", text: `Add under ${name}:` }),
-      el("p", { class: "place-text" }, placed.segments.map((part) =>
-        part.added ? el("mark", { text: part.text }) : document.createTextNode(part.text))),
+      // Markdown bold reads as noise here; the file keeps it.
+      el("p", { class: "place-text" }, placed.segments.map((part) => {
+        const text = part.text.replace(/\*\*/g, "");
+        return part.added ? el("mark", { text }) : document.createTextNode(text);
+      })),
     ]);
     const finish = (value) => { view.remove(); resolve(value); };
     view.append(el("div", { class: "chat-card-actions" }, [

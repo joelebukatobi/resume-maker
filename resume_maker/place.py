@@ -30,6 +30,8 @@ Hard rules:
   reorder, shorten or drop anything that is there.
 - Add only what the new text says. Do not repeat what the section already says.
 - Write the added words to match the surrounding text: same person, same tense.
+  Drop what the section already makes plain: inside an employer's section, do
+  not name that employer again ("At Netvox I also..." becomes "I also...").
 - The heading must be copied exactly from this list:
 {headings}
 
@@ -100,8 +102,9 @@ def segments(before: str, after: str) -> list[dict]:
     for n, part in enumerate(out):
         if not part["added"] and len(part["text"]) > 300:
             t = part["text"]
-            head = "" if n == 0 else t[:120].rstrip() + " …"
-            tail = "" if n == len(out) - 1 else "… " + t[-120:].lstrip()
+            # Cut on spaces, so the snippet never starts or ends mid-word.
+            head = "" if n == 0 else t[:120].rsplit(" ", 1)[0].rstrip() + " …"
+            tail = "" if n == len(out) - 1 else "… " + t[-120:].split(" ", 1)[-1].lstrip()
             part["text"] = "\n".join(p for p in (head, tail) if p) + " "
     return out
 

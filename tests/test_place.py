@@ -39,6 +39,14 @@ class SectionTests(unittest.TestCase):
         self.assertFalse(place.add_only(before, "The BRD went through review."))
 
 
+class SnippetTests(unittest.TestCase):
+    def test_a_long_unchanged_stretch_is_cut_between_words(self):
+        before = "start " + "lorem ipsum " * 40 + "end."
+        segs = place.segments(before, before + " New bit.")
+        self.assertTrue(segs[0]["text"].startswith("… "))
+        self.assertIn(segs[0]["text"].split()[1], {"lorem", "ipsum"})
+
+
 class ProposeTests(unittest.TestCase):
     def propose(self, *replies):
         with mock.patch.object(place.llm, "complete", side_effect=list(replies)):
