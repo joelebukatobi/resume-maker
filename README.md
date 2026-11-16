@@ -104,6 +104,11 @@ Model calls are billed by the provider. Override an endpoint with
 Optional: set `TYPESAFE_API_KEY` to let TypeSafe's Jev check each past CV line
 against your notes, so lines your notes do not back are never reused.
 
+Optional: set `RESUME_MAKER_PLACE_MODELS` to place kept notes with a quicker
+model than the one you picked, per provider, e.g.
+`RESUME_MAKER_PLACE_MODELS=deepseek=deepseek-flash`. Unset, placing a note uses
+the model you picked, like everything else.
+
 ## Making an application
 
 The **Hub** lists your applications. Click **Start Application**.

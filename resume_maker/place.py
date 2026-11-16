@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import os
 import re
 
 from . import llm
@@ -35,6 +36,14 @@ The heading must be copied exactly from this list:
 {headings}
 
 Reply with JSON only: {{"heading": "<heading line>", "after": "<exact words from that section>", "text": "<the new words>"}}"""
+
+# A quicker model for this one job, set locally, e.g.
+# RESUME_MAKER_PLACE_MODELS="deepseek=deepseek-flash". Measured 2026-11-16 on
+# real notes: Flash placed 8/8 with a 7s median against V4 Pro's 36s. Unset,
+# placement uses the model the page picked, like everything else.
+def quick_models() -> dict[str, str]:
+    pairs = (p.split("=", 1) for p in os.environ.get("RESUME_MAKER_PLACE_MODELS", "").split(",") if "=" in p)
+    return {k.strip(): v.strip() for k, v in pairs if k.strip() and v.strip()}
 
 WHAT = {"notes": "notes about their work history, in their own words",
         "voice": "their playbook of rules for how their CV and letters are written"}
@@ -157,6 +166,7 @@ def propose(kind: str, text: str, addition: str, provider: str, model: str) -> d
     heads = sections(text)
     if not heads:
         raise PlaceError("the file has no sections to add to")
+    model = quick_models().get(provider, model)
     system = RULES.format(what=WHAT[kind], headings="\n".join(heads))
     prompt = f"## The file\n\n{text}\n\n## The new text\n\n{addition}"
     why = "the model did not reply"

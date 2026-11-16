@@ -80,6 +80,25 @@ class ProposeTests(unittest.TestCase):
                           self.AFTER)
 
 
+class QuickModelTests(unittest.TestCase):
+    REPLY = json.dumps({"heading": "## Amazon", "after": "", "text": "Directors read it."})
+
+    def models_used(self, env):
+        with mock.patch.dict(place.os.environ, env, clear=False), \
+             mock.patch.object(place.llm, "complete", return_value=self.REPLY) as call:
+            place.propose("notes", NOTES, "x", "deepseek", "deepseek-v4-pro")
+            place.propose("notes", NOTES, "x", "openai", "gpt-big")
+        return [c.args[1] for c in call.call_args_list]
+
+    def test_by_default_placement_uses_the_page_model(self):
+        with mock.patch.dict(place.os.environ, {}, clear=True):
+            self.assertEqual(self.models_used({}), ["deepseek-v4-pro", "gpt-big"])
+
+    def test_a_local_setting_swaps_one_providers_model(self):
+        used = self.models_used({"RESUME_MAKER_PLACE_MODELS": "deepseek=deepseek-flash"})
+        self.assertEqual(used, ["deepseek-flash", "gpt-big"])
+
+
 class InsertTests(unittest.TestCase):
     LIST = "Intro line.\n\n- First item that wraps\n  onto a second line with **Cypress**.\n- Second item."
 
