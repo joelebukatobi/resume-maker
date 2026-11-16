@@ -29,7 +29,7 @@ async function checkGaps(questions) {
 
 // Scrollbar + wheel zoom inside the preview (wheel events hit the iframe, not the parent).
 // Same look as the app: always-shown 6px thumb, an arrow at each end, no track.
-const PREVIEW_CHROME = `<style>
+export const PREVIEW_CHROME = `<style>
 /* No scrollbar-width here — on Chromium/Linux it forces GTK arrows. */
 html::-webkit-scrollbar,body::-webkit-scrollbar,
 *::-webkit-scrollbar{
@@ -969,10 +969,9 @@ export async function drawReview(ctx) {
     class: "cv-modal", role: "dialog", "aria-modal": "true",
     "aria-label": kind === "cover" ? "Your cover letter" : "Your CV", "aria-hidden": "true",
   }, [
-    el("div", { class: "cv-modal-card" }, [paperWrap]),
+    // The close sits at the card's top right, above the page.
+    el("div", { class: "cv-modal-card" }, [viewClose, paperWrap]),
   ]);
-  // Inside the canvas, top right, level with the top of the sheet.
-  paperWrap.append(viewClose);
   function onViewerKey(event) { if (event.key === "Escape") closeViewer(); }
   function openViewer() {
     viewer.classList.add("is-shown");

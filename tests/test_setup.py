@@ -361,6 +361,16 @@ class SetupApiTests(unittest.TestCase):
         self.assertEqual(json.loads((root / "cv.json").read_text())["name"], "New Base")
         self.assertEqual(copy.read_text(), copied)              # applications keep their copies
 
+    def test_base_reset_puts_back_the_example(self):
+        root = Path(self.tmp.name)
+        self.addCleanup((root / "cv.json").write_text, (root / "cv.json").read_text())
+        self.post("/api/setup/base", {"action": "reset", "document": "cv"})
+        example = Path(server.__file__).resolve().parent / "cv.example.json"
+        self.assertEqual(json.loads((root / "cv.json").read_text()), json.loads(example.read_text()))
+        settings = self.fetch("/static/ui/settings-page.js")
+        self.assertIn('action: "reset"', settings)               # the reset icon calls it
+        self.assertIn('text: "View"', settings)                  # View replaced Upload
+
     def test_reading_the_same_page_again_changes_nothing(self):
         page = {"text": "Engineer " * 80, "title": "", "company": "", "source": "page"}
         with mock.patch.object(server.jobpost, "read", side_effect=lambda url: dict(page)), \
@@ -396,7 +406,7 @@ class SetupApiTests(unittest.TestCase):
         settings = self.fetch("/static/ui/settings-page.js")
         self.assertIn('["base", "Base Files"]', settings)
         self.assertIn("including your saved answers, and can't be undone", settings)
-        self.assertIn("Download Backup", settings)
+        self.assertIn("text: `Backup and ${verb}`", settings)  # backs up, then resets
         self.assertIn('"/api/document"', settings)
         self.assertIn('"/api/fonts"', settings)
         self.assertIn('"/api/save"', settings)

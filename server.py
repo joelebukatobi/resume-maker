@@ -676,11 +676,17 @@ class EditorHandler(BaseHTTPRequestHandler):
         replace one. Applications already made keep their own copies."""
         base = self._workspace.base
         if payload.get("action") == "read":
+            # The themes come too, so Settings can draw the base files as pages.
             return self._json(HTTPStatus.OK, {
-                "cv": _read_json(Path(base["cv"])), "cover": _read_json(Path(base["cover"])),
+                key: _read_json(Path(base[key])) for key in ("cv", "cover", "theme", "cover_theme")
             })
         kind = self._document_kind(payload.get("document"))
-        doc = self._checked_document(kind, payload.get("doc"))
+        if payload.get("action") == "reset":
+            # Back to what a fresh clone starts from.
+            example = Path(__file__).resolve().parent / f"{kind}.example.json"
+            doc = self._checked_document(kind, _read_json(example))
+        else:
+            doc = self._checked_document(kind, payload.get("doc"))
         _atomic_write(Path(base[kind]), json.dumps(doc, indent=2, ensure_ascii=False))
         self._json(HTTPStatus.OK, {"saved": True})
 

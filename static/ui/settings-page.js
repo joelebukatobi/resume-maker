@@ -3,9 +3,9 @@
 // application's CV skeleton (employer, school, dates); Write still owns
 // posting-driven wording. Models lives in the main nav.
 
-import { agent } from "./agent.js";
 import { api, download, el, icon, toast } from "./dom.js";
 import { bespokeSelect } from "./select.js";
+import { PREVIEW_CHROME } from "./step-review.js";
 
 const LETTER = { w: 8.5, h: 11 };
 const A4 = { w: 210 / 25.4, h: 297 / 25.4 };
@@ -19,36 +19,33 @@ const BASE_FILES = {
     label: "CV",
     backup: "cv-backup.json",
     warning: "This replaces your base CV and can't be undone. Applications you've already made keep their copies.",
+    reset: "This puts back the example CV a fresh install starts with. Applications you've already made keep their copies.",
   },
   cover: {
     label: "Cover Letter",
     backup: "cover-letter-backup.json",
     warning: "This replaces your base letter and can't be undone. Applications you've already made keep their copies.",
+    reset: "This puts back the example letter a fresh install starts with. Applications you've already made keep their copies.",
   },
   voice: {
     label: "Playbook",
     backup: "playbook-backup.md",
     warning: "This replaces your current Playbook and can't be undone.",
+    reset: "This empties your Playbook, so you can start again from a role starter.",
+    page: "/playbook",
   },
   notes: {
     label: "Notes",
     backup: "notes-backup.md",
     warning: "This replaces your current notes, including your saved answers, and can't be undone.",
+    reset: "This empties your notes, including your saved answers.",
+    page: "/notes",
   },
 };
 
-function readBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(",", 2)[1] || "");
-    reader.onerror = () => reject(new Error("Could not read that file."));
-    reader.readAsDataURL(file);
-  });
-}
-
 // Back up or skip, then the new file goes in. Resolves true once replaced.
-function confirmReplace(key, current, apply) {
-  const { label, backup, warning } = BASE_FILES[key];
+function confirmReplace(key, current, apply, verb = "Replace", warning = BASE_FILES[key].warning) {
+  const { label, backup } = BASE_FILES[key];
   return new Promise((resolve) => {
     const error = el("p", { class: "meta" });
     const close = (done) => { dialog.close(); dialog.remove(); resolve(done); };
@@ -69,7 +66,7 @@ function confirmReplace(key, current, apply) {
       el("div", { class: "modal-card" }, [
         el("header", { class: "modal-head" }, [
           el("div", { class: "modal-intro" }, [
-            el("h2", { class: "card-title modal-title", text: `Replace ${label}` }),
+            el("h2", { class: "card-title modal-title", text: `${verb} ${label}` }),
           ]),
           el("button", {
             class: "modal-close", type: "button", "aria-label": "Close",
@@ -83,15 +80,17 @@ function confirmReplace(key, current, apply) {
           el("span", { class: "spacer" }),
           cancel,
           el("button", {
-            class: "btn btn-sm", type: "button", text: "Skip",
-            onclick: (event) => replace(event.currentTarget),
-          }),
-          el("button", {
-            class: "btn btn-sm btn-primary", type: "button", text: "Download Backup",
+            class: "btn btn-sm btn-primary", type: "button", text: `Backup and ${verb}`,
             onclick: (event) => {
               download(backup, current);
               replace(event.currentTarget);
             },
+          }),
+          // Last and red: no backup. It used to say "Skip", which read as
+          // "skip this", and a Playbook was emptied by it.
+          el("button", {
+            class: "btn btn-sm btn-danger", type: "button", text: verb,
+            onclick: (event) => replace(event.currentTarget),
           }),
         ]),
       ]),
@@ -103,68 +102,70 @@ function confirmReplace(key, current, apply) {
   });
 }
 
-// A CV or letter is turned into a document by one model call, made only once
-// the warning is answered. Notes and voice are plain text and cost nothing.
-async function uploadFor(key, file) {
+// What reset puts back, and what is there now for the backup.
+async function resetFor(key) {
   if (key === "cv" || key === "cover") {
-    const model = await agent().catch(() => null);
-    if (!model) throw new Error("Connect a model first.");
     const current = (await api("/api/setup/base", { action: "read" }))[key];
-    const encoded = await readBase64(file);
     return {
       current: JSON.stringify(current, null, 2),
-      apply: async () => {
-        const { doc } = await api("/api/import", {
-          document: key, doc: current, filename: file.name, file: encoded,
-          provider: model.provider, model: model.model,
-        });
-        await api("/api/setup/base", { document: key, doc });
-      },
+      apply: () => api("/api/setup/base", { action: "reset", document: key }),
     };
   }
-  // Plain text is read here: the extractor stops at 60,000 characters.
-  const { text } = /\.(md|txt)$/i.test(file.name)
-    ? { text: await file.text() }
-    : await api("/api/setup/extract", { filename: file.name, file: await readBase64(file) });
-  if (!text.trim()) throw new Error("That file has no text in it.");
   return {
     current: (await api("/api/setup"))[key] || "",
-    apply: () => api(`/api/setup/${key}`, { text }),
+    apply: () => api(`/api/setup/${key}`, { text: "" }),
   };
 }
 
+// The base CV and letter have no page of their own: draw them as Review does,
+// in the same blurred page viewer.
+async function viewDocument(key) {
+  const base = await api("/api/setup/base", { action: "read" });
+  const preview = await api("/api/preview", { document: key, ...base });
+  const frame = el("iframe", {
+    class: "paper-frame", title: `Base ${BASE_FILES[key].label}`, sandbox: "allow-scripts",
+  });
+  frame.srcdoc = preview.html.replace("<head>", `<head><base href="${location.origin}/">${PREVIEW_CHROME}`);
+  const shut = el("button", {
+    class: "modal-close cv-modal-close", type: "button", "aria-label": `Close the base ${BASE_FILES[key].label}`,
+  }, [icon("xmark", 16)]);
+  const viewer = el("div", {
+    class: "cv-modal", role: "dialog", "aria-modal": "true", "aria-label": `Base ${BASE_FILES[key].label}`,
+  }, [el("div", { class: "cv-modal-card" }, [shut, el("div", { class: "paper-wrap" }, [frame])])]);
+  const onKey = (event) => { if (event.key === "Escape") close(); };
+  const close = () => { viewer.remove(); document.removeEventListener("keydown", onKey); };
+  shut.addEventListener("click", close);
+  viewer.addEventListener("click", (event) => { if (event.target === viewer) close(); });
+  document.addEventListener("keydown", onKey);
+  document.body.append(viewer);
+  void viewer.offsetWidth; // lay it out hidden first, so it fades in
+  viewer.classList.add("is-shown");
+  shut.focus();
+}
+
 function baseFileRow(key) {
-  const { label } = BASE_FILES[key];
-  const input = el("input", {
-    type: "file",
-    accept: key === "cv" || key === "cover" ? ".txt,.docx,.pdf" : ".md,.txt,.docx,.pdf",
-    hidden: true,
-    "aria-label": `Upload ${label}`,
-  });
+  const { label, page, reset } = BASE_FILES[key];
+  const view = page
+    ? el("a", { class: "link-btn", href: page, text: "View" })
+    : el("button", {
+      class: "link-btn", type: "button", text: "View",
+      onclick: () => viewDocument(key).catch((error) => toast(error.message, "error")),
+    });
   const button = el("button", {
-    class: "link-btn", type: "button", text: "Upload", onclick: () => input.click(),
-  });
-  input.addEventListener("change", async () => {
-    const file = input.files[0];
-    input.value = "";
-    if (!file) return;
+    class: "icon-btn", type: "button", "aria-label": `Reset ${label}`, title: `Reset ${label}`,
+  }, [icon("refresh", 16)]);
+  button.addEventListener("click", async () => {
     button.disabled = true;
     try {
-      // Read first, so a file that cannot be used never reaches the warning.
-      const { current, apply } = await uploadFor(key, file);
-      if (current.trim()) {
-        if (!await confirmReplace(key, current, apply)) return;
-      } else {
-        await apply();
-      }
-      toast(`${label} replaced.`);
+      const { current, apply } = await resetFor(key);
+      if (await confirmReplace(key, current, apply, "Reset", reset)) toast(`${label} reset.`);
     } catch (error) {
       toast(error.message, "error");
     } finally {
       button.disabled = false;
     }
   });
-  return el("div", {}, [el("span", { text: label }), el("span", {}, [input, button])]);
+  return el("div", {}, [el("span", { text: label }), el("span", { class: "base-actions" }, [view, button])]);
 }
 
 function pageSizeOf(theme) {
@@ -649,7 +650,7 @@ async function main() {
       panel.replaceChildren(
         el("header", { class: "page-head" }, [
           el("h1", { class: "title", text: "Base Files" }),
-          el("p", { class: "lead", text: "Upload a file to replace what the model works from." }),
+          el("p", { class: "lead", text: "What the model works from. View one, or reset it to how a fresh install starts." }),
         ]),
         el("div", { class: "rows" }, Object.keys(BASE_FILES).map(baseFileRow)),
       );

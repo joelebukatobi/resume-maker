@@ -1542,13 +1542,10 @@ textarea.input.bullet-own {
   border-radius: var(--radius-control);
 }
 
-/* The close sits inside the canvas: top right, level with the top of the
-   sheet (the preview's 24px pad), as far in as the zoom buttons. */
+/* The close sits at the modal card's top right, on its own row above the page. */
 .modal-close.cv-modal-close {
-  position: absolute;
-  top: 24px;
-  right: calc(var(--space-sm) + 16px);
-  z-index: 2;
+  align-self: flex-end;
+  flex: none;
   margin: 0;
   color: var(--text);
   background: var(--raised);
@@ -2180,3 +2177,6 @@ textarea.input.bullet-own {
 .place-view { margin-top: 12px; }
 .place-text { white-space: pre-wrap; }
 .place-text mark { background: rgba(255, 255, 255, 0.25); color: inherit; border-radius: 2px; }
+
+/* Base Files: View and the reset icon side by side. */
+.base-actions { display: inline-flex; align-items: center; gap: var(--space-xs); }
