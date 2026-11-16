@@ -1,10 +1,13 @@
 """Filing what the chat offers into the section of Notes or the Playbook it
 belongs to, instead of a dated pile at the bottom (decided 2026-11-10).
 
-The model reads the whole file, picks a section and returns that section with
-the new words worked in. It may only add: every sentence already there must
-survive word for word, or the placement is refused. He sees the result as a
-before/after and approves it before anything is written.
+The model reads the whole file and names a section, the sentence or list item
+the new words should follow, and the new words. Code puts them there, so
+nothing already written can change. It used to send the whole section back:
+measured 2026-11-16, that cost 2-10s of writing per save and let it reword
+text; a shortlist of sections by embedding did not cut its thinking time and
+once left the right section out. He sees the result and approves it before
+anything is written.
 """
 
 from __future__ import annotations
@@ -20,22 +23,18 @@ from .setup import APPENDED_HEADING, SKILLS_HEADING, TECHNICAL_HEADING
 _NOT_HERE = {SKILLS_HEADING, TECHNICAL_HEADING}
 
 RULES = """You file a new piece of text into the candidate's own file: {what}.
-Read the whole file, pick the one section the new text belongs in, and return
-that section's body with the new text worked in where it fits in context: next
-to the paragraph it relates to, or added onto the sentence it continues.
-
-Hard rules:
-- Every sentence already in the section stays, word for word. You may add new
-  sentences, or add words after the end of an existing sentence. Never reword,
-  reorder, shorten or drop anything that is there.
-- Add only what the new text says. Do not repeat what the section already says.
-- Write the added words to match the surrounding text: same person, same tense.
-  Drop what the section already makes plain: inside an employer's section, do
-  not name that employer again ("At Netvox I also..." becomes "I also...").
-- The heading must be copied exactly from this list:
+Pick the one section it belongs in, and the exact sentence or list item in that
+section it should come right after. Then write the new words to sit there:
+- Add only what the new text says, nothing the section already says.
+- Same person and tense as the text around it. Drop what the section already
+  makes plain: inside an employer's section, do not name that employer again
+  ("At Netvox I also..." becomes "I also...").
+- If the spot is a list, write the new words as one list item starting "- ".
+- "after" is copied exactly from the section; leave it empty to add at its end.
+The heading must be copied exactly from this list:
 {headings}
 
-Reply with JSON only: {{"heading": "<heading line>", "section": "<the full new body, without the heading line>"}}"""
+Reply with JSON only: {{"heading": "<heading line>", "after": "<exact words from that section>", "text": "<the new words>"}}"""
 
 WHAT = {"notes": "notes about their work history, in their own words",
         "voice": "their playbook of rules for how their CV and letters are written"}
@@ -123,6 +122,33 @@ def checked(text: str, heading: str, before: str, after: str) -> str:
     return "\n".join(lines[:start] + ["", after, ""] + lines[end:]).strip() + "\n"
 
 
+def insert(before: str, anchor: str, words: str) -> str | None:
+    """``before`` with ``words`` put right after ``anchor``; None when the
+    anchor is not in it. A list item goes on its own line after the item the
+    anchor ends in; anything else continues the anchor's paragraph."""
+    words = words.strip()
+    if not anchor.strip():
+        return f"{before}\n\n{words}" if before else words
+    # Copied text may lose bold markers and line wraps; match it word by word.
+    tokens = re.findall(r"\w+|[^\w\s*]", anchor)
+    pattern = r"[\s*]*".join(re.escape(t) for t in tokens)
+    found = re.search(pattern, before)
+    if not found:
+        return None
+    end = found.end()
+    while end < len(before) and before[end] in ".!?;:*)\"'":
+        end += 1
+    if not words.startswith("- "):
+        return f"{before[:end]} {words}{before[end:]}"
+    # The end of the list item: its line, and any indented lines that continue it.
+    line_end = before.find("\n", end)
+    while line_end != -1 and before[line_end + 1:line_end + 3] == "  ":
+        line_end = before.find("\n", line_end + 1)
+    if line_end == -1:
+        line_end = len(before)
+    return f"{before[:line_end]}\n{words}{before[line_end:]}"
+
+
 def propose(kind: str, text: str, addition: str, provider: str, model: str) -> dict:
     """Ask the model where ``addition`` goes. Two tries, then a PlaceError."""
     addition = addition.strip()
@@ -142,13 +168,14 @@ def propose(kind: str, text: str, addition: str, provider: str, model: str) -> d
         except json.JSONDecodeError:
             reply = {}
         heading = str(reply.get("heading") or "").strip()
-        after = str(reply.get("section") or "").strip()
-        if heading not in heads:
+        words = str(reply.get("text") or "").strip()
+        if heading not in heads or not words:
             why = f"the model named a section that isn't there ({heading or 'none'})"
             continue
         before = body(text, heading)
-        if after == before or not add_only(before, after):
-            why = "the model changed words already in the section"
+        after = insert(before, str(reply.get("after") or ""), words)
+        if after is None:
+            why = "the model pointed at words that aren't in the section"
             continue
         return {"heading": heading, "before": before, "after": after,
                 "segments": segments(before, after)}

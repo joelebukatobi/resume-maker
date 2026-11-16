@@ -53,19 +53,21 @@ class ProposeTests(unittest.TestCase):
             return place.propose("notes", NOTES, "Directors read it.", "deepseek", "m")
 
     AFTER = "At Amazon I wrote epics and user stories. The BRD went through review. Directors read it."
+    GOOD = json.dumps({"heading": "## Amazon", "after": "The BRD went through review.",
+                       "text": "Directors read it."})
 
     def test_a_good_placement_comes_back_with_the_addition_marked(self):
-        out = self.propose(json.dumps({"heading": "## Amazon", "section": self.AFTER}))
+        out = self.propose(self.GOOD)
         self.assertEqual(out["heading"], "## Amazon")
         self.assertEqual([p["text"] for p in out["segments"] if p["added"]], [" Directors read it."])
 
-    def test_a_rewrite_is_retried_then_refused(self):
-        bad = json.dumps({"heading": "## Amazon", "section": "I wrote stories. Directors read it."})
+    def test_an_anchor_not_in_the_section_is_retried_then_refused(self):
+        bad = json.dumps({"heading": "## Amazon", "after": "I led the team.", "text": "Directors read it."})
         with self.assertRaises(place.PlaceError):
             self.propose(bad, bad)
 
     def test_saving_writes_the_section_in_place_and_leaves_the_rest(self):
-        out = self.propose(json.dumps({"heading": "## Amazon", "section": self.AFTER}))
+        out = self.propose(self.GOOD)
         text = place.checked(NOTES, out["heading"], out["before"], out["after"])
         self.assertIn("## Amazon\n\n" + self.AFTER + "\n\n## Skills", text)
         self.assertIn("Old entry.", text)
@@ -76,6 +78,23 @@ class ProposeTests(unittest.TestCase):
             place.checked(NOTES.replace("review.", "review twice."), "## Amazon",
                           "At Amazon I wrote epics and user stories. The BRD went through review.",
                           self.AFTER)
+
+
+class InsertTests(unittest.TestCase):
+    LIST = "Intro line.\n\n- First item that wraps\n  onto a second line with **Cypress**.\n- Second item."
+
+    def test_a_list_item_goes_after_the_whole_item_it_follows(self):
+        out = place.insert(self.LIST, "First item that wraps onto a second line with Cypress.", "- New item.")
+        self.assertEqual(out, "Intro line.\n\n- First item that wraps\n  onto a second line with"
+                              " **Cypress**.\n- New item.\n- Second item.")
+
+    def test_prose_continues_the_paragraph_and_keeps_every_word(self):
+        out = place.insert(self.LIST, "Intro line.", "More intro.")
+        self.assertTrue(out.startswith("Intro line. More intro.\n\n- First"))
+        self.assertTrue(place.add_only(self.LIST, out))
+
+    def test_no_anchor_adds_at_the_end(self):
+        self.assertTrue(place.insert(self.LIST, "", "Closing.").endswith("Second item.\n\nClosing."))
 
 
 if __name__ == "__main__":
