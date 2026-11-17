@@ -17,3 +17,7 @@ library.json
 applications/
 .superpowers/
 .venv/
+
+# Session handoff and decision log: personal, kept local only.
+HANDOFF.md
+COMMITS.md
