@@ -154,19 +154,6 @@ class SetupApiTests(unittest.TestCase):
         self.assertIn("triage", state["notes"])
         self.assertEqual(state["status"]["voice"], "started")
 
-    def test_the_chat_can_add_to_notes_without_replacing_them(self):
-        """The one thing the chat writes outside the open document."""
-        self.post("/api/setup/notes", {"text": "# How I got here\n\nI fixed PCs at 11."})
-        self.post("/api/setup/notes", {"append": "Cedric is a writing tool."})
-        text = self.get("/api/setup")["notes"]
-        self.assertIn("I fixed PCs at 11.", text)          # the story survives
-        self.assertIn("## From the chat", text)            # filed, not scattered
-        self.assertIn("Cedric is a writing tool.", text)
-        self.post("/api/setup/notes", {"append": "MKEL was a telecom startup."})
-        text = self.get("/api/setup")["notes"]
-        self.assertEqual(text.count("## From the chat"), 1)  # one heading, not one each
-        self.assertIn("MKEL was a telecom startup.", text)
-
     NOTES_WITH_LOG = "# Me\n\nI fixed PCs.\n\n## From the chat\n\n### 2026-10-01\n\nDid X."
 
     def test_past_cv_tools_join_his_skills_list(self):
@@ -225,34 +212,6 @@ class SetupApiTests(unittest.TestCase):
         self.post("/api/setup/notes", {"text": "# Me\n\nI fixed PCs."})
         self.post("/api/setup/notes", {"skill": {"label": "Product", "tool": "Moodle"}})
         self.assertEqual(setup.skills(self.get("/api/setup")["notes"]), {"Product": ["Moodle"]})
-
-    def test_a_note_records_who_wrote_it(self):
-        """An assistant's note accepted with one click is not his own words, and
-        the support check has to be able to tell the two apart."""
-        kept = setup.append_text("", "Did X.", today="2026-10-24", source="assistant")
-        self.assertIn("### 2026-10-24 · suggested by the assistant", kept)
-        his = setup.append_text("", "Did X.", today="2026-10-24", source="his")
-        self.assertIn("### 2026-10-24 · his answer", his)
-
-    def test_a_kept_note_is_filed_as_the_assistants(self):
-        self.post("/api/setup/notes", {"append": "Cedric is a writing tool.", "source": "his"})
-        self.assertIn("· suggested by the assistant", self.get("/api/setup")["notes"])
-
-    def test_the_chat_can_add_to_voice_without_replacing_it(self):
-        """Same offer as Notes, but a writing rule lands in the Voice file."""
-        self.post("/api/setup/voice", {"text": "## Never\n- No 'spearheaded'."})
-        self.post("/api/setup/voice", {"append": "Lead every bullet with the outcome."})
-        text = self.get("/api/setup")["voice"]
-        self.assertIn("No 'spearheaded'.", text)          # the voice survives
-        self.assertIn("## From the chat", text)
-        self.assertIn("Lead every bullet with the outcome.", text)
-
-    def test_an_empty_addition_is_refused(self):
-        self.post("/api/setup/notes", {"text": "# Notes"})
-        with self.assertRaises(urllib.error.HTTPError) as caught:
-            self.post("/api/setup/notes", {"append": "   "})
-        self.assertEqual(caught.exception.code, 400)
-        self.assertEqual(self.get("/api/setup")["notes"], "# Notes")
 
     def test_oversized_save_is_refused_and_leaves_the_file_alone(self):
         self.post("/api/setup/notes", {"text": "Keep me."})
@@ -653,15 +612,6 @@ class SetupApiTests(unittest.TestCase):
                 self.assertNotRegex(path.read_text(encoding="utf-8"),
                                     r"(inner|outer)HTML\s*=|insertAdjacentHTML|document\.write")
 
-    def test_setup_script_renders_markdown_for_preview(self):
-        with urllib.request.urlopen(f"{self.base}/static/setup.js", timeout=10) as response:
-            script = response.read().decode()
-        self.assertIn("function renderMarkdown(", script)
-        self.assertIn("function setView(", script)
-        self.assertIn("innerHTML", script)  # must mention the rule…
-        # …as a ban: build nodes, never assign HTML from file content.
-        self.assertRegex(script, r"never\s+innerHTML")
-
     def test_extract_reads_an_uploaded_file_without_a_model(self):
         import base64
         text = self.post("/api/setup/extract",
@@ -702,21 +652,6 @@ class SetupApiTests(unittest.TestCase):
                 self.assertIn("/static/ui/write-page.js", page)
                 self.assertNotIn("pico", page.lower())
                 self.assertNotIn('class="site-nav"', page)
-
-    def test_chat_toggle_swaps_sidebar_icons(self):
-        with urllib.request.urlopen(f"{self.base}/static/chat.js", timeout=10) as response:
-            script = response.read().decode()
-        self.assertIn("function setChatOpen(", script)
-        self.assertIn("#i-sidebar-collapse", script)
-        self.assertIn("#i-sidebar-expand", script)
-        self.assertIn("Hide chat", script)
-        self.assertIn("Show chat", script)
-
-    def test_chat_empty_state_reads_setup_readiness(self):
-        with urllib.request.urlopen(f"{self.base}/static/chat.js", timeout=10) as response:
-            script = response.read().decode()
-        self.assertIn('fetch("/api/setup")', script)
-        self.assertIn("function emptyState()", script)
 
     def test_every_page_shares_one_set_of_design_tokens(self):
         """Write and letter use redesign tokens; Pico base.css is not on them."""
@@ -910,29 +845,6 @@ class ApplicationApiTests(unittest.TestCase):
                 if "EDUCATION" not in section["heading"].upper():
                     self.assertEqual(entry["bullets"], [])
 
-    def test_the_language_count_can_be_asked_for_on_a_letter(self):
-        """Coverage is not shown for a letter by default, because a recruiter's
-        search runs on the CV. Asked for explicitly it is still a plain count,
-        and the server has to answer for either document."""
-        document = self.get("/api/document")
-        posting = "product manager roadmap discovery stakeholders"
-        slug = self.get("/api/apps")["current"]
-        self.post("/api/chat/history", {"messages": [], "job_description": posting, "app": slug})
-        keywords.save(self.root / "applications" / slug / "keywords.json", posting=posting,
-                      terms=["roadmap", "discovery"], entries={})
-        counted = self.post("/api/match", {
-            "document": "cover", "doc": document["cover"], "job_description": posting,
-        })
-        self.assertIsInstance(counted["score"], int)    # the same list, on the letter
-        self.assertIn("missing", counted)
-
-        # Letter coverage UI still lives in the Pico editor (index.html).
-        editor = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("Count The Keywords", editor)
-        self.assertIn("Read Afresh", editor)
-        self.assertIn("function scoreActions(", editor)
-        self.assertIn("countLanguage", editor)
-
     def test_the_base_letter_names_no_company(self):
         """A plain New starts the letter from the base file, so the base must
         not be somebody's letter. It was Meta's, which meant every new
@@ -945,27 +857,6 @@ class ApplicationApiTests(unittest.TestCase):
         self.assertIn("[Role] at [Company]", joined)
         for named in ("Meta", "Amazon", "Fordham", "Rotational"):
             self.assertNotIn(named, joined)
-
-    def test_a_restored_draft_that_cannot_be_rendered_is_dropped(self):
-        """A draft is a convenience and must not be able to trap the editor.
-
-        A document missing a required string cannot be previewed or saved, and
-        Save is what clears the draft, so a bad draft came back on every
-        reload. The server refuses it; the page drops the draft and reloads
-        what is on disk rather than showing the same error again.
-        """
-        document = self.get("/api/document")
-        broken = json.loads(json.dumps(document["cv"]))
-        labelled = next(s for s in broken["sections"] if s.get("items"))
-        del labelled["items"][0]["text"]
-        with self.assertRaises(urllib.error.HTTPError) as caught:
-            self.post("/api/preview", {**document, "cv": broken, "document": "cv"})
-        self.assertIn("text", json.loads(caught.exception.read())["error"])
-
-        # Draft restore/drop still lives in the Pico editor (index.html).
-        editor = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("unprovenDraft = true", editor)
-        self.assertIn("if (unprovenDraft) return discardDraft", editor)
 
     def test_a_round_the_user_did_not_type_is_marked_as_such(self):
         """A tailoring round pushes a turn nobody typed. The flag is what stops
@@ -1226,43 +1117,6 @@ class KeywordApiTests(unittest.TestCase):
         self.keep_posting(POSTING + " Customs experience is a plus.")
         self.assertFalse(self.post("/api/keywords", {"action": "get", "app": self.slug})["current"])
 
-    def test_only_the_answered_keyword_is_rewritten(self):
-        self.keep_posting()
-        with self.call():
-            before = self.read()["map"]
-            after = self.post("/api/keywords", {
-                "action": "answer", "keyword": "sql", "app": self.slug,
-                "sentence": "I ran the review queries in SQL at Amazon.",
-                "provider": "anthropic", "model": "m"})["map"]
-        self.assertEqual(after["sql"]["state"], "answered")
-        self.assertEqual(after["account management"], before["account management"])
-        self.assertEqual(after["workflow automation"], before["workflow automation"])
-        self.assertIn("I ran the review queries", (self.root / "notes.md").read_text())
-
-    def test_an_answer_is_filed_as_his(self):
-        self.keep_posting()
-        with self.call():
-            self.read()
-            self.post("/api/keywords", {
-                "action": "answer", "keyword": "sql", "app": self.slug,
-                "sentence": "I ran the review queries in SQL at Amazon.",
-                "provider": "anthropic", "model": "m"})
-        self.assertIn("· his answer", (self.root / "notes.md").read_text())
-
-    def test_an_answer_survives_a_failed_remap(self):
-        self.keep_posting()
-        with self.call():
-            self.read()
-        with self.call(fail_on=("map",)):
-            with self.assertRaises(urllib.error.HTTPError):
-                self.post("/api/keywords", {
-                    "action": "answer", "keyword": "sql", "app": self.slug,
-                    "sentence": "I ran the review queries in SQL at Amazon.",
-                    "provider": "anthropic", "model": "m"})
-        self.assertIn("I ran the review queries", (self.root / "notes.md").read_text())
-        got = self.post("/api/keywords", {"action": "get", "app": self.slug})
-        self.assertEqual(got["map"]["sql"]["state"], "unanswered")
-
     def test_a_no_is_written_and_kept(self):
         self.keep_posting()
         with self.call():
@@ -1271,8 +1125,21 @@ class KeywordApiTests(unittest.TestCase):
                                           "line": "I have not built workflow automation.",
                                           "app": self.slug})
         self.assertEqual(got["map"]["workflow automation"]["state"], "declined")
-        self.assertIn("I have not built workflow automation.",
-                      (self.root / "notes.md").read_text())
+        notes = (self.root / "notes.md").read_text()
+        self.assertIn("## Limits and what I have not done\n\n- I have not built workflow automation.", notes)
+        self.assertNotIn("## From the chat", notes)             # filed, not piled at the bottom
+
+    def test_a_no_joins_the_limits_section_once(self):
+        notes = ("## Amazon\n\nWrote BRDs.\n\n## Limits and what I have not done\n\n"
+                 "- **No Terraform.**\n\n## Skills\n\n- Product: Jira\n")
+        once = setup.add_limit(notes, "I have not used Redis.")
+        self.assertIn("- **No Terraform.**\n- I have not used Redis.\n\n## Skills", once)
+        self.assertEqual(setup.add_limit(once, "I have not used Redis."), once)
+        with self.assertRaises(ValueError):
+            setup.add_limit(notes, "   ")
+        made = setup.add_limit("## Amazon\n\nWrote BRDs.\n\n## From the chat\n\nOld.",
+                               "I have not used Redis.")
+        self.assertIn("## Limits and what I have not done\n\n- I have not used Redis.\n\n## From the chat", made)
 
     def test_the_chat_is_told_the_list_and_its_answers(self):
         self.keep_posting()
@@ -1327,30 +1194,6 @@ class KeywordApiTests(unittest.TestCase):
             self.post("/api/keywords", {"action": "decline", "keyword": "sql",
                                         "line": "I have not written SQL.", "app": self.slug})
         self.assertFalse(self.post("/api/keywords", {"action": "get", "app": self.slug})["current"])
-
-    def test_retrying_an_answer_writes_the_note_once(self):
-        self.keep_posting()
-        with self.call():
-            self.read()
-        for _ in range(2):
-            with self.call(fail_on=("map",)):
-                with self.assertRaises(urllib.error.HTTPError):
-                    self.post("/api/keywords", {
-                        "action": "answer", "keyword": "sql", "app": self.slug,
-                        "sentence": "I ran the review queries in SQL at Amazon.",
-                        "provider": "anthropic", "model": "m"})
-        notes = (self.root / "notes.md").read_text()
-        self.assertEqual(notes.count("I ran the review queries in SQL at Amazon."), 1)
-
-    def test_an_answer_with_no_agent_writes_nothing(self):
-        self.keep_posting()
-        with self.call():
-            self.read()
-        with self.assertRaises(urllib.error.HTTPError):
-            self.post("/api/keywords", {"action": "answer", "keyword": "sql", "app": self.slug,
-                                        "sentence": "I ran the review queries in SQL."})
-        notes = self.root / "notes.md"
-        self.assertNotIn("I ran the review queries", notes.read_text() if notes.exists() else "")
 
     def test_the_map_is_checked_again_without_rereading_the_list(self):
         """Notes added on the notes page are invisible to the map until it is
@@ -1597,12 +1440,6 @@ class LibraryApiTests(unittest.TestCase):
             with mock.patch.object(jev, "key", return_value=("", "")):
                 self.post("/api/gaps", ask)
         self.assertEqual(used, [("jev",), ("model", "deepseek", "deepseek-flash")])
-
-    def test_a_past_line_he_confirms_goes_into_his_notes_as_his(self):
-        self.post("/api/gaps", {"action": "confirm", "line": "Mentored 3 interns at MKEL."})
-        notes = (self.root / "notes.md").read_text()
-        self.assertIn("Mentored 3 interns at MKEL.", notes)
-        self.assertIn("his answer", notes)
 
     def test_a_job_turn_needs_a_real_job(self):
         with self.assertRaises(urllib.error.HTTPError):

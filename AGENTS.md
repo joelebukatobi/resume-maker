@@ -26,8 +26,8 @@ python3 -m resume_maker.audit     # notes.md against the user's own words
   dependency is fine when it buys something important, and anything heavy must run
   on a 16GB laptop with no discrete GPU. No build step. The redesigned frontend is
   native: CSS custom properties for tokens, light-DOM custom elements for
-  components, ES modules for scripts, Geist from Google Fonts. Pico is used only by
-  the old pages in `static/` and goes with them.
+  components, ES modules for scripts, Geist from Google Fonts. Pico is left only on
+  the `/review` library page (`static/review.html`, `base.css`, `setup.css`).
 - **Loopback only.** API keys stay on the server and are never sent to the browser.
 - **Protocol lives in code**: proposal JSON, field paths and the no-invent rule
   are in `resume_maker/assistant.py`. `playbook.md` is rules, taste and method;
@@ -56,5 +56,5 @@ contributor trailers. Log each commit or decision as one line in `COMMITS.md`.
 - Chat plumbing: `resume_maker/llm.py`, `resume_maker/assistant.py`
 - Setup readiness and limits: `resume_maker/setup.py`
 - Pages: `static/home.html`, `static/voice.html`, `static/notes.html`,
-  `static/settings.html`, `static/write.html` (CV workbench). Cover letter is
-  still `static/index.html` + Pico + `static/chat.js` until that page is rebuilt.
+  `static/settings.html`, `static/write.html` (CV and cover letter workbench).
+  The pre-redesign editor (`static/index.html`, `chat.js`) was removed 2026-11-17.

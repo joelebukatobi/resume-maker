@@ -669,7 +669,7 @@ export async function drawReview(ctx) {
     }, [icon("xmark", 16)]);
     no.addEventListener("click", act(no, async () => {
       const line = negative(gap.question);
-      await api("/api/setup/notes", { append: line });
+      await api("/api/setup/notes", { limit: line });
       settled(line);
     }));
     // Yes needs his own words, so clicking the question moves it to the chat box.

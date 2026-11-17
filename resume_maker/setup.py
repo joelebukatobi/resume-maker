@@ -91,34 +91,11 @@ def templates() -> list[dict[str, str]]:
 
 APPENDED_HEADING = "## From the chat"
 
-# Who put a dated entry in the log, written after the date. A Keep this on a
-# note the assistant offered files the assistant's words, and a sentence typed
-# into I have… files his; the support check trusts only the second until he
-# confirms the first. A no he pressed is his too, but it backs nothing. An
-# entry with no suffix predates the record.
+# The old chat log: notes kept from the chat used to pile up under this heading
+# as dated entries, labelled with who wrote them. Nothing writes there now
+# (2026-11-17); notes are placed in their section and a no joins the limits
+# section. The labels are still read, so a notes file with the log works.
 LOG_SOURCES = {"his answer": "his", "his no": "no", "suggested by the assistant": "assistant"}
-_SUFFIX = {source: label for label, source in LOG_SOURCES.items()}
-
-
-def append_text(current: str, addition: Any, *, today: str, kind: str = "notes",
-                source: str = "") -> str:
-    """``current`` with ``addition`` filed under a dated note at the end.
-
-    Everything the chat contributes lands in one place rather than being
-    guessed into the middle of a story the candidate wrote themselves. Moving
-    it to the right section afterwards is a two-second edit; a wrong guess in
-    the middle of someone's own words is not. ``kind`` picks which size limit
-    the result is checked against — Notes or the Voice file.
-    """
-    if not isinstance(addition, str) or not addition.strip():
-        raise ValueError("nothing to add")
-    body = addition.strip()
-    parts = [current.rstrip()] if current.strip() else []
-    if APPENDED_HEADING not in current:
-        parts.append(APPENDED_HEADING)
-    suffix = f" · {_SUFFIX[source]}" if source in _SUFFIX else ""
-    parts.append(f"### {today}{suffix}\n\n{body}")
-    return check_text(kind, "\n\n".join(parts))
 
 
 SKILLS_HEADING = "## Skills"
@@ -303,6 +280,35 @@ def add_skill(notes: str, label: str, tool: str) -> str:
         head, _, tail = rest.partition(APPENDED_HEADING)
         return check_text("notes", f"{head.rstrip()}\n\n{section}\n\n{APPENDED_HEADING}{tail}".lstrip())
     return check_text("notes", f"{rest}\n\n{section}".strip())
+
+
+LIMITS_HEADING = "## Limits and what I have not done"
+
+
+def add_limit(notes: str, line: Any) -> str:
+    """``notes`` with a no he pressed filed as a bullet in his limits section.
+
+    Every "I have not done X" belongs there, so no model places it. The
+    section is made, above the old chat log, the first time one arrives.
+    """
+    line = " ".join(str(line or "").split())
+    if not line:
+        raise ValueError("nothing to add")
+    if line.casefold() in notes.casefold():
+        return notes
+    bullet = f"- {line}"
+    lines = notes.splitlines()
+    try:
+        start = next(i for i, l in enumerate(lines) if l.strip() == LIMITS_HEADING)
+    except StopIteration:
+        section = f"{LIMITS_HEADING}\n\n{bullet}"
+        head, sep, tail = notes.partition(APPENDED_HEADING)
+        joined = f"{head.rstrip()}\n\n{section}\n\n{sep}{tail}" if sep else f"{notes.rstrip()}\n\n{section}"
+        return check_text("notes", joined.lstrip())
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("#")), len(lines))
+    while end > start + 1 and not lines[end - 1].strip():
+        end -= 1
+    return check_text("notes", "\n".join(lines[:end] + [bullet] + lines[end:]))
 
 
 def check_text(kind: str, text: Any) -> str:
