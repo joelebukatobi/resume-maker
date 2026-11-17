@@ -612,15 +612,6 @@ class SetupApiTests(unittest.TestCase):
                 self.assertNotRegex(path.read_text(encoding="utf-8"),
                                     r"(inner|outer)HTML\s*=|insertAdjacentHTML|document\.write")
 
-    def test_setup_script_renders_markdown_for_preview(self):
-        with urllib.request.urlopen(f"{self.base}/static/setup.js", timeout=10) as response:
-            script = response.read().decode()
-        self.assertIn("function renderMarkdown(", script)
-        self.assertIn("function setView(", script)
-        self.assertIn("innerHTML", script)  # must mention the rule…
-        # …as a ban: build nodes, never assign HTML from file content.
-        self.assertRegex(script, r"never\s+innerHTML")
-
     def test_extract_reads_an_uploaded_file_without_a_model(self):
         import base64
         text = self.post("/api/setup/extract",
@@ -661,21 +652,6 @@ class SetupApiTests(unittest.TestCase):
                 self.assertIn("/static/ui/write-page.js", page)
                 self.assertNotIn("pico", page.lower())
                 self.assertNotIn('class="site-nav"', page)
-
-    def test_chat_toggle_swaps_sidebar_icons(self):
-        with urllib.request.urlopen(f"{self.base}/static/chat.js", timeout=10) as response:
-            script = response.read().decode()
-        self.assertIn("function setChatOpen(", script)
-        self.assertIn("#i-sidebar-collapse", script)
-        self.assertIn("#i-sidebar-expand", script)
-        self.assertIn("Hide chat", script)
-        self.assertIn("Show chat", script)
-
-    def test_chat_empty_state_reads_setup_readiness(self):
-        with urllib.request.urlopen(f"{self.base}/static/chat.js", timeout=10) as response:
-            script = response.read().decode()
-        self.assertIn('fetch("/api/setup")', script)
-        self.assertIn("function emptyState()", script)
 
     def test_every_page_shares_one_set_of_design_tokens(self):
         """Write and letter use redesign tokens; Pico base.css is not on them."""
@@ -869,29 +845,6 @@ class ApplicationApiTests(unittest.TestCase):
                 if "EDUCATION" not in section["heading"].upper():
                     self.assertEqual(entry["bullets"], [])
 
-    def test_the_language_count_can_be_asked_for_on_a_letter(self):
-        """Coverage is not shown for a letter by default, because a recruiter's
-        search runs on the CV. Asked for explicitly it is still a plain count,
-        and the server has to answer for either document."""
-        document = self.get("/api/document")
-        posting = "product manager roadmap discovery stakeholders"
-        slug = self.get("/api/apps")["current"]
-        self.post("/api/chat/history", {"messages": [], "job_description": posting, "app": slug})
-        keywords.save(self.root / "applications" / slug / "keywords.json", posting=posting,
-                      terms=["roadmap", "discovery"], entries={})
-        counted = self.post("/api/match", {
-            "document": "cover", "doc": document["cover"], "job_description": posting,
-        })
-        self.assertIsInstance(counted["score"], int)    # the same list, on the letter
-        self.assertIn("missing", counted)
-
-        # Letter coverage UI still lives in the Pico editor (index.html).
-        editor = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("Count The Keywords", editor)
-        self.assertIn("Read Afresh", editor)
-        self.assertIn("function scoreActions(", editor)
-        self.assertIn("countLanguage", editor)
-
     def test_the_base_letter_names_no_company(self):
         """A plain New starts the letter from the base file, so the base must
         not be somebody's letter. It was Meta's, which meant every new
@@ -904,27 +857,6 @@ class ApplicationApiTests(unittest.TestCase):
         self.assertIn("[Role] at [Company]", joined)
         for named in ("Meta", "Amazon", "Fordham", "Rotational"):
             self.assertNotIn(named, joined)
-
-    def test_a_restored_draft_that_cannot_be_rendered_is_dropped(self):
-        """A draft is a convenience and must not be able to trap the editor.
-
-        A document missing a required string cannot be previewed or saved, and
-        Save is what clears the draft, so a bad draft came back on every
-        reload. The server refuses it; the page drops the draft and reloads
-        what is on disk rather than showing the same error again.
-        """
-        document = self.get("/api/document")
-        broken = json.loads(json.dumps(document["cv"]))
-        labelled = next(s for s in broken["sections"] if s.get("items"))
-        del labelled["items"][0]["text"]
-        with self.assertRaises(urllib.error.HTTPError) as caught:
-            self.post("/api/preview", {**document, "cv": broken, "document": "cv"})
-        self.assertIn("text", json.loads(caught.exception.read())["error"])
-
-        # Draft restore/drop still lives in the Pico editor (index.html).
-        editor = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("unprovenDraft = true", editor)
-        self.assertIn("if (unprovenDraft) return discardDraft", editor)
 
     def test_a_round_the_user_did_not_type_is_marked_as_such(self):
         """A tailoring round pushes a turn nobody typed. The flag is what stops

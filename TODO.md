@@ -34,9 +34,8 @@ pane, and Settings structure editors first.
 
 ## Pico retirement — leftover shell
 
-Native Letter and Write are live. Full Pico delete still means removing
-`static/index.html` + chat.css / base.css / `_nav.html` once nothing else loads
-them (e.g. `/review` library page).
+The old editor (`static/index.html`, `chat.js`, `chat.css`) is gone. Pico,
+`base.css` and `setup.css` are left only for the `/review` library page.
 
 ## Gaps and notes cards — visual redesign
 

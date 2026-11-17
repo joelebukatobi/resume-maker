@@ -54,7 +54,7 @@ PAGES = {
     "/review": ("review.html", "review"),
 }
 # The documents hang off the application they belong to.
-# CV → Write workbench; cover letter → same shell at /letter (Pico /cover-letter
+# CV → Write workbench; cover letter → same shell at /letter (/cover-letter
 # redirects there).
 DOCUMENT_PAGES = {
     "": "write",
@@ -273,7 +273,7 @@ class EditorHandler(BaseHTTPRequestHandler):
                 return self._error(HTTPStatus.NOT_FOUND, str(exc))
         document_page = self._document_page(route)
         if document_page is not None:
-            file = DOCUMENT_FILES.get(document_page[1], "index.html")
+            file = DOCUMENT_FILES[document_page[1]]
             return self._page(file, document_page[1], app=document_page[0])
         if route == "/api/setup":
             return self._setup_get()
@@ -282,18 +282,8 @@ class EditorHandler(BaseHTTPRequestHandler):
         if route == "/api/transcribe":
             # Lets the editor choose local dictation when an engine is present.
             return self._json(HTTPStatus.OK, {"available": transcribe.available()})
-        if route == "/static/chat.js":
-            return self._static("chat.js", "text/javascript; charset=utf-8")
-        if route == "/static/apps.js":
-            return self._static("apps.js", "text/javascript; charset=utf-8")
-        if route == "/static/setup.js":
-            return self._static("setup.js", "text/javascript; charset=utf-8")
-        if route == "/static/setup-chat.js":
-            return self._static("setup-chat.js", "text/javascript; charset=utf-8")
         if route == "/static/base.css":
             return self._static("base.css", "text/css; charset=utf-8")
-        if route == "/static/chat.css":
-            return self._static("chat.css", "text/css; charset=utf-8")
         if route == "/static/setup.css":
             return self._static("setup.css", "text/css; charset=utf-8")
         if route == "/api/document":
@@ -426,9 +416,6 @@ class EditorHandler(BaseHTTPRequestHandler):
         )
         # Any link in any page can point into the open application.
         html = html.replace("{app}", quote(slug))
-        if "<!-- site-chat -->" in html:
-            chat = (STATIC_ROOT / "_chat.html").read_text(encoding="utf-8").strip()
-            html = html.replace("<!-- site-chat -->", chat, 1)
         self._send(HTTPStatus.OK, html.encode("utf-8"), "text/html; charset=utf-8")
 
     def _static(self, name: str, content_type: str) -> None:
