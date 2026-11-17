@@ -5,8 +5,19 @@ __pycache__/
 .serena/
 # Personal: your Voice and experience notes. Role starters in templates/ stay tracked.
 voice.md
+playbook.md
+# Your base CV and letter. New copies start from the .example.json files.
+cv.json
+cover.json
 notes.md
+# What you decided about lines in your history: struck, kept, confirmed, checked.
+library.json
 
 # Your applications: tailored documents and the chat about each job.
 applications/
 .superpowers/
+.venv/
+
+# Session handoff and decision log: personal, kept local only.
+HANDOFF.md
+COMMITS.md

@@ -8,7 +8,8 @@ Two wire formats cover every provider we support:
 
 Keys come from an environment variable, or from a key the user saved through
 the editor (``~/.config/resume-maker/keys.json``, mode 0600, outside the repo).
-Either way they stay on the server; nothing sends a key back to the browser.
+Either way they stay on the server; the browser only ever sees a masked hint
+(first four and last four characters).
 Each provider's base URL can be overridden with ``<ID>_BASE_URL`` (for
 example ``MOONSHOT_BASE_URL=https://api.moonshot.cn/v1``). Adding a provider
 that speaks one of these formats is one entry in :data:`PROVIDERS`.
@@ -23,6 +24,7 @@ import json
 import os
 import re
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -100,6 +102,10 @@ PROVIDERS: Mapping[str, Provider] = {
 
 # ------------------------------------------------------------- saved keys
 
+# Not a chat provider: TypeSafe's Jev checks evidence (jev.py). Its key is
+# entered in the same dialog and kept in the same file.
+JEV = "jev"
+
 
 def keys_path() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
@@ -114,9 +120,17 @@ def saved_keys() -> dict[str, str]:
     return {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, str)}
 
 
+def mask_key(key: str) -> str:
+    """Show a short prefix and the last four characters; hide the middle."""
+    text = (key or "").strip()
+    if len(text) < 12:
+        return "••••••••••••"
+    return f"{text[:7]}••••••••{text[-4:]}"
+
+
 def save_key(provider_id: str, key: str) -> None:
     """Store (or, with an empty key, forget) a provider's key, owner-only."""
-    if provider_id not in PROVIDERS:
+    if provider_id not in PROVIDERS and provider_id != JEV:
         raise LLMError(f"unknown provider: {provider_id!r}")
     keys = saved_keys()
     if key:
@@ -341,6 +355,7 @@ def stream_chat(
                 "messages": [{"role": "system", "content": system}, *turns]}
         if temperature is not None:
             body["temperature"] = temperature
+    started = time.monotonic()
     try:
         response = _open(p, path, body)
     except LLMError as exc:
@@ -352,10 +367,21 @@ def stream_chat(
             raise
         body = {k: v for k, v in body.items() if k != "temperature"}
         response = _open(p, path, body)
+    # One line per call, so a slow step shows which call it waited on.
+    first = None
+    size = 0
     try:
-        yield from text_deltas(p.kind, sse_data(response))
+        for text in text_deltas(p.kind, sse_data(response)):
+            if first is None:
+                first = time.monotonic() - started
+            size += len(text)
+            yield text
     finally:
         response.close()
+        wait = "no text" if first is None else f"first text {first:.1f}s"
+        print(f"[llm] {p.id} {model}: {wait}, done {time.monotonic() - started:.1f}s, "
+              f"{len(system) + sum(len(t['content']) for t in turns)} chars in, {size} out",
+              flush=True)
 
 
 def complete(provider_id: str, model: str, system: str, prompt: str,

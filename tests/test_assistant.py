@@ -119,6 +119,10 @@ class ProviderTests(unittest.TestCase):
         with self.assertRaisesRegex(llm.LLMError, "invalid key"):
             list(llm.stream_chat("openai", "bad", "sys", [{"role": "user", "content": "hi"}]))
 
+    def test_mask_key_keeps_ends_only(self):
+        self.assertEqual(llm.mask_key("sk-abcdefghijklmnop"), "sk-abcd••••••••mnop")
+        self.assertEqual(llm.mask_key("short"), "••••••••••••")
+
     def test_provider_without_key_is_refused(self):
         with self.assertRaisesRegex(llm.LLMError, "not connected"):
             llm.provider("deepseek")
@@ -192,7 +196,7 @@ class ProviderTests(unittest.TestCase):
 
 class AssistantTests(unittest.TestCase):
     def setUp(self):
-        self.cv = json.loads((ROOT / "cv.json").read_text())
+        self.cv = json.loads((ROOT / "cv.example.json").read_text())
 
     def test_every_field_path_resolves_in_the_document(self):
         for path, _, text in assistant.field_paths("cv", self.cv):
@@ -249,8 +253,11 @@ class AssistantTests(unittest.TestCase):
         self.assertIn("paragraphs.1", letter)          # the next one is writable
         self.assertIn("placeholder, not an opening", letter)
         self.assertIn("one piece of writing", letter)
+        self.assertIn("one printed page", letter)      # same one-page guard as Pico voice
+        self.assertIn("400 words", letter)
         cv = assistant.system_prompt("cv", self.cv)
         self.assertNotIn("one piece of writing", cv)   # the CV is not a letter
+        self.assertNotIn("400 words", cv)
 
     def test_a_cv_session_is_not_told_how_to_write_a_letter(self):
         """What the user hit: a full cover letter arrived in an answer block in
@@ -413,7 +420,8 @@ class AssistantTests(unittest.TestCase):
         """The round is a conversation, not a form. A page of cards at once was
         work done before the user had agreed to any of it, and a decision taken
         early changes what should be offered next."""
-        for phase in assistant.PHASES:
+        # The gaps turn offers no change, only the questions, all together.
+        for phase in (p for p in assistant.PHASES if p != "gaps"):
             with self.subTest(phase=phase):
                 task = assistant.tailor_rules(phase)
                 self.assertIn("Offer exactly one thing", task)
@@ -679,7 +687,7 @@ class StyleAndNotesPromptTests(unittest.TestCase):
     """Voice (voice.md) and the shared experience bank (notes.md)."""
 
     def setUp(self):
-        self.cv = json.loads((ROOT / "cv.json").read_text())
+        self.cv = json.loads((ROOT / "cv.example.json").read_text())
 
     def prompt(self, **kwargs):
         return assistant.system_prompt("cv", self.cv, **kwargs)
@@ -687,7 +695,7 @@ class StyleAndNotesPromptTests(unittest.TestCase):
     def test_style_and_notes_are_appended_under_their_own_headings(self):
         prompt = self.prompt(voice_md="Ban the word 'spearheaded'.",
                              notes_md="Ran weekly triage for the Amazon CXI dataset.")
-        self.assertIn("## The user's voice", prompt)
+        self.assertIn("## The user's playbook", prompt)
         self.assertIn("Ban the word 'spearheaded'.", prompt)
         self.assertIn("## Experience notes", prompt)
         self.assertIn("Ran weekly triage for the Amazon CXI dataset.", prompt)
@@ -695,12 +703,12 @@ class StyleAndNotesPromptTests(unittest.TestCase):
     def test_protocol_rules_stay_first(self):
         prompt = self.prompt(voice_md="Style rules here.", notes_md="Notes here.")
         self.assertTrue(prompt.startswith("You are a careful resume"))
-        self.assertLess(prompt.index("proposal"), prompt.index("## The user's voice"))
+        self.assertLess(prompt.index("proposal"), prompt.index("## The user's playbook"))
 
     def test_missing_style_and_notes_add_no_headings(self):
         plain = assistant.system_prompt("cv", self.cv)
         self.assertEqual(plain, self.prompt(voice_md="", notes_md="   "))
-        self.assertNotIn("## The user's voice", plain)
+        self.assertNotIn("## The user's playbook", plain)
         self.assertNotIn("## Experience notes", plain)
 
     def test_job_description_still_works_alongside_them(self):
@@ -739,7 +747,7 @@ class PromptCacheTests(unittest.TestCase):
     """The prompt is split so providers can bill the repeated part cheaply."""
 
     def setUp(self):
-        self.cv = json.loads((ROOT / "cv.json").read_text())
+        self.cv = json.loads((ROOT / "cv.example.json").read_text())
 
     def test_volatile_fields_come_after_the_stable_prefix(self):
         stable, volatile = assistant.prompt_parts(
@@ -760,3 +768,78 @@ class PromptCacheTests(unittest.TestCase):
         whole = assistant.system_prompt("cv", self.cv, "JD", voice_md="S", notes_md="N")
         stable, volatile = assistant.prompt_parts("cv", self.cv, "JD", voice_md="S", notes_md="N")
         self.assertEqual(whole, f"{stable}\n\n{volatile}")
+
+
+class SectionTests(unittest.TestCase):
+    """A blank CV is written one section at a time, the whole section at once."""
+
+    def test_a_section_is_offered_whole_and_nothing_after_it(self):
+        for section in assistant.SECTIONS:
+            with self.subTest(section=section):
+                rules = " ".join(assistant.tailor_rules(section).split())
+                self.assertIn("one proposal block per field", rules)
+                self.assertIn("ending in a question", rules)
+                self.assertIn("Never write for any other section", rules)
+                self.assertIn("never invent", rules.lower())
+
+    def test_the_section_note_lists_his_lines_and_the_room(self):
+        note = assistant.section_note(
+            ["Shipped the roadmap.", "Ran discovery."], room=3,
+            where="sections.3.entries.0")
+        self.assertIn("Shipped the roadmap.", note)
+        self.assertIn("Ran discovery.", note)
+        self.assertIn("3 bullets", note)
+        self.assertIn("sections.3.entries.0.bullets.0", note)
+
+    def test_with_no_lines_the_note_says_so(self):
+        self.assertIn("no line", assistant.section_note([]).lower())
+
+    def test_a_section_leaves_the_gaps_for_the_end(self):
+        for section in assistant.SECTIONS:
+            with self.subTest(section=section):
+                rules = " ".join(assistant.tailor_rules(section).split())
+                self.assertIn("No gaps or ask block in this turn", rules)
+
+    def test_a_section_leaves_the_frame_and_the_notes_alone(self):
+        for section in assistant.SECTIONS:
+            with self.subTest(section=section):
+                rules = " ".join(assistant.tailor_rules(section).split())
+                self.assertIn("company, job title, location, dates", rules)
+                self.assertIn("no notes or voice block", rules)
+
+    def test_a_tool_he_confirms_is_offered_for_his_skills_list(self):
+        rules = assistant.system_prompt("cv", {"name": "x"})
+        self.assertIn("```skill", rules)
+        self.assertIn('"label"', rules)
+        self.assertTrue(assistant._CARD.search('```skill\n{"label": "AI", "tool": "Claude"}\n```'))
+
+    def test_capitals_in_lists_and_plain_case_in_sentences(self):
+        skills = " ".join(assistant.tailor_rules("skills").split())
+        self.assertIn("each word starting with a capital", skills)
+        for section in ("summary", "bullets", "additional"):
+            with self.subTest(section=section):
+                rules = " ".join(assistant.tailor_rules(section).split())
+                self.assertIn("only names and acronyms take capitals", rules)
+
+    def test_spare_room_lengthens_one_bullet_outside_the_first_role(self):
+        self.assertIn("lengthen", assistant.PHASES)
+        rules = " ".join(assistant.tailor_rules("lengthen").split())
+        self.assertIn("three lines", rules)
+        self.assertIn("not the first role", rules)
+        self.assertIn("Offer exactly one thing", rules)
+
+    def test_the_roles_step_asks_no_gaps_either(self):
+        rules = " ".join(assistant.tailor_rules("cast").split())
+        self.assertIn("No gaps or ask block in this turn", rules)
+
+    def test_the_gaps_turn_reads_the_written_cv(self):
+        self.assertIn("gaps", assistant.PHASES)
+        rules = " ".join(assistant.tailor_rules("gaps").split())
+        self.assertIn("```gaps", rules)
+        self.assertIn("the CV as it now stands", rules)
+
+    def test_additional_offers_sponsorship_only_when_asked(self):
+        rules = assistant.tailor_rules("additional")
+        self.assertIn("sponsorship", rules)
+        self.assertIn("only when the posting", rules)
+

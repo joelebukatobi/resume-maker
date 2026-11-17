@@ -1,0 +1,131 @@
+/* The little Pico used to do for us, and nothing more. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  font-family: inherit; /* Geist from html; mono only where set below */
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  font-family: var(--font);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--text);
+  background: var(--ground);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code,
+kbd,
+pre,
+.mono,
+textarea.input-code,
+.md code {
+  font-family: var(--font-mono);
+}
+
+h1, h2, h3, h4, p, ul, ol, figure, blockquote, dl, dd, pre {
+  margin: 0;
+}
+
+img, svg, video, canvas {
+  display: block;
+  max-width: 100%;
+}
+
+svg {
+  flex: none;
+}
+
+input, button, textarea, select {
+  font: inherit;
+  font-family: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+textarea {
+  resize: vertical;
+}
+
+table {
+  border-collapse: collapse;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* Scrollbars, the same everywhere: a 6px gray thumb that is always shown, an
+   arrow at each end touching it, no track. Always shown on purpose: a thumb
+   restyled on hover makes Chromium redraw the bar mid-scroll, which stalls a
+   mouse wheel. Do NOT set scrollbar-width/color on Chromium; that forces GTK
+   arrows. */
+*::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+  background: transparent;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+}
+
+*::-webkit-scrollbar-button:single-button {
+  display: block;
+  width: 16px;
+  height: 16px;
+  background: transparent no-repeat center / 8px 8px;
+  border: 0;
+}
+
+*::-webkit-scrollbar-button:single-button:vertical:decrement {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Cpath d='M4 2 7 6H1z' fill='%239B9BA4'/%3E%3C/svg%3E");
+}
+
+*::-webkit-scrollbar-button:single-button:vertical:increment {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Cpath d='M4 6 7 2H1z' fill='%239B9BA4'/%3E%3C/svg%3E");
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track-piece,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+*::-webkit-scrollbar-thumb {
+  /* 5px clear on each side leaves a 6px visible thumb. */
+  background: var(--text-secondary);
+  background-clip: padding-box;
+  border: 5px solid transparent;
+  border-radius: 8px;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--text-secondary) transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

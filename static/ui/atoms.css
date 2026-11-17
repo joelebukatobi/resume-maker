@@ -1,0 +1,408 @@
+/* Atoms from DESIGN.md. Every value comes from tokens.css. */
+
+/* Text */
+
+.title {
+  font-size: 28px;
+  line-height: 32px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+
+.heading {
+  font-size: 22px;
+  line-height: 32px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.card-title {
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+}
+
+.lead {
+  font-size: 16px;
+  line-height: 24px;
+  color: var(--text-secondary);
+}
+
+.meta {
+  font-size: 13px;
+  line-height: 16px;
+  letter-spacing: 0.01em;
+  color: var(--text-secondary);
+}
+
+.eyebrow {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: var(--space-xs);
+}
+
+.tnum {
+  font-feature-settings: "tnum";
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+a {
+  color: var(--action-text);
+}
+
+a:hover {
+  color: var(--text);
+}
+
+/* No focus ring outside the control — fields use a stronger border instead. */
+:focus,
+:focus-visible {
+  outline: none;
+}
+
+.input:focus,
+.input:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+select:focus,
+select:focus-visible,
+.select-trigger:focus,
+.select-trigger:focus-visible,
+.doc-source:focus,
+.doc-source:focus-visible {
+  border-color: var(--action-text);
+}
+
+/* Buttons: 40px on the page, 32px in bars and rows. */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 8px 14px;
+  font-weight: 500;
+  line-height: 24px;
+  color: var(--text);
+  text-decoration: none;
+  background: transparent;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-control);
+}
+
+.btn:hover {
+  color: var(--text);
+  background: var(--hover-overlay);
+}
+
+.btn:active {
+  background: var(--pressed-overlay);
+}
+
+.btn-primary {
+  color: var(--on-action);
+  background: var(--action-fill);
+  border-color: var(--action-fill);
+}
+
+.btn-primary:hover {
+  color: var(--on-action);
+  background: var(--action-fill-hover);
+  border-color: var(--action-fill-hover);
+}
+
+.btn-primary:active {
+  background: var(--action-fill-pressed);
+  border-color: var(--action-fill-pressed);
+}
+
+.btn-danger {
+  color: #FFFFFF;
+  background: var(--risk);
+  border-color: var(--risk);
+}
+
+.btn-danger:hover {
+  color: #FFFFFF;
+  background: var(--risk);
+  border-color: var(--risk);
+  filter: brightness(0.9);
+}
+
+.btn-sm {
+  height: 32px;
+  padding: 6px 12px;
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.btn-icon {
+  width: 40px;
+  padding: 0;
+  justify-content: center;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-full);
+}
+
+.icon-btn:hover {
+  color: var(--text);
+  background: var(--hover-overlay);
+}
+
+/* Hover colour by icon: close and remove red, confirm green. */
+.icon-btn:hover:not(:disabled):has(> [data-icon="xmark"]) {
+  color: var(--on-action);
+  background: var(--risk);
+}
+
+.icon-btn:hover:not(:disabled):has(> [data-icon="check"]) {
+  color: var(--on-action);
+  background: var(--backed);
+}
+
+/* Add, move and open go amber. */
+.icon-btn:hover:not(:disabled):is(:has(> [data-icon="plus"]), :has(> [data-icon="minus"]),
+  :has(> [data-icon="down"]), :has(> [data-icon="left"]), :has(> [data-icon="right"]),
+  :has(> [data-icon="arrow-up"]), :has(> [data-icon="arrow-down"])) {
+  color: var(--ground);
+  background: var(--open);
+}
+
+.icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.icon-btn:disabled:hover {
+  color: var(--text-secondary);
+  background: transparent;
+}
+
+/* Fields */
+
+.input {
+  width: 100%;
+  height: 40px;
+  padding: 8px 12px;
+  color: var(--text);
+  background: var(--raised);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-control);
+}
+
+textarea.input {
+  height: auto;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.input-sm {
+  height: 32px;
+  padding: 6px 12px;
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.input::placeholder {
+  color: var(--text-muted);
+}
+
+/* Chips: on, off, suggested. */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 4px 10px;
+  font-size: 13px;
+  line-height: 16px;
+  border-radius: var(--radius-control);
+}
+
+.chip[aria-pressed="true"] {
+  color: var(--on-action);
+  background: var(--action-fill);
+  border: 1px solid var(--action-fill);
+}
+
+.chip[aria-pressed="false"] {
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--hairline-strong);
+}
+
+.chip-suggest {
+  color: var(--text);
+  background: transparent;
+  border: 1px dashed var(--hairline-strong);
+}
+
+/* On/off switch: track + thumb, no labels. */
+
+.switch {
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--hairline-strong);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  background: var(--raised);
+  transition: transform 120ms ease;
+}
+
+.switch[aria-checked="true"] {
+  background: var(--action-fill);
+}
+
+.switch[aria-checked="true"]::after {
+  transform: translateX(16px);
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--action-text);
+  outline-offset: 2px;
+}
+
+/* Status: always a colour and a shape. */
+
+.dot {
+  display: inline-block;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+}
+
+.dot-backed { background: var(--backed); }
+.dot-open { border: 1.5px solid var(--open); }
+.dot-done { background: var(--text-secondary); }
+.dot-progress { border: 1.5px solid var(--text-secondary); }
+
+.is-backed { color: var(--backed-text); }
+.is-open { color: var(--open-text); }
+
+/* Lazy placeholder while a Write step is still writing. */
+
+.step-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-sm) 0;
+}
+
+.step-skeleton-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.step-skeleton-line {
+  display: block;
+  height: 12px;
+  border-radius: var(--radius-control);
+  background: var(--hairline);
+  animation: step-skeleton-pulse 1.1s ease-in-out infinite;
+}
+
+.step-skeleton-line.is-short { width: 42%; }
+
+@keyframes step-skeleton-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+/* Containers: only when the boundary means something. */
+
+.card {
+  padding: var(--space-md);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+}
+
+.card[aria-pressed="true"],
+.card.is-selected {
+  background: var(--surface);
+  border-color: var(--hairline-strong);
+  border-width: 2px;
+}
+
+.notice {
+  padding: var(--space-md);
+  color: var(--open-tint-text);
+  background: var(--open-tint);
+  border: 1px solid var(--open);
+  border-radius: var(--radius-control);
+}
+
+.paper {
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-paper);
+}
+
+textarea.input-code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 24px;
+}
+
+select.input {
+  appearance: none;
+  padding-right: 32px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%),
+    linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}

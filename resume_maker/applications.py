@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import time
@@ -37,6 +38,7 @@ MAX_NAME = 120
 # from the newest live application of the same track, so a Product CV and an
 # Engineering CV stay separate lineages.
 TRACKS = ("Product", "Engineering", "Data", "Design", "Other")
+MAX_TRACK = 40
 # What a new application is called until the job description names it.
 UNNAMED = "Untitled application"
 # The files an application owns. The key is how the rest of the program asks
@@ -53,6 +55,7 @@ FILES = {
 # tailoring is a head start, the chat about another job is noise. Nor the
 # keyword list, which was read from the last posting and would count the next
 # application against the wrong job.
+# Nor the cards from the last page build, which were about that page.
 COPIED = tuple(k for k in FILES if k not in ("chat", "keywords"))
 _SLUG_OK = re.compile(r"\A[a-z0-9][a-z0-9-]{0,63}\Z")
 
@@ -77,6 +80,9 @@ class Application:
     name: str
     created: str
     job_url: str = ""
+    # A fingerprint of the page last read from ``job_url``, so a refresh can
+    # tell a changed posting from the same one read again.
+    job_page: str = ""
     archived: bool = False
     track: str = ""
     # Stable across renames, and never reused. The slug is neither: naming an
@@ -150,6 +156,7 @@ class Workspace:
             name=str(data.get("name") or folder.name),
             created=str(data.get("created") or ""),
             job_url=str(data.get("job_url") or ""),
+            job_page=str(data.get("job_page") or ""),
             archived=archived,
             track=str(data.get("track") or ""),
             id=str(data.get("id") or ""),
@@ -268,13 +275,14 @@ class Workspace:
         return self.set_current(slug)
 
     def _free_slug(self, slug: str) -> str:
+        """A slug no folder uses, live or archived. Any folder counts, even one
+        without its app.json: moving into it would nest one application inside
+        another (it happened to Shopify when two namings ran at once)."""
         candidate, n = slug, 2
-        while True:
-            try:
-                self.find(candidate)
-            except ApplicationError:
-                return candidate
+        while (self.folder(candidate).exists()
+               or self.folder(candidate, archived=True).exists()):
             candidate, n = f"{slug}-{n}", n + 1
+        return candidate
 
     def rename(self, slug: str, name: str, *, reslug: bool = False) -> Application:
         """A new label.
@@ -296,7 +304,11 @@ class Workspace:
             wanted = self._free_slug(slugify(name))
             if wanted != slug:
                 target = self.folder(wanted, archived=archived)
-                shutil.move(str(folder), str(target))
+                # os.rename, not shutil.move: shutil.move puts the folder
+                # inside an existing one instead of failing.
+                if target.exists():
+                    raise ApplicationError(f"{wanted!r} already exists")
+                os.rename(folder, target)
                 folder, slug = target, wanted
                 if not archived:
                     self.set_current(slug)
@@ -335,9 +347,15 @@ class Workspace:
             (self.root / CURRENT).unlink(missing_ok=True)
 
     def set_track(self, slug: str, track: str) -> Application:
-        """Label an application's role type, by hand or from the posting."""
-        if track not in TRACKS:
-            raise ApplicationError(f"unknown track: {track!r}")
+        """Label an application's role type, by hand or from the posting.
+
+        The known :data:`TRACKS` are the usual choices (and what identify
+        writes). The edit dialog may also keep a short custom label so a
+        niche role type is not forced into Other.
+        """
+        track = " ".join(str(track).split())[:MAX_TRACK]
+        if not track:
+            raise ApplicationError("give the application a track")
         folder, archived = self.find(slug)
         meta = json.loads((folder / META).read_text(encoding="utf-8"))
         meta["track"] = track
@@ -345,6 +363,40 @@ class Workspace:
         app = self._read(folder, archived)
         assert app is not None
         return app
+
+    def set_link(self, slug: str, url: str, page: str = "") -> Application:
+        """Keep the posting's link, and the fingerprint of the page read from it."""
+        url = str(url).strip()[:2000]
+        if url and not url.startswith(("http://", "https://")):
+            raise ApplicationError("that isn't a web link")
+        folder, archived = self.find(slug)
+        meta = json.loads((folder / META).read_text(encoding="utf-8"))
+        meta["job_url"] = url
+        meta["job_page"] = str(page)[:64]
+        (folder / META).write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+        app = self._read(folder, archived)
+        assert app is not None
+        return app
+
+    def untouched(self, slug: str, key: str = "cv") -> bool:
+        """Whether the document is still byte for byte what :meth:`create` wrote.
+
+        An edit he saved before the posting arrived is his, and nothing built
+        from the library may write over it.
+
+        A save of the unchanged copy can still change its bytes (the editor
+        writes its own formatting), so a CV whose content equals the base it
+        was copied from counts as untouched too.
+        """
+        folder, _ = self.find(slug)
+        try:
+            meta = json.loads((folder / META).read_text(encoding="utf-8"))
+            if _sha(folder / FILES[key]) == (meta.get("seed") or {}).get(key):
+                return True
+        except (OSError, ValueError, AttributeError):
+            pass
+        base = self.base.get(key)
+        return bool(base) and _load(folder / FILES[key]) == _load(Path(base)) != {}
 
     def reseed(self, slug: str, track: str) -> bool:
         """Fill the CV from the newest live application of ``track``.
@@ -456,7 +508,7 @@ class Workspace:
         data = _load(self.base.get("cover"))
         company = str(data.get("company") or "").strip()
         role = str(data.get("role") or "").strip()
-        return " — ".join(p for p in (company, role) if p) or "First application"
+        return " | ".join(p for p in (company, role) if p) or "First application"
 
     def _adopt_chats(self, slug: str, chat_dir: Path) -> None:
         """Fold the old per-document chat files into one conversation.

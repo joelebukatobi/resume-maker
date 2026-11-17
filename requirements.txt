@@ -1,0 +1,1 @@
+fastembed==0.9.1  # local embedding model for the gap check (resume_maker/evidence.py); optional

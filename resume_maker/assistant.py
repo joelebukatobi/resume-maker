@@ -43,7 +43,7 @@ _TRUNCATED = "\n\n[Notes truncated here: the file is longer than this prompt all
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _FENCE = re.compile(r"```(?:json)?\s*(\{.*\})\s*```", re.S)
 # A card block in a reply, in the order the editor renders and numbers them.
-_CARD = re.compile(r"```(proposal|answer|notes|voice|gaps|ask)\s*([\s\S]*?)```")
+_CARD = re.compile(r"```(proposal|answer|notes|voice|gaps|ask|skill)\s*([\s\S]*?)```")
 # What a resolved proposal collapses to on the wire. The edit is already in the
 # live fields, and the marker keeps the fact that it happened without the JSON.
 _ELIDED = {"accepted": "(proposal already applied)", "dismissed": "(proposal declined)"}
@@ -54,6 +54,15 @@ class ImportFailed(ValueError):
 
 
 # --------------------------------------------------------------- field paths
+
+
+# The CV's structure: the name, contacts, section headings, and each entry's
+# organisation (team included), location, role and dates. These are facts the
+# user sets in Settings; the notes are evidence for what the lines say, never
+# for these. The chat marks them fixed and Review refuses a change to one.
+FIXED_CV_FIELD = re.compile(
+    r"^(?:name|contact\.\d+\.text|sections\.\d+\.heading"
+    r"|sections\.\d+\.entries\.\d+\.(?:left|right|sub_left|sub_right))$")
 
 
 def field_paths(document: str, data: Mapping[str, Any], printed_only: bool = False) -> Iterator[tuple[str, str, str]]:
@@ -115,7 +124,8 @@ Non-negotiable, whatever else the style file says:
   A dates field is the exception. The dash between two dates is a setting, not
   punctuation, and the tool rewrites it on export. Never propose changing it,
   and never replace it with the word "to".
-- Never name an internal team, org or project. Describe it by what it did.
+- Never name an internal team, org or project in a bullet or the summary.
+  Describe it by what it did.
 {letter_rules}
 
 How to answer:
@@ -127,6 +137,11 @@ How to answer:
 ```
 - One block per field. "text" is the complete replacement, plain text only:
   no markdown, no bullet characters, no surrounding quotes.
+- A bullet that goes beyond what his notes state, where a turn below allows
+  one, carries "inferred": one short line naming what it was inferred from,
+  e.g. {{"path": "...", "text": "...", "inferred": "SQL in his skills list, the Numinix stores"}}.
+  The user is shown every inferred bullet to confirm. Never leave the tag off
+  one, and never put it on a line his notes state.
 - To add a bullet to an experience entry, or a paragraph to a letter, use the
   next unused index, e.g. if bullets 0 and 1 exist, propose "...bullets.2", and
   if the letter has one paragraph, propose "paragraphs.1" for the next.
@@ -190,13 +205,20 @@ How to answer:
   recorded, remembered or added anything. Say what the block is for and that
   it needs the button. A user who is told it is saved does not press it, and
   the fact is lost.
+- When the user says they have used a tool, platform or language, offer it
+  for their skills list too, in a skill block, under the label in their
+  skills list it belongs with, alongside a notes block saying what they used
+  it for:
+```skill
+{{"label": "<a label from their skills list>", "tool": "<the tool's name>"}}
+```
 - When the user states a rule about how to write — a tone, a banned word, a
   habit you should drop — offer it as a voice block. It is a rule for the
   editor, not a fact about their work, so write it as an instruction:
 ```voice
 <the rule, one or two plain sentences>
 ```
-  The editor shows it with an "Add to Voice" button; it is only written when
+  The editor shows it with a button that adds it to the Playbook; it is only written when
   the user accepts, and the same goes here: never say you have saved it.
   Use notes for what they have done, voice for how they want to sound.
 - Only use paths from the list. Never invent a path.
@@ -205,7 +227,8 @@ How to answer:
   is never out of date. Never say you cannot see the document and never ask the
   user to paste it back to you.
 - Never invent facts, employers, dates, numbers or credentials. Rephrase and
-  prioritise what is there; if something is missing, ask the user.
+  prioritise what is there; if something is missing, ask the user. The one
+  exception is an inferred Work History bullet, only in a turn that allows it.
 - Keep it ATS friendly: plain wording, standard terms, keywords from the job
   description where they are true of the candidate.
 - Every claim has to answer something this posting asks for. The notes hold
@@ -234,6 +257,10 @@ _LETTER_RULES = """\
   every paragraph in the same round, first to last, so the letter is shaped as
   a whole. A paragraph proposed on its own into a letter written for another
   posting leaves a letter that reads like two letters.
+- The letter must fit on one printed page. Write about three or four short
+  paragraphs in total (the greeting opens the first), under about 400 words.
+  Prefer fewer stronger claims over a second page. Cut a weaker claim before
+  you add length. Never spill onto page two to include everything.
 - In a cover letter, write "[Company]" and "[Role]" rather than the real
   company name or job title. They are filled in on export."""
 _CV_ONLY_RULES = """\
@@ -423,6 +450,9 @@ another off. Suggest the one that gains the most first.
 A role is suggested with a show proposal naming the entry, never by
 rewriting anything. Change no wording in this step.
 
+No gaps or ask block in this turn. This step is only about which roles are
+shown.
+
 {one}
 """
 
@@ -477,6 +507,39 @@ once, in one line, with no card. Do not argue and do not suggest again.
 {one}
 """
 
+# A one-page CV with lines to spare: one bullet outside the headline role may
+# run to three lines, never more than one.
+_TAILOR_LENGTHEN = """\
+## This turn, without being asked
+
+The CV is written and fits on one page with room to spare. One bullet from a
+role that is not the first role on the page may run to three lines instead of
+two. Choose the bullet that best answers the posting and offer it written to
+three lines, as an ordinary proposal for that bullet. Add only what his notes
+back: a tool, a number or a result they state. Never invent.
+
+If no bullet would gain from the room, say so in one line and write no card.
+
+{one}
+"""
+
+# Asked once, after a blank CV has been written: the CV may already close
+# some of what the posting wants, so only what it still misses is a gap.
+_TAILOR_GAPS = """\
+## This turn, without being asked
+
+The CV has been written. Compare the CV as it now stands with the posting and
+find what the posting asks for that the CV does not show and his notes do not
+back. Ask about those in one gaps block, one question per line, most important
+first, at most five. Nothing the CV already covers is a gap.
+```gaps
+<one short question per line>
+```
+
+If nothing is missing, say so in one line and write no block. No proposal
+block in this turn.
+"""
+
 _TAILOR_AGAIN = """\
 ## This turn, without being asked
 
@@ -489,12 +552,169 @@ document. Name the notes section it came from.
 {one}
 """
 
-PHASES = ("cast", "wording", "fit", "again")
+# A blank new CV is written in the chat one section at a time, top to bottom,
+# and each section is offered whole: the summary, every skill line, one job's
+# bullets. He says yes or types what to change; nothing later is touched
+# until he has said yes.
+_SECTION_WHOLE = """\
+Offer this section whole, in one message: one proposal block per field, all
+together, and above them one or two short sentences saying why, ending in a
+question asking whether it is right or what to change. If the user asks for
+changes, offer the whole section again the same way, with the changes made.
+
+Never write for any other section, and never mention, preview or draft one.
+The sections after this one wait until the user has said yes to this one.
+
+No gaps or ask block in this turn, and no notes or voice block. Write the
+section from what his notes and lines already hold; what the posting wants
+that they do not cover is asked about once, at the end, after the whole CV
+is written.
+
+The company, job title, location, dates, skill labels and Education are fixed
+and stay exactly as they are. Never propose a change to any of them.
+"""
+
+# Where the words come from, for every section but Skills.
+_FROM_HIS_LINES = """\
+Write in sentences, with ordinary capitals: only names and acronyms take
+capitals (built tools on large language models; AWS, Python, LLMs).
+
+Work from the lines listed under "His lines for this section" first: they are
+his, from CVs he has sent, and his notes back them. Use one as it is or adjust
+its wording to the posting. Write a new line only when none of them answers
+what the posting asks for, and then only from what his notes state, naming
+the notes section it came from. Never invent a tool, number, title or result
+that is not in his notes or those lines.
+"""
+
+# Bullets only. The user's boundary, 2026-11-10: the activity behind what the
+# notes or skills list name may be inferred and placed at the likeliest
+# employer; numbers, employers, titles, dates, team sizes and unnamed tools
+# never. Every inferred bullet is tagged and shown to him on Review.
+_MAY_INFER = """\
+When none of his lines or notes answers something the posting asks for, you
+may infer a bullet. Take a tool, skill or kind of work his notes or skills
+list name, and write the plausible activity behind it at the employer where
+he most likely did it: SQL in his skills list and e-commerce stores at
+Numinix may become writing joins and reporting queries for those stores.
+Never infer a number, percentage, metric, employer, title, date, team size or
+scope word like "led", and never a tool that appears nowhere in his notes or
+skills list. An inferred bullet carries "inferred" in its proposal. At most
+one inferred bullet per job.
+"""
+
+_SECTION_SUMMARY = """\
+## This turn
+
+The CV is being written section by section. This section is the
+Professional Summary: its one paragraph, for this posting.
+
+{whole}
+
+{lines}
+"""
+
+_SECTION_SKILLS = """\
+## This turn
+
+The CV is being written section by section. This section is Skills: the text
+of every skill line, under the labels already there. Keep each label; write
+only its text.
+
+{whole}
+
+Build each line from the tools listed under that label in "His skills list"
+below; never a tool that is not in his skills list, and never one from
+another label's list. Do not copy an old line: choose. The tools this
+posting asks for come first, then his strongest others, while the line still
+fits on one line of the page. Write tool names as he wrote them, each word
+starting with a capital: Large Language Models, not large language models.
+Never invent.
+"""
+
+_SECTION_BULLETS = """\
+## This turn
+
+The CV is being written section by section. This section is the bullets of
+one job, the one named under "His lines for this section". Write every bullet
+it has room for, starting at bullets.0, and none for any other job.
+
+{whole}
+
+{lines}
+
+{infer}
+"""
+
+_SECTION_BULLETS_ALL = """\
+## This turn
+
+The CV is being written section by section. This section is the bullets of
+every job on the CV, each one named under its own "His lines for this
+section" with its room. For each job, write every bullet it has room for,
+starting at bullets.0 under that job's own path. A line about one job never
+goes under another, and no job gets more bullets than its room.
+
+{whole}
+
+{lines}
+
+{infer}
+"""
+
+_SECTION_ADDITIONAL = """\
+## This turn
+
+The CV is being written section by section. This section is Additional
+Information, the last one. It holds his interests line. Add the line about
+work authorisation and sponsorship only when the posting mentions visas,
+sponsorship or the right to work. Never a sentence describing his character.
+
+{whole}
+
+{lines}
+"""
+
+SECTIONS = {
+    "summary": _SECTION_SUMMARY,
+    "skills": _SECTION_SKILLS,
+    "bullets": _SECTION_BULLETS,
+    "bullets_all": _SECTION_BULLETS_ALL,
+    "additional": _SECTION_ADDITIONAL,
+}
+
+
+def skills_note(listed: Mapping[str, Sequence[str]]) -> str:
+    """His skills list, by label, the tools the posting names first."""
+    out = ["His skills list:"]
+    out.extend(f"- {label}: {', '.join(tools)}" for label, tools in listed.items())
+    if not listed:
+        out.append("- He has no skills list yet. Leave every skill line empty.")
+    return "\n".join(out)
+
+
+def section_note(lines: Sequence[str], room: int = 0, where: str = "") -> str:
+    """His past lines for the section being written, best first, and for a
+    job, how many bullets it has room for and where they go."""
+    out = ["His lines for this section:"]
+    if where:
+        out.append(f"The job is {where}. It has room for {room} bullets, "
+                   f"{where}.bullets.0 to {where}.bullets.{max(room - 1, 0)}.")
+    if lines:
+        out.extend(f"- {line}" for line in lines)
+    else:
+        out.append("- No line he has used fits this section yet.")
+    return "\n".join(out)
+
+
+PHASES = ("cast", "wording", "fit", "again", "gaps", "lengthen")
 _PHASE_RULES = {
     "cast": _TAILOR_CAST,
     "wording": _TAILOR_WORDING,
     "fit": _TAILOR_FIT,
     "again": _TAILOR_AGAIN,
+    "gaps": _TAILOR_GAPS,
+    "lengthen": _TAILOR_LENGTHEN,
 }
 
 
@@ -519,8 +739,13 @@ def tailor_rules(phase: str = "wording", settled=(), declined=()) -> str:
     the model is about to write. One step offers one suggestion: the step
     ends when it has nothing left to offer and says so without a card.
     """
-    rules = _PHASE_RULES.get(phase, _TAILOR_WORDING).format(
-        one=_ONE_AT_A_TIME.strip()).strip()
+    if phase in SECTIONS:
+        rules = SECTIONS[phase].format(whole=_SECTION_WHOLE.strip(),
+                                       lines=_FROM_HIS_LINES.strip(),
+                                       infer=_MAY_INFER.strip()).strip()
+    else:
+        rules = _PHASE_RULES.get(phase, _TAILOR_WORDING).format(
+            one=_ONE_AT_A_TIME.strip()).strip()
     for note in (settled_note(settled), declined_note(declined)):
         if note:
             rules = f"{rules}\n\n{note}"
@@ -758,7 +983,7 @@ def prompt_parts(
         kind=kind, letter_rules=_LETTER_RULES if kind == "cover letter" else _CV_ONLY_RULES)]
     voice = scope_voice(voice_md, kind)
     if voice:
-        stable += ["## The user's voice", voice, ""]
+        stable += ["## The user's playbook", voice, ""]
     notes = clip_notes(order_notes(notes_md, job_description))
     if notes:
         stable += ["## Experience notes",
@@ -779,7 +1004,8 @@ def prompt_parts(
     if fit.strip():
         volatile += [fit.strip(), ""]
     for path, label, text in field_paths(document, data):
-        volatile.append(f"- `{path}` ({label}): {text}")
+        fixed = ", fixed" if document == "cv" and FIXED_CV_FIELD.match(path) else ""
+        volatile.append(f"- `{path}` ({label}{fixed}): {text}")
     if task.strip():
         volatile += ["", task.strip()]
     volatile += ["", _tail(kind)]
@@ -791,8 +1017,10 @@ Before you answer, check your own text against these. They are the rules the
 user has had to repeat, and whatever sits nearest here has the most pull.
 - No dashes as punctuation, no colons, no semicolons. The dash between two
   dates is not punctuation and is not yours to change.
-- Nothing invented. Every fact comes from the notes or from the user.
-- No internal team, org or project names. Countries and regions stay.
+- Nothing invented. Every fact comes from the notes or from the user. A Work
+  History turn may infer a bullet within its limits, and tags it "inferred".
+- No internal team, org or project names in a bullet or the summary. Countries
+  and regions stay.
 - Nothing is saved until the user presses the button on the card. Never say you
   have saved, recorded or remembered something.
 """
@@ -915,7 +1143,7 @@ _JOB_RULES = """\
 Read the job posting below and name it.
 Reply with JSON only, nothing else:
 {{"company": "<the hiring company>", "role": "<the job title>", "track": "<one of: {tracks}>"}}
-Copy the company and role exactly as the posting writes them — no additions.
+Copy the company and role exactly as the posting writes them, with no additions.
 If the posting does not state one, use an empty string for it.
 "track" is the kind of role it is, chosen from the list above. Use "Other" only
 when none of the named tracks fits.
@@ -998,6 +1226,20 @@ GENERIC_TERMS = frozenset({
 
 def keywords_prompt() -> str:
     return _KEYWORD_RULES
+
+
+_NAMING = """This posting is also being named. Put three more fields in the same JSON
+object: "company" (the hiring company), "role" (the job title) and "track"
+(the kind of role, one of: {tracks}). Copy the company and role exactly as the
+posting writes them, with no additions, and use an empty string for one the
+posting does not state. Use "Other" as the track only when none fits.
+"""
+
+
+def named_keywords_prompt() -> str:
+    """The keyword reading and the naming in one call: both read the same
+    posting, so a new application pays for it once."""
+    return f"{_KEYWORD_RULES}\n{_NAMING.format(tracks=', '.join(TRACKS))}"
 
 
 def keywords_request(job_description: str) -> str:

@@ -117,20 +117,67 @@
     ]);
   }
 
+  // The list shows as many rows as fit the space the hub leaves it, and
+  // pages through the rest. The page survives a reload within the tab.
+  const pager = document.getElementById("app-pager");
+  let rows = [];
+  let page = 0;
+  try { page = Number(sessionStorage.getItem("apps-page")) || 0; } catch { /* page one */ }
+
+  function remember() {
+    try { sessionStorage.setItem("apps-page", String(page)); } catch { /* not kept */ }
+  }
+
+  function perPage() {
+    if (!pager || !rows.length) return rows.length || 1;
+    list.textContent = "";
+    list.append(rows[0]);
+    const gap = parseFloat(getComputedStyle(list).rowGap) || 0;
+    const tall = rows[0].getBoundingClientRect().height + gap;
+    list.textContent = "";
+    return Math.max(1, Math.floor((list.clientHeight + gap) / (tall || 1)));
+  }
+
+  function showPage() {
+    // Measured with the pager showing: it takes its height from the list, and
+    // measuring without it left the last row of the first page cut off.
+    if (pager) pager.hidden = false;
+    const size = perPage();
+    const pages = Math.max(1, Math.ceil(rows.length / size));
+    page = Math.min(Math.max(0, page), pages - 1);
+    remember();
+    list.textContent = "";
+    for (const r of rows.slice(page * size, (page + 1) * size)) list.append(r);
+    if (!pager) return;
+    pager.hidden = pages <= 1;
+    pager.textContent = "";
+    const step = (text, to, disabled) => node("button", {
+      class: "secondary", text, disabled: disabled || null,
+      onclick: () => { page = to; showPage(); } });
+    pager.append(step("Previous", page - 1, page === 0),
+                 node("span", { text: `Page ${page + 1} of ${pages}` }),
+                 step("Next", page + 1, page >= pages - 1));
+  }
+
   function paint(state) {
     open = state.current;
     const apps = state.applications || [];
-    const current = apps.find((a) => a.slug === open);
     // The hub has no title of its own: the list below is the point of it.
-    list.textContent = "";
     const live = apps.filter((a) => !a.archived);
     const archived = apps.filter((a) => a.archived);
-    for (const app of live) list.append(row(app));
+    rows = live.map(row);
     if (archived.length) {
-      list.append(node("div", { class: "app-divider", text: "Archived" }));
-      for (const app of archived) list.append(row(app));
+      rows.push(node("div", { class: "app-divider", text: "Archived" }));
+      rows.push(...archived.map(row));
     }
+    showPage();
   }
+
+  let resizing;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizing);
+    resizing = setTimeout(() => { if (rows.length) showPage(); }, 120);
+  });
 
   async function load() {
     try {
@@ -140,8 +187,8 @@
     }
   }
 
-  // New application: the documents come from the one you were last on, and
-  // the name comes from the job description you paste on the next screen.
+  // New application: it starts from the base CV and letter, and the job
+  // description you paste on the next screen names it and builds its CV.
   document.getElementById("app-new").addEventListener("click", async () => {
     try {
       const made = await call({ action: "create" });

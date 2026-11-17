@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review your library · resume-maker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<link rel="stylesheet" href="/static/base.css">
+<link rel="stylesheet" href="/static/setup.css">
+<style>
+.review { max-width: 760px; margin: 0 auto; padding: 24px var(--chrome-gutter, 16px); }
+.review-row { border: 1px solid #2e2e2e; border-radius: 10px; padding: 12px 14px; margin: 0 0 10px; background: #171717; }
+.review-row p { margin: 0 0 6px; }
+.review-row small { display: block; color: var(--pico-muted-color); margin-bottom: 8px; }
+.review-row .actions { display: flex; gap: 8px; }
+.review-row button { margin: 0; width: auto; padding: 4px 12px; font-size: 13px; }
+.review-row.done { opacity: .5; }
+.review h2 { font-size: 16px; margin: 24px 0 10px; }
+.review-apps label { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+</style>
+</head>
+<body data-page="">
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M3 9.5L12 2L21 9.5V20C21 20.5523 20.5523 21 20 21H4C3.44772 21 3 20.5523 3 20V9.5Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/> <path d="M9.5 21V14H14.5V21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+<header class="topbar">
+  <!-- site-nav -->
+</header>
+<main class="review">
+  <h1>Review your library</h1>
+  <p class="lead">Every line you have put on a CV, checked once against your notes. Only the
+    ones your notes do not clearly back are listed here. Keep the ones that are true;
+    strike the ones that are not, and they will never be picked again.</p>
+  <button type="button" id="check">Check my library</button>
+  <p class="status" id="status"></p>
+  <h2 id="lines-head" hidden>Lines your notes do not back</h2>
+  <div id="lines"></div>
+  <h2 id="notes-head" hidden>Notes the assistant suggested</h2>
+  <div id="notes"></div>
+  <h2>Applications</h2>
+  <p class="status">Every CV counts. Exclude one to keep its lines out of new CVs.</p>
+  <div class="review-apps" id="apps"></div>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const VERDICT = {
+  held: "held back: your notes don't back this",
+  unconfirmed: "your notes only say this because the assistant suggested it. Is it true?",
+  unchecked: "not checked yet",
+};
+
+async function call(body) {
+  const response = await fetch("/api/library", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error((await response.text()).trim() || "request failed");
+  return response.json();
+}
+
+function el(tag, attrs = {}, children = []) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(attrs)) {
+    if (key === "text") node.textContent = value;
+    else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+    else node.setAttribute(key, value);
+  }
+  for (const child of children) node.append(child);
+  return node;
+}
+
+function row(text, note, onKeep, onStrike) {
+  const box = el("div", { class: "review-row" });
+  const decide = (fn) => async () => {
+    try { await fn(); box.classList.add("done"); box.querySelectorAll("button").forEach((b) => { b.disabled = true; }); }
+    catch (error) { $("status").textContent = error.message; }
+  };
+  box.append(el("p", { text }), el("small", { text: note }),
+    el("div", { class: "actions" }, [
+      el("button", { text: "Keep", onclick: decide(onKeep) }),
+      el("button", { class: "secondary", text: "Strike", onclick: decide(onStrike) }),
+    ]));
+  return box;
+}
+
+async function load() {
+  const data = await call({ action: "review" });
+  $("lines").textContent = "";
+  $("notes").textContent = "";
+  $("lines-head").hidden = !data.lines.length;
+  $("notes-head").hidden = !data.notes.length;
+  for (const line of data.lines) {
+    const where = `${VERDICT[line.verdict] || line.verdict} · on ${line.cvs.length} CV${line.cvs.length === 1 ? "" : "s"}`;
+    $("lines").append(row(line.text, where,
+      () => call({ action: "keep", text: line.text }),
+      () => call({ action: "strike", text: line.text })));
+  }
+  for (const note of data.notes) {
+    $("notes").append(row(note.passage, "From the chat log of your notes",
+      () => call({ action: "confirm", passage: note.passage, value: true }),
+      () => call({ action: "confirm", passage: note.passage, value: false })));
+  }
+  $("apps").textContent = "";
+  for (const app of data.applications) {
+    const box = el("input", { type: "checkbox" });
+    box.checked = app.excluded;
+    box.addEventListener("change", () => call({ action: "exclude", slug: app.slug, value: box.checked })
+      .catch((error) => { $("status").textContent = error.message; }));
+    $("apps").append(el("label", {}, [box, document.createTextNode(`Exclude ${app.name}`)]));
+  }
+  if (!data.lines.length && !data.notes.length) {
+    $("status").textContent = "Nothing needs you. Every line in your library is backed by your notes or by your decision.";
+  }
+}
+
+$("check").addEventListener("click", async (e) => {
+  e.target.disabled = true;
+  $("status").textContent = "Checking every line against your notes…";
+  try {
+    const counts = await call({ action: "check" });
+    $("status").textContent = counts.unchecked
+      ? "The check could not reach Jev; these lines stay held back until it runs."
+      : `${counts.held + counts.unconfirmed} line${counts.held + counts.unconfirmed === 1 ? "" : "s"} need you.`;
+    await load();
+  } catch (error) { $("status").textContent = error.message; }
+  e.target.disabled = false;
+});
+
+load().catch((error) => { $("status").textContent = error.message; });
+</script>
+</body>
+</html>
