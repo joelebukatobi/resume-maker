@@ -23,7 +23,6 @@ import threading
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dataclasses import asdict
-from datetime import date
 from functools import partial
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -736,18 +735,9 @@ class EditorHandler(BaseHTTPRequestHandler):
         self._json(HTTPStatus.OK, {"text": transcribe.transcribe(assistant.decode_upload(audio))})
 
     def _setup_voice(self, payload: dict[str, Any]) -> None:
-        """Save the Style page, or add a rule the chat offered to the end of it.
-
-        Like Notes, an "append" is the chat's only way into this file, and only
-        because the user accepted the card, so the rule arrives reviewed.
-        """
+        """Save the Playbook page, or place a rule the chat offered and he kept."""
         if isinstance(payload.get("place"), dict):
             payload = {"text": self._placed("voice", self._voice_path, payload["place"])}
-        elif "append" in payload:
-            current = assistant.load_text(self._voice_path)
-            text = setup.append_text(current, payload.get("append"),
-                                     today=date.today().isoformat(), kind="voice")
-            payload = {"text": text}
         self._save_setup_file("voice", self._voice_path, payload)
 
     def _setup_place(self, payload: dict[str, Any]) -> None:
@@ -767,21 +757,14 @@ class EditorHandler(BaseHTTPRequestHandler):
             str(chosen.get("before") or ""), str(chosen.get("after") or "")))
 
     def _setup_notes(self, payload: dict[str, Any]) -> None:
-        """Save the Notes page, or add what the chat offered to the end of it.
-
-        An "append" is the chat's only way into this file, and it only happens
-        because the user accepted the card, so the text arrives reviewed. It
-        arrives in the assistant's words all the same, and is filed as such:
-        his own sentences come in through the keyword answer, never here, so
-        nothing a page sends can claim them.
-        """
+        """Save the Notes page, place a note the chat offered and he kept, file
+        a no he pressed, or add a tool he said yes to."""
         if isinstance(payload.get("place"), dict):
             payload = {"text": self._placed("notes", self._notes_path, payload["place"])}
-        elif "append" in payload:
-            current = assistant.load_text(self._notes_path)
-            text = setup.append_text(current, payload.get("append"),
-                                     today=date.today().isoformat(), source="assistant")
-            payload = {"text": text}
+        elif "limit" in payload:
+            # A no he pressed on Review, filed in his limits section.
+            payload = {"text": setup.add_limit(assistant.load_text(self._notes_path),
+                                               str(payload.get("limit") or "")[:400])}
         elif isinstance(payload.get("skill"), dict):
             # A tool he said yes to, filed in his skills list under its label.
             skill = payload["skill"]
@@ -878,26 +861,10 @@ class EditorHandler(BaseHTTPRequestHandler):
         if term not in stored["keywords"]:
             raise ValueError("that keyword is not on this posting's list")
         if action == "decline":
-            self._append_note(str(payload.get("line") or "").strip()[:400], source="no")
+            notes = setup.add_limit(assistant.load_text(self._notes_path),
+                                    str(payload.get("line") or "").strip()[:400])
+            _atomic_write(self._notes_path, notes)
             stored["map"][term] = {"state": "declined", "from": "", "say": ""}
-        elif action == "answer":
-            sentence = str(payload.get("sentence") or "").strip()[:1000]
-            if not sentence:
-                raise ValueError("say what you did, in a sentence")
-            provider = str(payload.get("provider", ""))
-            if not provider or not payload.get("model"):
-                raise ValueError("connect an agent first, so the answer can be matched")
-            model = llm.check_model(payload.get("model", ""))
-            # The note is written before the model is asked anything, so a
-            # failed call cannot lose what he typed. Once: a retry after a
-            # failed call would otherwise add the same sentence again.
-            _, notes = self._voice_and_notes()
-            if sentence not in notes:
-                self._append_note(sentence)
-                _, notes = self._voice_and_notes()
-            reply = llm.complete(provider, model, assistant.map_prompt(),
-                                 assistant.map_request([term], notes), temperature=0)
-            stored["map"][term] = assistant.parse_map(reply, [term])[term]
         else:
             raise ValueError(f"unknown keyword action: {action}")
         keywords.save(path, posting=jd, terms=stored["keywords"], entries=stored["map"],
@@ -932,15 +899,6 @@ class EditorHandler(BaseHTTPRequestHandler):
             terms)
         keywords.save(path, posting=jd, terms=terms, entries=entries)
 
-    def _append_note(self, text: str, source: str = "his") -> None:
-        """His answer, or his no, filed as his: he typed it or pressed it. A no
-        is filed as one, so it can never be read as backing what it denies."""
-        if not text:
-            raise ValueError("nothing to add to the notes")
-        current = assistant.load_text(self._notes_path)
-        updated = setup.append_text(current, text, today=date.today().isoformat(),
-                                    source=source)
-        _atomic_write(self._notes_path, updated.rstrip("\n"))
 
     def _fit(self, payload: dict[str, Any]) -> None:
         """One screening pass: how strong does this candidate look for this role.
@@ -1340,11 +1298,7 @@ class EditorHandler(BaseHTTPRequestHandler):
             print(f"[library] lines not labelled: {exc}", flush=True)
 
     def _gaps(self, payload: dict[str, Any]) -> None:
-        """Before a gap is asked: is it in his notes, or on a past CV? A past
-        line he confirms is filed in his notes as his own answer."""
-        if payload.get("action") == "confirm":
-            self._append_note(str(payload.get("line") or "").strip()[:400])
-            return self._json(HTTPStatus.OK, {"saved": True})
+        """Before a gap is asked: is it in his notes, or on a past CV?"""
         questions = payload.get("questions")
         if not isinstance(questions, list) or len(questions) > 20:
             raise ValueError("questions must be a short list")
